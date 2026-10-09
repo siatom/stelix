@@ -187,7 +187,7 @@ onUnmounted(() => {
 .palette-mask {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.45);
+  background: var(--mask);
   display: flex;
   justify-content: center;
   padding-top: 12vh;
@@ -201,8 +201,8 @@ onUnmounted(() => {
   flex-direction: column;
   background: var(--bg-elevated);
   border: 1px solid var(--border-strong);
-  border-radius: 6px;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
   overflow: hidden;
 }
 .palette-input {

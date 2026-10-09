@@ -327,7 +327,7 @@ const OP_LABEL: Record<string, string> = {
 .bubble {
   max-width: 92%;
   padding: 7px 10px;
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   background: var(--bg-elevated);
   font-size: 12.5px;
   line-height: 1.5;
@@ -360,7 +360,7 @@ const OP_LABEL: Record<string, string> = {
   border: 1px solid var(--warn);
   border-radius: var(--radius);
   padding: 8px 10px;
-  background: rgba(210, 153, 34, 0.1);
+  background: var(--warn-soft);
   display: flex;
   flex-direction: column;
   gap: 6px;

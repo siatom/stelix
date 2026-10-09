@@ -7,83 +7,115 @@
   --toolbar-h: 34px;
   --search-bar-h: 40px;
 
-  /* 暗色主题（默认） */
-  --bg-app: #1b1d21;
-  --bg-panel: #22252a;
-  --bg-elevated: #2a2e35;
-  --bg-hover: #32373f;
-  --bg-active: #3a4150;
-  --bg-selected: #2d4a6b;
-  --bg-input: #16181c;
+  /* 质感：圆角 / 过渡 / 阴影（两套主题共用） */
+  --radius-sm: 4px;
+  --radius: 6px;
+  --radius-lg: 10px;
+  --t-fast: 0.12s ease;
+  --t: 0.16s ease;
+
+  /*
+   * 暗色主题（默认）—— 极简石墨黑：
+   * 近黑中性灰阶 + 克制靛蓝强调色 + 极细边框，靠层次而非彩色块营造高级感。
+   */
+  --bg-app: #0e0e11;
+  --bg-panel: #141418;
+  --bg-elevated: #1b1b21;
+  --bg-hover: #1f1f26;
+  --bg-active: #26262f;
+  --bg-selected: #232a3d;
+  --bg-input: #0b0b0e;
 
   /* 窗格标题栏：活动窗格用更亮的底色区分焦点（不再用边框） */
   --pane-title-bg: var(--bg-panel);
-  --pane-title-bg-active: #2e3540;
+  --pane-title-bg-active: #1a1a22;
 
-  --border: #33383f;
-  --border-strong: #454c56;
+  --border: #232329;
+  --border-strong: #33333d;
 
-  --fg: #d6dae0;
-  --fg-muted: #8b939e;
-  --fg-dim: #626a75;
-  --accent: #4a9eff;
+  --fg: #e9e9ee;
+  --fg-muted: #9a9aa6;
+  --fg-dim: #6b6b77;
+
+  --accent: #6d7cff;
   --accent-fg: #ffffff;
-  --danger: #e5534b;
-  --warn: #d29922;
-  --ok: #3fb950;
+  --danger: #f0616a;
+  --warn: #d9a441;
+  --ok: #46b46a;
+
+  /* 半透明叠加色：错误条 / 确认卡 / 遮罩 / 聚焦光环 */
+  --accent-soft: rgba(109, 124, 255, 0.16);
+  --danger-soft: rgba(240, 97, 106, 0.14);
+  --warn-soft: rgba(217, 164, 65, 0.12);
+  --ok-soft: rgba(70, 180, 106, 0.14);
+  --mask: rgba(0, 0, 0, 0.55);
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.55);
 
   /* 文件类型配色（图标 + 目录名），浅色主题下会换成深色版本 */
-  --ico-folder: #7fb2ff;
-  --ico-doc: #e5c07b;
-  --ico-image: #98c379;
-  --ico-video: #c678dd;
-  --ico-audio: #56b6c2;
-  --ico-archive: #d19a66;
-  --ico-app: #e06c75;
-  --ico-code: #61afef;
-  --ico-disc: #abb2bf;
+  --ico-folder: #7aa2f7;
+  --ico-doc: #e0af68;
+  --ico-image: #9ece6a;
+  --ico-video: #bb9af7;
+  --ico-audio: #7dcfff;
+  --ico-archive: #ff9e64;
+  --ico-app: #f7768e;
+  --ico-code: #2ac3de;
+  --ico-disc: #9aa5b1;
   --ico-file: var(--fg-muted);
 
-  --radius: 4px;
   --font: -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
   --mono: 'Cascadia Mono', 'Consolas', monospace;
 }
 
 /*
  * 浅色主题：由 ui store 在应用启动时写到 <html data-theme="light">。
- * 仅覆盖配色 token（尺寸类继承上面的 :root），保证浅背景 + 深文字对比度合理。
+ * 仅覆盖配色 token（尺寸/质感类继承上面的 :root），保证浅背景 + 深文字对比度合理。
  */
 :root[data-theme='light'] {
-  --bg-app: #eef0f3;
-  --bg-panel: #f7f8fa;
+  --bg-app: #f7f7f9;
+  --bg-panel: #ffffff;
   --bg-elevated: #ffffff;
-  --bg-hover: #e6e9ee;
-  --bg-active: #d8dde4;
-  --bg-selected: #cfe0fa;
+  --bg-hover: #f0f0f3;
+  --bg-active: #e7e7ec;
+  --bg-selected: #e6e9ff;
   --bg-input: #ffffff;
 
-  --pane-title-bg-active: #e2e8f2;
+  --pane-title-bg-active: #eef0f7;
 
-  --border: #d5d9e0;
-  --border-strong: #b6bcc6;
+  --border: #e7e7ec;
+  --border-strong: #d0d0d8;
 
-  --fg: #1f2430;
-  --fg-muted: #5b6472;
-  --fg-dim: #8a93a1;
-  --accent: #1f6feb;
+  --fg: #17171c;
+  --fg-muted: #5d5d69;
+  --fg-dim: #8c8c98;
+
+  --accent: #4b5bd6;
   --accent-fg: #ffffff;
-  --danger: #cf222e;
+  --danger: #d1242f;
   --warn: #9a6700;
   --ok: #1a7f37;
 
+  --accent-soft: rgba(75, 91, 214, 0.15);
+  --danger-soft: rgba(209, 36, 47, 0.1);
+  --warn-soft: rgba(154, 103, 0, 0.1);
+  --ok-soft: rgba(26, 127, 55, 0.1);
+  --mask: rgba(20, 20, 30, 0.32);
+
+  --shadow-sm: 0 1px 2px rgba(20, 20, 30, 0.06);
+  --shadow-md: 0 8px 24px rgba(20, 20, 30, 0.12);
+  --shadow-lg: 0 16px 48px rgba(20, 20, 30, 0.18);
+
   /* 浅色下改为深色版本，保证在浅背景上有足够对比度 */
-  --ico-folder: #1f6feb;
+  --ico-folder: #2f6fd0;
   --ico-doc: #8a6100;
-  --ico-image: #1a7f37;
-  --ico-video: #8250df;
+  --ico-image: #2f8a3f;
+  --ico-video: #7a4dd0;
   --ico-audio: #0f7b8a;
   --ico-archive: #bc4c00;
   --ico-app: #cf222e;
-  --ico-code: #0550ae;
+  --ico-code: #0b7285;
   --ico-disc: #57606a;
 }

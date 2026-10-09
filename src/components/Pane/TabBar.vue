@@ -127,7 +127,7 @@ function onContext(ev: MouseEvent, tabId: string) {
   display: flex;
   align-items: center;
   padding: 1px;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   color: var(--fg-dim);
 }
 .tab-close:hover {

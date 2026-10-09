@@ -512,8 +512,8 @@ const emptyByFilter = computed(
   padding: 4px;
   background: var(--bg-elevated);
   border: 1px solid var(--border-strong);
-  border-radius: 6px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
   display: flex;
   flex-direction: column;
 }
