@@ -19,7 +19,6 @@
 
 use std::collections::HashSet;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -127,6 +126,8 @@ impl IndexStore {
     /// - 增量：不清空已有索引，仅更新；扫描结束后按 root 清理本轮未再出现的旧条目。
     /// - 节流：每 500ms 或每 5000 条 emit 一次 `index:progress`。
     /// - 结束：emit `index:done`（payload = `IndexStatus`）。
+    ///
+    /// 实际扫描逻辑与 [`IndexStore::scan_blocking`] 共用 [`scan_core`]，避免两份实现漂移。
     pub fn start_scan(&self, app: AppHandle, roots: Vec<String>) {
         // 已在扫描则忽略重复触发，避免两个后台线程互相清理条目。
         if self.status.read().scanning {
@@ -154,31 +155,11 @@ impl IndexStore {
         let status = Arc::clone(&self.status);
 
         std::thread::spawn(move || {
-            let source = WalkDirSource::default();
-            let scanned = AtomicUsize::new(0);
-            let seen: Mutex<HashSet<u64>> = Mutex::new(HashSet::new());
-
+            // 进度节流状态（仅本线程持有）
             let mut last_emit = Instant::now();
             let mut last_count = 0usize;
 
-            let mut on_batch = |batch: Vec<FileEntry>| {
-                let current = batch
-                    .last()
-                    .map(|e| e.path.clone())
-                    .unwrap_or_default();
-                let n = batch.len();
-
-                {
-                    let mut seen = seen.lock();
-                    for e in &batch {
-                        seen.insert(e.id);
-                    }
-                }
-                for e in batch {
-                    entries.insert(e.path.clone(), e);
-                }
-
-                let done_count = scanned.fetch_add(n, Ordering::Relaxed) + n;
+            let total_scanned = scan_core(&entries, &roots, |done_count, current| {
                 let should_emit = last_emit.elapsed().as_millis() >= PROGRESS_INTERVAL_MS
                     || done_count - last_count >= PROGRESS_INTERVAL_ITEMS;
                 if should_emit {
@@ -188,25 +169,19 @@ impl IndexStore {
                         IndexProgress {
                             scanned: done_count,
                             total: entries.len(),
-                            current,
+                            current: current.to_string(),
                             done: false,
                         },
                     );
                     last_emit = Instant::now();
                     last_count = done_count;
                 }
-            };
-
-            source.scan(&roots, &mut on_batch);
-
-            // 增量清理：删除位于 root 之下、但本轮未再出现的旧条目（已删除/改名的文件）
-            let seen = seen.into_inner();
-            prune_stale(&entries, &roots, &seen);
+            });
 
             let final_status = {
                 let mut st = status.write();
                 st.scanning = false;
-                st.scanned = scanned.load(Ordering::Relaxed);
+                st.scanned = total_scanned;
                 st.total = entries.len();
                 IndexStatus {
                     total: entries.len(),
@@ -215,6 +190,14 @@ impl IndexStore {
             };
             let _ = app.emit(events::INDEX_DONE, final_status);
         });
+    }
+
+    /// 同步扫描：把 roots 下的条目写入索引，返回本次写入的条目数。
+    ///
+    /// 不依赖 `AppHandle`，供测试与 `start_scan` 内部复用；
+    /// 与 `start_scan` 走同一套过滤/写入/prune 逻辑（[`scan_core`]）。
+    pub fn scan_blocking(&self, roots: &[String]) -> usize {
+        scan_core(&self.entries, roots, |_, _| {})
     }
 
     pub fn status(&self) -> IndexStatus {
@@ -267,6 +250,53 @@ impl IndexStore {
     }
 }
 
+/// 扫描核心：遍历 roots，分批写入索引，结束后做增量 prune。
+///
+/// - 每写入一批调用一次 `on_progress(已处理条目数, 当前路径)`（供 start_scan 节流上报）。
+/// - 返回本次写入的条目总数。
+///
+/// `start_scan`（后台线程 + 事件上报）与 `scan_blocking`（同步、无 AppHandle）共用此函数，
+/// 保证两条路径的过滤/写入/prune 行为完全一致。
+fn scan_core(
+    entries: &DashMap<String, FileEntry>,
+    roots: &[String],
+    mut on_progress: impl FnMut(usize, &str),
+) -> usize {
+    let source = WalkDirSource::default();
+    let seen: Mutex<HashSet<u64>> = Mutex::new(HashSet::new());
+    let mut count: usize = 0;
+
+    {
+        let mut on_batch = |batch: Vec<FileEntry>| {
+            let current = batch
+                .last()
+                .map(|e| e.path.clone())
+                .unwrap_or_default();
+            let n = batch.len();
+
+            {
+                let mut seen = seen.lock();
+                for e in &batch {
+                    seen.insert(e.id);
+                }
+            }
+            for e in batch {
+                entries.insert(e.path.clone(), e);
+            }
+
+            count += n;
+            on_progress(count, &current);
+        };
+        source.scan(roots, &mut on_batch);
+    }
+
+    // 增量清理：删除位于 root 之下、但本轮未再出现的旧条目（已删除/改名的文件）
+    let seen = seen.into_inner();
+    prune_stale(entries, roots, &seen);
+
+    count
+}
+
 /// 删除位于 roots 之下、但不在 `seen` 中的旧条目（增量更新）。
 fn prune_stale(entries: &DashMap<String, FileEntry>, roots: &[String], seen: &HashSet<u64>) {
     let lowers: Vec<String> = roots
@@ -317,6 +347,65 @@ mod tests {
         assert!(names.contains(&"b.pdf".to_string()));
         assert!(names.contains(&"sub".to_string()));
         assert!(collected.iter().any(|e| e.is_dir && e.name == "sub"));
+
+        fs::remove_dir_all(&base).ok();
+    }
+
+    /// 端到端：真实扫描填充 IndexStore 后，用 search 能查到 —— 覆盖"索引 → 检索"完整链路。
+    #[test]
+    fn end_to_end_index_and_search() {
+        let base = std::env::temp_dir().join(format!(
+            "file-povit-e2e-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        let sub = base.join("sub");
+        fs::create_dir_all(&sub).unwrap();
+        fs::write(base.join("报告.pdf"), b"small pdf").unwrap();
+        fs::write(base.join("大文件.bin"), vec![0u8; 3 * 1024 * 1024]).unwrap();
+        fs::write(base.join("notes.txt"), b"notes").unwrap();
+        fs::write(sub.join("图片.png"), b"png").unwrap();
+
+        let store = IndexStore::new();
+        let written = store.scan_blocking(&[base.to_string_lossy().to_string()]);
+
+        // 递归生效：报告.pdf / 大文件.bin / notes.txt / sub / sub/图片.png 共 5 条
+        assert_eq!(written, 5, "scan_blocking 应写入 5 条");
+        assert_eq!(
+            store.status().total,
+            5,
+            "status().total 应覆盖全部条目（含 sub 与 图片.png）"
+        );
+
+        // ext:pdf 恰好命中 报告.pdf
+        let hits = store.search(&search_engine::parse_query("ext:pdf"));
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].entry.name, "报告.pdf");
+
+        // size:>1mb 命中 大文件.bin
+        let hits = store.search(&search_engine::parse_query("size:>1mb"));
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].entry.name, "大文件.bin");
+
+        // 中文文件名子串命中 sub/图片.png
+        let hits = store.search(&search_engine::parse_query("图片"));
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].entry.name, "图片.png");
+        assert!(
+            hits[0].entry.path.ends_with("sub\\图片.png")
+                || hits[0].entry.path.ends_with("sub/图片.png"),
+            "应命中子目录中的 图片.png，实际路径：{}",
+            hits[0].entry.path
+        );
+
+        // 空查询不应过滤掉所有条目
+        assert!(
+            !store.search(&SearchQuery::default()).is_empty(),
+            "空查询应返回非空结果"
+        );
 
         fs::remove_dir_all(&base).ok();
     }
