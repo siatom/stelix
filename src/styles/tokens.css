@@ -7,7 +7,7 @@
   --toolbar-h: 34px;
   --search-bar-h: 40px;
 
-  /* 暗色主题 */
+  /* 暗色主题（默认） */
   --bg-app: #1b1d21;
   --bg-panel: #22252a;
   --bg-elevated: #2a2e35;
@@ -31,4 +31,30 @@
   --radius: 4px;
   --font: -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
   --mono: 'Cascadia Mono', 'Consolas', monospace;
+}
+
+/*
+ * 浅色主题：由 ui store 在应用启动时写到 <html data-theme="light">。
+ * 仅覆盖配色 token（尺寸类继承上面的 :root），保证浅背景 + 深文字对比度合理。
+ */
+:root[data-theme='light'] {
+  --bg-app: #eef0f3;
+  --bg-panel: #f7f8fa;
+  --bg-elevated: #ffffff;
+  --bg-hover: #e6e9ee;
+  --bg-active: #d8dde4;
+  --bg-selected: #cfe0fa;
+  --bg-input: #ffffff;
+
+  --border: #d5d9e0;
+  --border-strong: #b6bcc6;
+
+  --fg: #1f2430;
+  --fg-muted: #5b6472;
+  --fg-dim: #8a93a1;
+  --accent: #1f6feb;
+  --accent-fg: #ffffff;
+  --danger: #cf222e;
+  --warn: #9a6700;
+  --ok: #1a7f37;
 }
