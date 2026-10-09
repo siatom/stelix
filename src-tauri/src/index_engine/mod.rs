@@ -19,6 +19,8 @@
 
 use std::collections::HashSet;
 use std::path::PathBuf;
+#[cfg(windows)]
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -29,8 +31,12 @@ use tauri::{AppHandle, Emitter};
 use walkdir::WalkDir;
 
 use crate::app_core::events;
+use crate::persistence::{self, IndexCache, IndexJournal};
 use crate::search_engine;
 use crate::types::{FileEntry, IndexProgress, IndexStatus, SearchHit, SearchQuery};
+
+#[cfg(windows)]
+mod mft;
 
 /// 每批写入 DashMap 的条目数
 const BATCH_SIZE: usize = 2000;
@@ -111,6 +117,8 @@ pub struct IndexStore {
     /// 路径 -> 条目（内部用 Arc 便于 move 进后台线程）
     entries: Arc<DashMap<String, FileEntry>>,
     status: Arc<RwLock<IndexStatus>>,
+    #[cfg(windows)]
+    service_generation: Arc<AtomicU64>,
 }
 
 impl IndexStore {
@@ -118,7 +126,66 @@ impl IndexStore {
         Self {
             entries: Arc::new(DashMap::new()),
             status: Arc::new(RwLock::new(IndexStatus::default())),
+            #[cfg(windows)]
+            service_generation: Arc::new(AtomicU64::new(0)),
         }
+    }
+
+    /// Restore the durable index and replay the NTFS journal before falling back
+    /// to a full MFT enumeration.
+    pub fn start_service(&self, app: AppHandle, roots: Vec<String>) {
+        #[cfg(windows)]
+        if let Some(cache) = persistence::load_index_cache() {
+            if same_roots(&cache.roots, &roots) {
+                self.entries.clear();
+                for entry in cache.entries {
+                    self.entries.insert(entry.path.clone(), entry);
+                }
+                {
+                    let mut status = self.status.write();
+                    status.roots = roots.clone();
+                    status.total = self.entries.len();
+                    status.scanned = 0;
+                    status.scanning = true;
+                }
+                let _ = app.emit(
+                    events::INDEX_PROGRESS,
+                    IndexProgress {
+                        scanned: 0,
+                        total: self.entries.len(),
+                        current: String::new(),
+                        done: false,
+                    },
+                );
+                let resumed = mft::resume_journals(&roots, &cache.journals, &self.entries, true);
+                if let Some(checkpoints) = resumed {
+                    {
+                        let mut status = self.status.write();
+                        status.roots = roots.clone();
+                        status.total = self.entries.len();
+                        status.scanned = self.entries.len();
+                        status.scanning = false;
+                    }
+                    persist_index(&roots, &self.entries, &checkpoints);
+                    let _ = app.emit(events::INDEX_DONE, self.status());
+                    let generation = self.service_generation.fetch_add(1, Ordering::SeqCst) + 1;
+                    let entries = Arc::clone(&self.entries);
+                    let service_generation = Arc::clone(&self.service_generation);
+                    std::thread::spawn(move || {
+                        mft::watch_roots(
+                            roots,
+                            entries,
+                            generation,
+                            service_generation,
+                            checkpoints,
+                        );
+                    });
+                    return;
+                }
+            }
+            self.entries.clear();
+        }
+        self.start_scan(app, roots);
     }
 
     /// 启动后台扫描（非阻塞）。用 `rayon + walkdir` 并行遍历，分批写入 DashMap。
@@ -133,6 +200,12 @@ impl IndexStore {
         if self.status.read().scanning {
             return;
         }
+
+        #[cfg(windows)]
+        let generation = self.service_generation.fetch_add(1, Ordering::SeqCst) + 1;
+
+        #[cfg(windows)]
+        let initial_journals = mft::capture_journals(&roots);
 
         {
             let mut st = self.status.write();
@@ -153,8 +226,12 @@ impl IndexStore {
 
         let entries = Arc::clone(&self.entries);
         let status = Arc::clone(&self.status);
+        #[cfg(windows)]
+        let service_generation = Arc::clone(&self.service_generation);
 
         std::thread::spawn(move || {
+            #[cfg(windows)]
+            let mut checkpoints = None;
             // 进度节流状态（仅本线程持有）
             let mut last_emit = Instant::now();
             let mut last_count = 0usize;
@@ -178,6 +255,16 @@ impl IndexStore {
                 }
             });
 
+            #[cfg(windows)]
+            {
+                if let Some(initial) = initial_journals {
+                    checkpoints = mft::resume_journals(&roots, &initial, &entries, false);
+                }
+                if let Some(ref checkpoints) = checkpoints {
+                    persist_index(&roots, &entries, checkpoints);
+                }
+            }
+
             let final_status = {
                 let mut st = status.write();
                 st.scanning = false;
@@ -189,6 +276,15 @@ impl IndexStore {
                 }
             };
             let _ = app.emit(events::INDEX_DONE, final_status);
+
+            #[cfg(windows)]
+            mft::watch_roots(
+                roots,
+                entries,
+                generation,
+                service_generation,
+                checkpoints.unwrap_or_default(),
+            );
         });
     }
 
@@ -233,9 +329,12 @@ impl IndexStore {
 
         // 分数降序；同分按名称不区分大小写升序，保证结果稳定。
         hits.sort_by(|a, b| {
-            b.score
-                .cmp(&a.score)
-                .then_with(|| a.entry.name.to_lowercase().cmp(&b.entry.name.to_lowercase()))
+            b.score.cmp(&a.score).then_with(|| {
+                a.entry
+                    .name
+                    .to_lowercase()
+                    .cmp(&b.entry.name.to_lowercase())
+            })
         });
 
         let limit = if query.limit == 0 {
@@ -255,6 +354,29 @@ impl IndexStore {
     }
 }
 
+#[cfg(windows)]
+fn same_roots(left: &[String], right: &[String]) -> bool {
+    let normalize = |roots: &[String]| {
+        let mut roots: Vec<String> = roots
+            .iter()
+            .map(|root| root.trim_end_matches(['\\', '/']).to_lowercase())
+            .collect();
+        roots.sort();
+        roots
+    };
+    normalize(left) == normalize(right)
+}
+
+#[cfg(windows)]
+fn persist_index(roots: &[String], entries: &DashMap<String, FileEntry>, journals: &[IndexJournal]) {
+    let cache = IndexCache {
+        roots: roots.to_vec(),
+        entries: entries.iter().map(|entry| entry.value().clone()).collect(),
+        journals: journals.to_vec(),
+    };
+    let _ = persistence::save_index_cache(&cache);
+}
+
 /// 扫描核心：遍历 roots，分批写入索引，结束后做增量 prune。
 ///
 /// - 每写入一批调用一次 `on_progress(已处理条目数, 当前路径)`（供 start_scan 节流上报）。
@@ -267,16 +389,16 @@ fn scan_core(
     roots: &[String],
     mut on_progress: impl FnMut(usize, &str),
 ) -> usize {
-    let source = WalkDirSource::default();
+    #[cfg(windows)]
+    let source: Box<dyn IndexSource> = Box::new(mft::MftOrWalkSource::default());
+    #[cfg(not(windows))]
+    let source: Box<dyn IndexSource> = Box::new(WalkDirSource::default());
     let seen: Mutex<HashSet<u64>> = Mutex::new(HashSet::new());
     let mut count: usize = 0;
 
     {
         let mut on_batch = |batch: Vec<FileEntry>| {
-            let current = batch
-                .last()
-                .map(|e| e.path.clone())
-                .unwrap_or_default();
+            let current = batch.last().map(|e| e.path.clone()).unwrap_or_default();
             let n = batch.len();
 
             {
