@@ -2,7 +2,7 @@
 // 单个窗格 = 标签栏 + 内嵌工具栏 + 面包屑 + 文件列表（虚拟滚动）（WS-D）
 import { computed, ref } from 'vue'
 import { usePaneStore } from '../../stores/pane'
-import { basename, dirname, joinPath } from './utils'
+import { basename } from './utils'
 import TabBar from './TabBar.vue'
 import PaneToolbar from './PaneToolbar.vue'
 import PathBar from './PathBar.vue'
@@ -23,27 +23,23 @@ function activate() {
   paneStore.activePaneId = props.paneId
 }
 
-// ---- 名称对话框（新建文件夹 / 重命名） ----
+// ---- 行内编辑入口（由工具栏 / 右键触发，转发给 FileList） ----
 
-interface NameDialog {
-  mode: 'mkdir' | 'rename'
-  value: string
-  target?: string
+const fileListRef = ref<InstanceType<typeof FileList> | null>(null)
+
+function startRename(path: string) {
+  fileListRef.value?.startRename(path)
 }
-const nameDialog = ref<NameDialog | null>(null)
+
+function startNewFolder() {
+  fileListRef.value?.startNewFolder()
+}
+
+// ---- 删除确认对话框 ----
+
 const deleteDialog = ref<string[] | null>(null)
 const errorMsg = ref<string | null>(null)
 const busy = ref(false)
-
-function openMkdir() {
-  errorMsg.value = null
-  nameDialog.value = { mode: 'mkdir', value: '' }
-}
-
-function openRename(path: string) {
-  errorMsg.value = null
-  nameDialog.value = { mode: 'rename', value: basename(path), target: path }
-}
 
 function openDelete(paths: string[]) {
   errorMsg.value = null
@@ -51,33 +47,7 @@ function openDelete(paths: string[]) {
 }
 
 function closeDialogs() {
-  nameDialog.value = null
   deleteDialog.value = null
-}
-
-async function confirmName() {
-  const d = nameDialog.value
-  const t = tab.value
-  if (!d || !t) return
-  const name = d.value.trim()
-  if (!name) return
-  busy.value = true
-  try {
-    if (d.mode === 'mkdir') {
-      const res = await paneStore.runFs(props.paneId, { op: 'mkdir', target: joinPath(t.path, name) })
-      if (!res.ok) errorMsg.value = res.errors.join('; ')
-    } else if (d.target) {
-      const res = await paneStore.runFs(props.paneId, {
-        op: 'rename',
-        sources: [d.target],
-        target: joinPath(dirname(d.target), name),
-      })
-      if (!res.ok) errorMsg.value = res.errors.join('; ')
-    }
-    nameDialog.value = null
-  } finally {
-    busy.value = false
-  }
 }
 
 async function confirmDelete() {
@@ -101,36 +71,18 @@ async function confirmDelete() {
       <PaneToolbar
         :pane-id="paneId"
         :tab="tab"
-        @new-folder="openMkdir"
-        @rename="openRename"
+        @new-folder="startNewFolder"
+        @rename="startRename"
         @delete="openDelete"
       />
       <PathBar :pane-id="paneId" :tab="tab" />
-      <FileList :pane-id="paneId" :tab="tab" @rename="openRename" @delete="openDelete" />
+      <FileList ref="fileListRef" :pane-id="paneId" :tab="tab" @delete="openDelete" />
     </template>
     <div v-else class="state">没有可用标签</div>
 
     <div v-if="errorMsg" class="error-bar">
       <span>{{ errorMsg }}</span>
       <button @click="errorMsg = null"><Icon name="x" :size="13" /></button>
-    </div>
-
-    <!-- 名称对话框 -->
-    <div v-if="nameDialog" class="mask" @mousedown.stop @click.self="closeDialogs">
-      <div class="dialog">
-        <h3>{{ nameDialog.mode === 'mkdir' ? '新建文件夹' : '重命名' }}</h3>
-        <input
-          v-model="nameDialog.value"
-          autofocus
-          spellcheck="false"
-          @keyup.enter="confirmName"
-          @keyup.esc="closeDialogs"
-        />
-        <div class="actions">
-          <button :disabled="busy" @click="closeDialogs">取消</button>
-          <button class="primary" :disabled="busy || !nameDialog.value.trim()" @click="confirmName">确定</button>
-        </div>
-      </div>
     </div>
 
     <!-- 删除确认 -->
@@ -220,9 +172,6 @@ async function confirmDelete() {
   font-weight: 600;
   color: var(--fg);
 }
-.dialog input {
-  width: 100%;
-}
 .warn-text {
   margin: 0;
   font-size: 12px;
@@ -255,11 +204,6 @@ async function confirmDelete() {
 .actions button:hover:not(:disabled) {
   background: var(--bg-hover);
   color: var(--fg);
-}
-.actions button.primary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--accent-fg);
 }
 .actions button.danger {
   background: var(--danger);
