@@ -16,6 +16,8 @@ const newRoot = ref('')
 const busy = ref(false)
 const error = ref<string | null>(null)
 const status = ref<IndexStatus | null>(null)
+const autostart = ref(false)
+const autostartBusy = ref(false)
 let unlisteners: (() => void)[] = []
 
 const scanning = computed(() => ui.scanning || (status.value?.scanning ?? false))
@@ -32,6 +34,30 @@ async function refreshStatus() {
     if (!ui.indexRoots.length && s.roots.length) ui.setIndexRoots(s.roots)
   } catch (e) {
     error.value = String(e)
+  }
+}
+
+// 开机自启动：真实状态以后端注册表为准，挂载时读取、切换时写回。
+async function refreshAutostart() {
+  try {
+    autostart.value = await api.autostartGet()
+  } catch (e) {
+    error.value = String(e)
+  }
+}
+
+async function toggleAutostart(value: boolean) {
+  autostartBusy.value = true
+  error.value = null
+  try {
+    await api.autostartSet(value)
+    autostart.value = value
+    ui.setStatusText(value ? '已开启开机自启动' : '已关闭开机自启动')
+  } catch (e) {
+    error.value = String(e)
+    ui.setStatusText(`设置开机自启动失败：${String(e)}`)
+  } finally {
+    autostartBusy.value = false
   }
 }
 
@@ -84,7 +110,7 @@ function onDone() {
 }
 
 onMounted(async () => {
-  await refreshStatus()
+  await Promise.all([refreshStatus(), refreshAutostart()])
   unlisteners = [
     await events.onIndexProgress(onProgress),
     await events.onIndexDone(onDone),
@@ -99,72 +125,87 @@ onUnmounted(() => {
 
 <template>
   <div class="settings-panel">
-    <section class="sec">
-      <h4 class="sec-head">索引状态</h4>
-      <div class="stat-grid">
-        <div class="stat">
-          <span class="k">条目数</span>
-          <span class="v">{{ total.toLocaleString() }}</span>
+    <div class="settings-scroll">
+      <section class="sec">
+        <h4 class="sec-head">索引状态</h4>
+        <div class="stat-grid">
+          <div class="stat">
+            <span class="k">条目数</span>
+            <span class="v">{{ total.toLocaleString() }}</span>
+          </div>
+          <div class="stat">
+            <span class="k">已扫描</span>
+            <span class="v">{{ scanned.toLocaleString() }}</span>
+          </div>
+          <div class="stat">
+            <span class="k">状态</span>
+            <span class="v" :class="{ busy: scanning }">{{ scanning ? '扫描中…' : '空闲' }}</span>
+          </div>
         </div>
-        <div class="stat">
-          <span class="k">已扫描</span>
-          <span class="v">{{ scanned.toLocaleString() }}</span>
+      </section>
+
+      <section class="sec">
+        <h4 class="sec-head">索引根目录</h4>
+
+        <div class="root-list">
+          <div v-if="!ui.indexRoots.length" class="state">尚未配置索引根目录</div>
+          <div v-for="root in ui.indexRoots" :key="root" class="root-item" :title="root">
+            <span class="root-path">{{ root }}</span>
+            <button class="del" title="移除该根目录" :disabled="busy" @click="removeRoot(root)">
+              <Icon name="x" :size="13" />
+            </button>
+          </div>
         </div>
-        <div class="stat">
-          <span class="k">状态</span>
-          <span class="v" :class="{ busy: scanning }">{{ scanning ? '扫描中…' : '空闲' }}</span>
+
+        <div class="add-row">
+          <input
+            v-model="newRoot"
+            class="root-input"
+            placeholder="输入要索引的目录，如 D:\\Projects"
+            @keydown.enter="addRoot"
+          />
+          <button class="add" :disabled="busy" @click="addRoot">添加</button>
         </div>
-      </div>
-    </section>
+        <button class="add-current" :disabled="busy" @click="addCurrent">
+          添加当前目录：{{ pane.activeTab?.path || '—' }}
+        </button>
+      </section>
 
-    <section class="sec">
-      <h4 class="sec-head">索引根目录</h4>
+      <section class="sec">
+        <h4 class="sec-head">视图</h4>
+        <label class="toggle">
+          <input
+            type="checkbox"
+            :checked="ui.hideProtected"
+            @change="ui.setHideProtected(($event.target as HTMLInputElement).checked)"
+          />
+          <span class="toggle-text">隐藏受保护的操作系统文件</span>
+        </label>
+        <label class="toggle">
+          <input
+            type="checkbox"
+            :checked="ui.hideFileExtensions"
+            @change="ui.setHideFileExtensions(($event.target as HTMLInputElement).checked)"
+          />
+          <span class="toggle-text">隐藏文件扩展名</span>
+        </label>
+      </section>
 
-      <div class="root-list">
-        <div v-if="!ui.indexRoots.length" class="state">尚未配置索引根目录</div>
-        <div v-for="root in ui.indexRoots" :key="root" class="root-item" :title="root">
-          <span class="root-path">{{ root }}</span>
-          <button class="del" title="移除该根目录" :disabled="busy" @click="removeRoot(root)">
-            <Icon name="x" :size="13" />
-          </button>
-        </div>
-      </div>
+      <section class="sec">
+        <h4 class="sec-head">启动</h4>
+        <label class="toggle">
+          <input
+            type="checkbox"
+            :checked="autostart"
+            :disabled="autostartBusy"
+            @change="toggleAutostart(($event.target as HTMLInputElement).checked)"
+          />
+          <span class="toggle-text">开机自启动（启动后静默在托盘）</span>
+        </label>
+      </section>
 
-      <div class="add-row">
-        <input
-          v-model="newRoot"
-          class="root-input"
-          placeholder="输入要索引的目录，如 D:\\Projects"
-          @keydown.enter="addRoot"
-        />
-        <button class="add" :disabled="busy" @click="addRoot">添加</button>
-      </div>
-      <button class="add-current" :disabled="busy" @click="addCurrent">
-        添加当前目录：{{ pane.activeTab?.path || '—' }}
-      </button>
-    </section>
-
-    <section class="sec">
-      <h4 class="sec-head">视图</h4>
-      <label class="toggle">
-        <input
-          type="checkbox"
-          :checked="ui.hideProtected"
-          @change="ui.setHideProtected(($event.target as HTMLInputElement).checked)"
-        />
-        <span class="toggle-text">隐藏受保护的操作系统文件</span>
-      </label>
-      <label class="toggle">
-        <input
-          type="checkbox"
-          :checked="ui.hideFileExtensions"
-          @change="ui.setHideFileExtensions(($event.target as HTMLInputElement).checked)"
-        />
-        <span class="toggle-text">隐藏文件扩展名</span>
-      </label>
-    </section>
-
-    <div v-if="error" class="error">操作失败：{{ error }}</div>
+      <div v-if="error" class="error">操作失败：{{ error }}</div>
+    </div>
 
     <div class="build-info">版本 {{ appVersion }} · Commit {{ commitId }}</div>
   </div>
@@ -172,6 +213,15 @@ onUnmounted(() => {
 
 <style scoped>
 .settings-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+/* 内容区滚动，版本信息固定在面板底部 */
+.settings-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -319,7 +369,8 @@ onUnmounted(() => {
   word-break: break-all;
 }
 .build-info {
-  margin-top: 4px;
+  flex: none;
+  margin-top: 8px;
   padding-top: 8px;
   border-top: 1px solid var(--border);
   color: var(--fg-dim);
