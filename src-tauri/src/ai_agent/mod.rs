@@ -852,7 +852,7 @@ fn stats_reply(context: &AiContext, index: &IndexStore) -> AiReply {
 }
 
 fn count_ext_reply(context: &AiContext, index: &IndexStore, exts: &[String]) -> AiReply {
-    let files = search_files_offline(context, index, exts, None);
+    let files = collect_all_in_scope(context, index, exts, None, Some(false));
     AiReply {
         text: format!(
             "在当前目录范围内共有 {} 个 {} 文件。",
@@ -866,28 +866,68 @@ fn count_ext_reply(context: &AiContext, index: &IndexStore, exts: &[String]) -> 
 /// 取范围内最大的 N 个文件。
 ///
 /// 刻意**不走 `index.search`**：text 为空时其排序退化为按名称，且 limit 截断会
-/// 丢掉尾部的大文件。改用 `index.snapshot()` 全量快照 → 自行按 scope 过滤 → 按 size 排序，
-/// 保证"最大的 N 个"结果正确（index-core 建议）。
+/// 丢掉尾部的大文件。改用全量收集（`collect_all_in_scope`）后自行按 size 排序。
 fn largest_files(context: &AiContext, index: &IndexStore, n: usize) -> Vec<FileEntry> {
-    let scope = context.active_path.as_deref();
-    let snapshot = index.snapshot();
-    let mut files: Vec<FileEntry> = snapshot
-        .iter()
-        .filter(|e| !e.is_dir && in_scope(e, scope))
-        .cloned()
-        .collect();
-    if files.is_empty() {
-        // 索引尚未建立 → walkdir 遍历当前目录兜底。
-        if let Some(s) = scope.filter(|s| !s.is_empty()) {
-            files = fs_core::collect_entries(s, 6, 200_000)
-                .into_iter()
-                .filter(|e| !e.is_dir)
-                .collect();
-        }
-    }
+    let mut files = collect_all_in_scope(context, index, &[], None, Some(false));
     files.sort_by(|a, b| b.size.cmp(&a.size));
     files.truncate(n);
     files
+}
+
+/// 全量收集范围内的条目（**不做任何截断**）。
+///
+/// 供"最大的 N 个"、扩展名、修改时间、计数等需要完整集合的查询使用：
+/// - 索引非空 → `index.snapshot()` 全量快照，按 scope/ext/时间/is_dir 过滤（只克隆命中项，不整表复制）；
+/// - 索引为空 → `fs_core::collect_entries` 遍历当前目录兜底。
+///
+/// 与 `search_files_offline`（关键词检索，允许 limit 截断）的区别就在于"不截断"。
+fn collect_all_in_scope(
+    context: &AiContext,
+    index: &IndexStore,
+    exts: &[String],
+    modified_after: Option<i64>,
+    is_dir: Option<bool>,
+) -> Vec<FileEntry> {
+    let scope = context.active_path.as_deref();
+    let snapshot = index.snapshot();
+    if !snapshot.is_empty() {
+        return filter_entries(snapshot.iter(), scope, exts, modified_after, is_dir);
+    }
+    // 索引尚未建立 → walkdir 遍历当前目录兜底。
+    let Some(s) = scope.filter(|s| !s.is_empty()) else {
+        return Vec::new();
+    };
+    let entries = fs_core::collect_entries(s, 6, 50_000);
+    filter_entries(entries.iter(), scope, exts, modified_after, is_dir)
+}
+
+/// 纯过滤：scope 前缀 + 扩展名白名单 + 修改时间 + 目录/文件，**不做任何截断**。
+fn filter_entries<'a, I>(
+    entries: I,
+    scope: Option<&str>,
+    exts: &[String],
+    modified_after: Option<i64>,
+    is_dir: Option<bool>,
+) -> Vec<FileEntry>
+where
+    I: IntoIterator<Item = &'a FileEntry>,
+{
+    entries
+        .into_iter()
+        .filter(|e| in_scope(e, scope))
+        .filter(|e| ext_ok(e, exts))
+        .filter(|e| is_dir.map_or(true, |d| e.is_dir == d))
+        .filter(|e| modified_after.map_or(true, |t| e.modified >= t))
+        .cloned()
+        .collect()
+}
+
+fn ext_ok(e: &FileEntry, exts: &[String]) -> bool {
+    if exts.is_empty() {
+        return true;
+    }
+    let ext = e.ext.clone().unwrap_or_default();
+    exts.iter().any(|x| x.eq_ignore_ascii_case(&ext))
 }
 
 /// 条目路径是否位于 `scope` 之下（大小写不敏感，Windows 语义）。
@@ -926,7 +966,7 @@ fn largest_reply(context: &AiContext, index: &IndexStore, n: usize) -> AiReply {
 }
 
 fn ext_reply(context: &AiContext, index: &IndexStore, exts: &[String]) -> AiReply {
-    let mut files = search_files_offline(context, index, exts, None);
+    let mut files = collect_all_in_scope(context, index, exts, None, Some(false));
     files.sort_by(|a, b| b.size.cmp(&a.size));
     if files.is_empty() {
         return AiReply {
@@ -948,7 +988,7 @@ fn ext_reply(context: &AiContext, index: &IndexStore, exts: &[String]) -> AiRepl
 fn modified_reply(context: &AiContext, index: &IndexStore, days: i64) -> AiReply {
     let now = chrono::Utc::now().timestamp_millis();
     let after = now - days * 24 * 3600 * 1000;
-    let mut files = search_files_offline(context, index, &[], Some(after));
+    let mut files = collect_all_in_scope(context, index, &[], Some(after), Some(false));
     files.sort_by(|a, b| b.modified.cmp(&a.modified));
     if files.is_empty() {
         return AiReply {
@@ -968,14 +1008,7 @@ fn modified_reply(context: &AiContext, index: &IndexStore, days: i64) -> AiReply
 }
 
 fn keyword_reply(context: &AiContext, index: &IndexStore, input: &str) -> AiReply {
-    // 复用 WS-A 的查询解析器：支持 ext:pdf / size:>100mb / modified:7d 等高级语法。
-    let mut q = crate::search_engine::parse_query(input);
-    q.scope = context.active_path.clone();
-    if q.limit == 0 {
-        q.limit = 200;
-    }
-    let hits = search_with_fallback(index, &q);
-    let files: Vec<FileEntry> = hits.into_iter().map(|h| h.entry).collect();
+    let files = search_files_offline(context, index, input);
     if files.is_empty() {
         AiReply {
             text: format!(
@@ -994,21 +1027,17 @@ fn keyword_reply(context: &AiContext, index: &IndexStore, input: &str) -> AiRepl
     }
 }
 
-/// 离线检索：优先索引，索引为空则遍历 `context.active_path` 兜底。
-fn search_files_offline(
-    context: &AiContext,
-    index: &IndexStore,
-    exts: &[String],
-    modified_after: Option<i64>,
-) -> Vec<FileEntry> {
-    let q = SearchQuery {
-        scope: context.active_path.clone(),
-        ext: exts.to_vec(),
-        is_dir: Some(false),
-        modified_after,
-        limit: 100_000,
-        ..Default::default()
-    };
+/// 关键词检索：走索引（复用 WS-A 的过滤 / 排序 / limit 截断），索引为空则遍历兜底。
+///
+/// 关键词检索不需要全量集合，这里的 limit 截断是**合理**的 —— 与 `collect_all_in_scope`
+/// （"最大的 N 个"等需要完整集合的场景）明确区分开，不要混用。
+fn search_files_offline(context: &AiContext, index: &IndexStore, text: &str) -> Vec<FileEntry> {
+    // 复用 WS-A 的查询解析器：支持 ext:pdf / size:>100mb / modified:7d 等高级语法。
+    let mut q = crate::search_engine::parse_query(text);
+    q.scope = context.active_path.clone();
+    if q.limit == 0 {
+        q.limit = 200;
+    }
     search_with_fallback(index, &q)
         .into_iter()
         .map(|h| h.entry)
@@ -1393,6 +1422,35 @@ mod tests {
         let op = reply.pending_confirm.expect("应生成待确认操作");
         assert_eq!(op.op, FsOpKind::Rename);
         assert!(op.target.unwrap().ends_with("b.txt"));
+    }
+
+    #[test]
+    fn largest_not_lost_to_truncation() {
+        // 造 105_000 条（多于旧实现的 10 万截断阈值），最大的那条文件名排序在最后。
+        const N: usize = 105_000;
+        let entries: Vec<FileEntry> = (0..N)
+            .map(|i| FileEntry {
+                id: i as u64,
+                name: format!("f{i:06}.bin"),
+                path: format!("C:\\scope\\f{i:06}.bin"),
+                is_dir: false,
+                size: if i == N - 1 { 999_999_999 } else { i as u64 },
+                modified: 0,
+                ext: Some("bin".into()),
+            })
+            .collect();
+
+        // 旧路径的效果：先按 limit 截断到 10 万，再按 size 排序 → 最大值已被丢掉。
+        let mut old = entries[..100_000].to_vec();
+        old.sort_by(|a, b| b.size.cmp(&a.size));
+        assert_ne!(old[0].size, 999_999_999, "前提：旧实现确实会丢掉最大值");
+
+        // 新路径（collect_all_in_scope 的核心）：全量过滤、不截断 → 拿到真正最大的。
+        let mut new = filter_entries(entries.iter(), Some("C:\\scope"), &[], None, Some(false));
+        assert_eq!(new.len(), N, "全量收集不应被截断");
+        new.sort_by(|a, b| b.size.cmp(&a.size));
+        assert_eq!(new[0].size, 999_999_999);
+        assert_eq!(new[0].name, "f104999.bin");
     }
 
     #[test]
