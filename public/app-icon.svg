@@ -1,137 +1,20 @@
-<svg width="1024" height="1024" viewBox="0 0 1024 1024"
-     xmlns="http://www.w3.org/2000/svg">
-
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
   <defs>
-    <!-- 文件夹渐变 -->
-    <linearGradient id="folderGradient"
-                    x1="0" y1="0"
-                    x2="0" y2="1">
-      <stop offset="0%" stop-color="#4DA3FF"/>
-      <stop offset="100%" stop-color="#1769E0"/>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#24283a"/>
+      <stop offset="1" stop-color="#151720"/>
     </linearGradient>
-
-    <!-- AI光效 -->
-    <radialGradient id="aiGlow">
-      <stop offset="0%" stop-color="#FFFFFF"/>
-      <stop offset="100%" stop-color="#D9EEFF"/>
-    </radialGradient>
-
-    <!-- 阴影 -->
-    <filter id="shadow">
-      <feDropShadow dx="0"
-                    dy="18"
-                    stdDeviation="20"
-                    flood-opacity="0.25"/>
-    </filter>
+    <linearGradient id="folder" x1="0" y1="0" x2="0.9" y2="1">
+      <stop offset="0" stop-color="#a99aff"/>
+      <stop offset="1" stop-color="#7064d9"/>
+    </linearGradient>
   </defs>
-
-
-  <!-- 背景圆角 -->
-  <rect x="80"
-        y="80"
-        width="864"
-        height="864"
-        rx="200"
-        fill="#F5F9FF"/>
-
-
-  <!-- 文件夹主体 -->
-  <path d="
-    M220 330
-    C220 285 255 250 300 250
-    H430
-    L510 330
-    H720
-    C780 330 820 370 820 430
-    V700
-    C820 760 780 800 720 800
-    H300
-    C245 800 210 760 210 700
-    Z"
-    fill="url(#folderGradient)"
-    filter="url(#shadow)"/>
-
-
-  <!-- 文件夹前盖 -->
-  <path d="
-    M210 430
-    H820
-    V700
-    C820 760 780 800 720 800
-    H300
-    C245 800 210 760 210 700
-    Z"
-    fill="#2581E8"/>
-
-
-  <!-- AI核心圆 -->
-  <circle cx="520"
-          cy="560"
-          r="150"
-          fill="url(#aiGlow)"
-          opacity="0.95"/>
-
-
-  <!-- AI节点 -->
-  <circle cx="470"
-          cy="520"
-          r="24"
-          fill="#1769E0"/>
-
-  <circle cx="570"
-          cy="500"
-          r="24"
-          fill="#1769E0"/>
-
-  <circle cx="600"
-          cy="600"
-          r="24"
-          fill="#1769E0"/>
-
-  <circle cx="480"
-          cy="630"
-          r="24"
-          fill="#1769E0"/>
-
-
-  <!-- 神经连接 -->
-  <path d="
-    M470 520
-    L570 500
-    L600 600
-    L480 630
-    Z"
-    fill="none"
-    stroke="#1769E0"
-    stroke-width="12"
-    stroke-linecap="round"/>
-
-
-  <!-- AI星芒 -->
-  <path d="
-    M750 210
-    L770 270
-    L830 290
-    L770 310
-    L750 370
-    L730 310
-    L670 290
-    L730 270
-    Z"
-    fill="#FFD54A"/>
-
-
-  <!-- 小智能点 -->
-  <circle cx="690"
-          cy="420"
-          r="10"
-          fill="#FFFFFF"
-          opacity="0.8"/>
-
-  <circle cx="760"
-          cy="450"
-          r="8"
-          fill="#FFFFFF"
-          opacity="0.8"/>
-
+  <rect x="48" y="48" width="928" height="928" rx="232" fill="url(#bg)"/>
+  <path d="M184 338c0-48 39-87 87-87h187l92 91h203c48 0 87 39 87 87v263c0 48-39 87-87 87H271c-48 0-87-39-87-87V338Z" fill="url(#folder)"/>
+  <path d="M184 445h656v247c0 48-39 87-87 87H271c-48 0-87-39-87-87V445Z" fill="#292d40"/>
+  <rect x="258" y="500" width="218" height="213" rx="34" fill="#373c53"/>
+  <rect x="548" y="500" width="218" height="213" rx="34" fill="#373c53"/>
+  <path d="M296 551h89M296 589h126M296 627h103" fill="none" stroke="#b8adff" stroke-width="17" stroke-linecap="round"/>
+  <path d="M586 551h89M586 589h126M586 627h103" fill="none" stroke="#78dbd0" stroke-width="17" stroke-linecap="round"/>
+  <rect x="497" y="528" width="30" height="158" rx="15" fill="#dce0f0"/>
 </svg>
