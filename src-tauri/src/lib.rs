@@ -183,6 +183,12 @@ pub fn run() {
         .manage(AppState::new())
         .setup(|app| {
             setup_tray(app.handle())?;
+            // 窗口以 visible:false 创建：先切到最大化态再显示，
+            // 避免出现「先默认尺寸、后最大化」的可见跳变。
+            if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
+                let _ = window.maximize();
+                let _ = window.show();
+            }
             Ok(())
         })
         .on_window_event(|window, event| {
