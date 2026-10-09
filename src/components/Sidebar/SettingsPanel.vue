@@ -152,6 +152,14 @@ onUnmounted(() => {
         />
         <span class="toggle-text">隐藏受保护的操作系统文件</span>
       </label>
+      <label class="toggle">
+        <input
+          type="checkbox"
+          :checked="ui.hideFileExtensions"
+          @change="ui.setHideFileExtensions(($event.target as HTMLInputElement).checked)"
+        />
+        <span class="toggle-text">隐藏文件扩展名</span>
+      </label>
     </section>
 
     <div v-if="error" class="error">操作失败：{{ error }}</div>

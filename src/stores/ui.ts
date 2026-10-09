@@ -10,6 +10,7 @@ export type ThemeMode = 'dark' | 'light'
 // ---- 本地偏好持久化（localStorage）----
 const LS_THEME = 'file-povit.theme'
 const LS_HIDE_PROTECTED = 'file-povit.hideProtected'
+const LS_HIDE_FILE_EXTENSIONS = 'file-povit.hideFileExtensions'
 const LS_AI_VISIBLE = 'file-povit.aiVisible'
 
 function readBool(key: string, fallback: boolean): boolean {
@@ -43,6 +44,7 @@ export const useUiStore = defineStore('ui', () => {
   const aiVisible = ref(readBool(LS_AI_VISIBLE, false))
   const theme = ref<ThemeMode>(readTheme())
   const hideProtected = ref(readBool(LS_HIDE_PROTECTED, true))
+  const hideFileExtensions = ref(readBool(LS_HIDE_FILE_EXTENSIONS, false))
   const activePanel = ref<PanelKey>('files')
   const statusText = ref('就绪')
   const indexTotal = ref(0)
@@ -106,6 +108,21 @@ export const useUiStore = defineStore('ui', () => {
     setHideProtected(!hideProtected.value)
   }
 
+  function setHideFileExtensions(value: boolean) {
+    hideFileExtensions.value = value
+    try {
+      localStorage.setItem(LS_HIDE_FILE_EXTENSIONS, value ? '1' : '0')
+    } catch {
+      /* ignore */
+    }
+  }
+
+  function displayFileName(name: string, isDir: boolean): string {
+    if (!hideFileExtensions.value || isDir) return name
+    const dot = name.lastIndexOf('.')
+    return dot > 0 ? name.slice(0, dot) : name
+  }
+
   function setIndexRoots(roots: string[]) {
     indexRoots.value = [...roots]
   }
@@ -131,6 +148,7 @@ export const useUiStore = defineStore('ui', () => {
     aiVisible,
     theme,
     hideProtected,
+    hideFileExtensions,
     activePanel,
     statusText,
     indexTotal,
@@ -144,6 +162,8 @@ export const useUiStore = defineStore('ui', () => {
     toggleTheme,
     setHideProtected,
     toggleHideProtected,
+    setHideFileExtensions,
+    displayFileName,
     setIndexRoots,
     setScanning,
     setIndexTotal,

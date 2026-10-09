@@ -393,7 +393,7 @@ const emptyByFilter = computed(
                 @dblclick.stop
               />
             </span>
-            <span v-else class="nm" :title="rows[vi.index].path">{{ rows[vi.index].name }}</span>
+            <span v-else class="nm" :title="rows[vi.index].path">{{ ui.displayFileName(rows[vi.index].name, rows[vi.index].isDir) }}</span>
             <template v-if="viewMode === 'details'">
               <span class="size">{{ formatSize(rows[vi.index].size, rows[vi.index].isDir) }}</span>
               <span class="time">{{ formatTime(rows[vi.index].modified) }}</span>
@@ -445,7 +445,7 @@ const emptyByFilter = computed(
               @dblclick.stop
             />
           </span>
-          <span v-else class="icon-name">{{ entry.name }}</span>
+          <span v-else class="icon-name">{{ ui.displayFileName(entry.name, entry.isDir) }}</span>
         </div>
       </div>
       <p v-if="rows.length > ICON_CAP" class="cap-hint">

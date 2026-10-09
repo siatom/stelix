@@ -98,7 +98,7 @@ onBeforeUnmount(() => {
             <Icon :name="fileIcon(hit.entry)" :size="14" />
           </span>
           <span class="hit-main">
-            <span class="hit-name">{{ hit.entry.name }}</span>
+            <span class="hit-name">{{ ui.displayFileName(hit.entry.name, hit.entry.isDir) }}</span>
             <span class="hit-path" :title="dirname(hit.entry.path)">{{ dirname(hit.entry.path) }}</span>
           </span>
           <span class="hit-size">{{ formatSize(hit.entry.size, hit.entry.isDir) }}</span>
