@@ -1,19 +1,44 @@
 //! 索引引擎 —— 由 **WS-A (feat/index-core)** 实现。
 //!
 //! 契约（Phase 0 冻结）：
-//! - `IndexStore::new()` / `start_scan` / `status` / `search`
+//! - `IndexStore::new()` / `start_scan` / `status` / `search` / `snapshot`
 //! - 扫描期间通过 `app.emit(events::INDEX_PROGRESS, IndexProgress)` 上报进度，
-//!   完成后 emit `events::INDEX_DONE`。
-//! - Phase 2 的 MFT 直读通过实现 `IndexSource` trait 接入，不改动本文件对外签名。
+//!   完成后 emit `events::INDEX_DONE`（payload = `IndexStatus`）。
+//!
+//! # Phase 2：接入 NTFS MFT 直读
+//!
+//! 索引器通过 [`IndexSource`] trait 抽象数据源，Phase 1 的目录遍历实现是
+//! [`WalkDirSource`]。要接入 MFT：
+//! 1. 新增一个类型 `MftSource` 实现 [`IndexSource`]：在 `scan` 内读取
+//!    `$MFT`（`windows-sys` 的 `DeviceIoControl` + `FSCTL_ENUM_USN_DATA`），
+//!    解析出 `FileEntry` 后按批调用 `on_batch`。**无需改动本文件对外签名。**
+//! 2. 在 [`IndexStore::start_scan`] 里把 `WalkDirSource::default()` 换成
+//!    `MftSource::new()`（可按卷自动选择：NTFS 走 MFT，其余走 walkdir）。
+//! 由于所有写索引的动作都发生在 `on_batch` 回调里，替换数据源即可复用
+//! 增量更新、进度节流、状态维护等全部逻辑。
 
+use std::collections::HashSet;
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::time::Instant;
 
 use dashmap::DashMap;
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
+use rayon::prelude::*;
 use tauri::{AppHandle, Emitter};
+use walkdir::WalkDir;
 
 use crate::app_core::events;
+use crate::search_engine;
 use crate::types::{FileEntry, IndexProgress, IndexStatus, SearchHit, SearchQuery};
+
+/// 每批写入 DashMap 的条目数
+const BATCH_SIZE: usize = 2000;
+/// 进度上报：距上次上报超过该毫秒数则上报
+const PROGRESS_INTERVAL_MS: u128 = 500;
+/// 进度上报：距上次上报新增该条目数则上报
+const PROGRESS_INTERVAL_ITEMS: usize = 5000;
 
 /// 索引数据源抽象：Phase 1 用目录遍历实现，Phase 2 增加 NTFS MFT 实现。
 pub trait IndexSource: Send + Sync {
@@ -21,29 +46,100 @@ pub trait IndexSource: Send + Sync {
     fn scan(&self, roots: &[String], on_batch: &mut dyn FnMut(Vec<FileEntry>));
 }
 
+/// 目录遍历数据源（walkdir + rayon 并行取元数据）。
+pub struct WalkDirSource {
+    /// 每批产出的条目数
+    pub batch_size: usize,
+}
+
+impl WalkDirSource {
+    pub fn new(batch_size: usize) -> Self {
+        Self {
+            batch_size: batch_size.max(1),
+        }
+    }
+}
+
+impl Default for WalkDirSource {
+    fn default() -> Self {
+        Self::new(BATCH_SIZE)
+    }
+}
+
+impl IndexSource for WalkDirSource {
+    fn scan(&self, roots: &[String], on_batch: &mut dyn FnMut(Vec<FileEntry>)) {
+        for root in roots {
+            // min_depth(1)：跳过根目录自身；错误（如无权限）直接忽略，不 panic。
+            let mut buf: Vec<PathBuf> = Vec::with_capacity(self.batch_size);
+            for item in WalkDir::new(root).min_depth(1).into_iter() {
+                match item {
+                    Ok(e) => {
+                        buf.push(e.into_path());
+                        if buf.len() >= self.batch_size {
+                            let entries = build_entries(&buf);
+                            if !entries.is_empty() {
+                                on_batch(entries);
+                            }
+                            buf.clear();
+                        }
+                    }
+                    Err(_) => continue,
+                }
+            }
+            if !buf.is_empty() {
+                let entries = build_entries(&buf);
+                if !entries.is_empty() {
+                    on_batch(entries);
+                }
+            }
+        }
+    }
+}
+
+/// 用 rayon 并行读取一批路径的元数据并构造条目；读取失败的条目被跳过。
+fn build_entries(paths: &[PathBuf]) -> Vec<FileEntry> {
+    paths
+        .par_iter()
+        .filter_map(|p| match std::fs::symlink_metadata(p) {
+            Ok(meta) => Some(crate::fs_core::to_entry(p, &meta)),
+            Err(_) => None,
+        })
+        .collect()
+}
+
 /// 内存索引存储
 pub struct IndexStore {
-    /// 路径 -> 条目
-    entries: DashMap<String, FileEntry>,
-    status: RwLock<IndexStatus>,
+    /// 路径 -> 条目（内部用 Arc 便于 move 进后台线程）
+    entries: Arc<DashMap<String, FileEntry>>,
+    status: Arc<RwLock<IndexStatus>>,
 }
 
 impl IndexStore {
     pub fn new() -> Self {
         Self {
-            entries: DashMap::new(),
-            status: RwLock::new(IndexStatus::default()),
+            entries: Arc::new(DashMap::new()),
+            status: Arc::new(RwLock::new(IndexStatus::default())),
         }
     }
 
-    /// 启动后台扫描（非阻塞）。TODO(WS-A): 用 rayon + walkdir 并行遍历实现。
+    /// 启动后台扫描（非阻塞）。用 `rayon + walkdir` 并行遍历，分批写入 DashMap。
+    ///
+    /// - 增量：不清空已有索引，仅更新；扫描结束后按 root 清理本轮未再出现的旧条目。
+    /// - 节流：每 500ms 或每 5000 条 emit 一次 `index:progress`。
+    /// - 结束：emit `index:done`（payload = `IndexStatus`）。
     pub fn start_scan(&self, app: AppHandle, roots: Vec<String>) {
+        // 已在扫描则忽略重复触发，避免两个后台线程互相清理条目。
+        if self.status.read().scanning {
+            return;
+        }
+
         {
             let mut st = self.status.write();
             st.roots = roots.clone();
             st.scanning = true;
             st.scanned = 0;
         }
+
         let _ = app.emit(
             events::INDEX_PROGRESS,
             IndexProgress {
@@ -53,9 +149,72 @@ impl IndexStore {
                 done: false,
             },
         );
-        // TODO(WS-A): 实际扫描 + 增量更新 + emit(INDEX_DONE)
-        let mut st = self.status.write();
-        st.scanning = false;
+
+        let entries = Arc::clone(&self.entries);
+        let status = Arc::clone(&self.status);
+
+        std::thread::spawn(move || {
+            let source = WalkDirSource::default();
+            let scanned = AtomicUsize::new(0);
+            let seen: Mutex<HashSet<u64>> = Mutex::new(HashSet::new());
+
+            let mut last_emit = Instant::now();
+            let mut last_count = 0usize;
+
+            let mut on_batch = |batch: Vec<FileEntry>| {
+                let current = batch
+                    .last()
+                    .map(|e| e.path.clone())
+                    .unwrap_or_default();
+                let n = batch.len();
+
+                {
+                    let mut seen = seen.lock();
+                    for e in &batch {
+                        seen.insert(e.id);
+                    }
+                }
+                for e in batch {
+                    entries.insert(e.path.clone(), e);
+                }
+
+                let done_count = scanned.fetch_add(n, Ordering::Relaxed) + n;
+                let should_emit = last_emit.elapsed().as_millis() >= PROGRESS_INTERVAL_MS
+                    || done_count - last_count >= PROGRESS_INTERVAL_ITEMS;
+                if should_emit {
+                    status.write().scanned = done_count;
+                    let _ = app.emit(
+                        events::INDEX_PROGRESS,
+                        IndexProgress {
+                            scanned: done_count,
+                            total: entries.len(),
+                            current,
+                            done: false,
+                        },
+                    );
+                    last_emit = Instant::now();
+                    last_count = done_count;
+                }
+            };
+
+            source.scan(&roots, &mut on_batch);
+
+            // 增量清理：删除位于 root 之下、但本轮未再出现的旧条目（已删除/改名的文件）
+            let seen = seen.into_inner();
+            prune_stale(&entries, &roots, &seen);
+
+            let final_status = {
+                let mut st = status.write();
+                st.scanning = false;
+                st.scanned = scanned.load(Ordering::Relaxed);
+                st.total = entries.len();
+                IndexStatus {
+                    total: entries.len(),
+                    ..st.clone()
+                }
+            };
+            let _ = app.emit(events::INDEX_DONE, final_status);
+        });
     }
 
     pub fn status(&self) -> IndexStatus {
@@ -66,9 +225,40 @@ impl IndexStore {
         }
     }
 
-    /// 检索内存索引。TODO(WS-A): 交给 search_engine 做匹配与排序。
-    pub fn search(&self, _query: &SearchQuery) -> Vec<SearchHit> {
-        Vec::new()
+    /// 检索内存索引：过滤 + 打分 + 排序 + 截断到 `query.limit`。
+    pub fn search(&self, query: &SearchQuery) -> Vec<SearchHit> {
+        let mut hits: Vec<SearchHit> = self
+            .entries
+            .iter()
+            .filter_map(|e| {
+                let entry = e.value();
+                if search_engine::matches(entry, query) {
+                    Some(SearchHit {
+                        entry: entry.clone(),
+                        score: search_engine::score(entry, query),
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        // 分数降序；同分按名称不区分大小写升序，保证结果稳定。
+        hits.sort_by(|a, b| {
+            b.score
+                .cmp(&a.score)
+                .then_with(|| a.entry.name.to_lowercase().cmp(&b.entry.name.to_lowercase()))
+        });
+
+        let limit = if query.limit == 0 {
+            search_engine::DEFAULT_LIMIT
+        } else {
+            query.limit
+        };
+        if hits.len() > limit {
+            hits.truncate(limit);
+        }
+        hits
     }
 
     /// 供 AI 工具调用复用的内部条目快照
@@ -77,8 +267,111 @@ impl IndexStore {
     }
 }
 
+/// 删除位于 roots 之下、但不在 `seen` 中的旧条目（增量更新）。
+fn prune_stale(entries: &DashMap<String, FileEntry>, roots: &[String], seen: &HashSet<u64>) {
+    let lowers: Vec<String> = roots
+        .iter()
+        .map(|r| r.trim_end_matches(['\\', '/']).to_lowercase())
+        .collect();
+
+    entries.retain(|path, entry| {
+        let p = path.to_lowercase();
+        let under_root = lowers
+            .iter()
+            .any(|r| !r.is_empty() && p.starts_with(r.as_str()));
+        if under_root {
+            seen.contains(&entry.id)
+        } else {
+            true
+        }
+    });
+}
+
 impl Default for IndexStore {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn walk_dir_source_collects_files_and_dirs() {
+        let base = std::env::temp_dir().join(format!("file-povit-idx-test-{}", std::process::id()));
+        let sub = base.join("sub");
+        fs::create_dir_all(&sub).unwrap();
+        fs::write(base.join("a.txt"), b"hello").unwrap();
+        fs::write(sub.join("b.pdf"), b"world").unwrap();
+
+        let source = WalkDirSource::new(1);
+        let mut collected: Vec<FileEntry> = Vec::new();
+        source.scan(&[base.to_string_lossy().to_string()], &mut |batch| {
+            collected.extend(batch);
+        });
+
+        let names: Vec<String> = collected.iter().map(|e| e.name.clone()).collect();
+        assert!(names.contains(&"a.txt".to_string()));
+        assert!(names.contains(&"b.pdf".to_string()));
+        assert!(names.contains(&"sub".to_string()));
+        assert!(collected.iter().any(|e| e.is_dir && e.name == "sub"));
+
+        fs::remove_dir_all(&base).ok();
+    }
+
+    #[test]
+    fn search_filters_and_sorts() {
+        let store = IndexStore::new();
+        store.entries.insert(
+            "C:\\x\\report.pdf".into(),
+            FileEntry {
+                id: 1,
+                name: "report.pdf".into(),
+                path: "C:\\x\\report.pdf".into(),
+                is_dir: false,
+                size: 10,
+                modified: 0,
+                ext: Some("pdf".into()),
+            },
+        );
+        store.entries.insert(
+            "C:\\x\\my-report.docx".into(),
+            FileEntry {
+                id: 2,
+                name: "my-report.docx".into(),
+                path: "C:\\x\\my-report.docx".into(),
+                is_dir: false,
+                size: 20,
+                modified: 0,
+                ext: Some("docx".into()),
+            },
+        );
+
+        let q = search_engine::parse_query("report ext:pdf");
+        let hits = store.search(&q);
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].entry.name, "report.pdf");
+        assert!(hits[0].score > 0);
+    }
+
+    #[test]
+    fn snapshot_returns_all() {
+        let store = IndexStore::new();
+        store.entries.insert(
+            "C:\\x\\a".into(),
+            FileEntry {
+                id: 1,
+                name: "a".into(),
+                path: "C:\\x\\a".into(),
+                is_dir: false,
+                size: 1,
+                modified: 0,
+                ext: None,
+            },
+        );
+        assert_eq!(store.snapshot().len(), 1);
+        assert_eq!(store.status().total, 1);
     }
 }
