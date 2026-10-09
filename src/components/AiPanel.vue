@@ -3,9 +3,11 @@
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import type { AiConfig } from '../types'
 import { useAiStore } from '../stores/ai'
+import { useUiStore } from '../stores/ui'
 import Icon from './icons/Icon.vue'
 
 const ai = useAiStore()
+const ui = useUiStore()
 const draft = ref('')
 const bodyRef = ref<HTMLElement | null>(null)
 const showSettings = ref(false)
@@ -103,6 +105,9 @@ const OP_LABEL: Record<string, string> = {
       </button>
       <button class="head-btn" title="清空对话" @click="ai.clear">
         <Icon name="trash" :size="14" />
+      </button>
+      <button class="head-btn" title="收起" @click="ui.toggleAi()">
+        <Icon name="chevron-right" :size="14" />
       </button>
     </header>
 
