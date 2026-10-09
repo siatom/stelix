@@ -863,11 +863,44 @@ fn count_ext_reply(context: &AiContext, index: &IndexStore, exts: &[String]) -> 
     }
 }
 
+/// 取范围内最大的 N 个文件。
+///
+/// 刻意**不走 `index.search`**：text 为空时其排序退化为按名称，且 limit 截断会
+/// 丢掉尾部的大文件。改用 `index.snapshot()` 全量快照 → 自行按 scope 过滤 → 按 size 排序，
+/// 保证"最大的 N 个"结果正确（index-core 建议）。
 fn largest_files(context: &AiContext, index: &IndexStore, n: usize) -> Vec<FileEntry> {
-    let mut files = search_files_offline(context, index, &[], None);
+    let scope = context.active_path.as_deref();
+    let snapshot = index.snapshot();
+    let mut files: Vec<FileEntry> = snapshot
+        .iter()
+        .filter(|e| !e.is_dir && in_scope(e, scope))
+        .cloned()
+        .collect();
+    if files.is_empty() {
+        // 索引尚未建立 → walkdir 遍历当前目录兜底。
+        if let Some(s) = scope.filter(|s| !s.is_empty()) {
+            files = fs_core::collect_entries(s, 6, 200_000)
+                .into_iter()
+                .filter(|e| !e.is_dir)
+                .collect();
+        }
+    }
     files.sort_by(|a, b| b.size.cmp(&a.size));
     files.truncate(n);
     files
+}
+
+/// 条目路径是否位于 `scope` 之下（大小写不敏感，Windows 语义）。
+fn in_scope(e: &FileEntry, scope: Option<&str>) -> bool {
+    let Some(s) = scope.filter(|s| !s.is_empty()) else {
+        return true;
+    };
+    let path = e.path.to_lowercase();
+    let root = s.trim_end_matches(|c| c == '\\' || c == '/').to_lowercase();
+    if root.is_empty() {
+        return true;
+    }
+    path == root || path.starts_with(&format!("{root}\\")) || path.starts_with(&format!("{root}/"))
 }
 
 fn largest_reply(context: &AiContext, index: &IndexStore, n: usize) -> AiReply {
@@ -1360,6 +1393,23 @@ mod tests {
         let op = reply.pending_confirm.expect("应生成待确认操作");
         assert_eq!(op.op, FsOpKind::Rename);
         assert!(op.target.unwrap().ends_with("b.txt"));
+    }
+
+    #[test]
+    fn in_scope_matches_subpaths() {
+        let e = FileEntry {
+            id: 1,
+            name: "a.txt".into(),
+            path: "C:\\tmp\\sub\\a.txt".into(),
+            is_dir: false,
+            size: 1,
+            modified: 0,
+            ext: Some("txt".into()),
+        };
+        assert!(in_scope(&e, Some("C:\\tmp")));
+        assert!(in_scope(&e, Some("c:\\TMP\\")));
+        assert!(!in_scope(&e, Some("C:\\other")));
+        assert!(in_scope(&e, None));
     }
 
     #[test]
