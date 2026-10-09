@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
+import { homeDir } from '@tauri-apps/api/path'
 import { api } from '../api'
 import type { FileEntry, FsOp, FsOpResult, PaneState, TabState, ViewMode } from '../types'
 import { useUiStore } from './ui'
@@ -11,6 +12,22 @@ import { dirname } from '../components/Pane/utils'
  */
 
 let tabSeq = 0
+const PANE_PATHS_KEY = 'file-povit.panePaths'
+
+function readPanePaths(): Record<string, string> {
+  try {
+    const saved: unknown = JSON.parse(localStorage.getItem(PANE_PATHS_KEY) ?? '{}')
+    if (!saved || typeof saved !== 'object' || Array.isArray(saved)) return {}
+    return Object.fromEntries(
+      Object.entries(saved).filter(
+        ([id, path]) => (id === 'left' || id === 'right') && typeof path === 'string' && path.trim(),
+      ),
+    )
+  } catch {
+    return {}
+  }
+}
+
 function newTabId() {
   tabSeq += 1
   return `tab-${tabSeq}`
@@ -41,7 +58,7 @@ interface HistoryEntry {
 }
 
 export const usePaneStore = defineStore('pane', () => {
-  const fallbackHome = 'C:\\'
+  let fallbackHome = 'C:\\'
 
   const panes = ref<PaneState[]>([makePane('left', fallbackHome), makePane('right', fallbackHome)])
   const activePaneId = ref('left')
@@ -55,6 +72,7 @@ export const usePaneStore = defineStore('pane', () => {
   const revealTarget = ref<{ tabId: string; path: string } | null>(null)
 
   let initialized = false
+  let pathsReady = false
 
   const activePane = computed(() => panes.value.find((p) => p.id === activePaneId.value) ?? panes.value[0])
   const activeTab = computed(() => {
@@ -72,6 +90,19 @@ export const usePaneStore = defineStore('pane', () => {
   function activeTabOf(pane: PaneState): TabState | undefined {
     return pane.tabs.find((t) => t.id === pane.activeTabId) ?? pane.tabs[0]
   }
+
+  function savePanePaths() {
+    if (!pathsReady) return
+    try {
+      const paths = Object.fromEntries(panes.value.map((pane) => [pane.id, activeTabOf(pane)?.path]))
+      localStorage.setItem(PANE_PATHS_KEY, JSON.stringify(paths))
+    } catch {
+      /* 忽略持久化失败，与其他本地偏好保持一致 */
+    }
+  }
+
+  // 同步保存，涵盖导航、切换/关闭标签及交换窗格，也适用于直接从托盘退出。
+  watch(() => panes.value.map((pane) => activeTabOf(pane)?.path), savePanePaths, { flush: 'sync' })
 
   function hist(tabId: string, path: string): HistoryEntry {
     const existing = histories.value[tabId]
@@ -402,20 +433,25 @@ export const usePaneStore = defineStore('pane', () => {
   async function init() {
     if (initialized) return
     initialized = true
-    let start = fallbackHome
     try {
-      const roots = await api.getRoots()
-      if (roots.length) start = roots[0].mount
+      fallbackHome = await homeDir()
     } catch {
-      // 后端不可用时退回默认路径
+      // 系统路径不可用时退回默认路径
     }
-    for (const pane of panes.value) {
+    const savedPaths = readPanePaths()
+    await Promise.all(panes.value.map(async (pane) => {
       for (const tab of pane.tabs) {
-        tab.path = start
-        recordHistory(tab.id, start)
+        tab.path = savedPaths[pane.id] ?? fallbackHome
+        await load(tab)
+        if (tab.error && tab.path !== fallbackHome) {
+          tab.path = fallbackHome
+          await load(tab)
+        }
+        recordHistory(tab.id, tab.path)
       }
-    }
-    await Promise.all(panes.value.flatMap((p) => p.tabs.map((t) => load(t))))
+    }))
+    pathsReady = true
+    savePanePaths()
   }
 
   return {
