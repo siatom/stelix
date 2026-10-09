@@ -5,6 +5,8 @@
   --ai-w: 360px;
   --status-bar-h: 30px;
   --toolbar-h: 38px;
+  /* 中间窗格专用的栏高：顶部（工具栏+路径栏同行）与底部标签栏，比全局更紧凑 */
+  --pane-bar-h: 32px;
   --search-bar-h: 50px;
 
   /* Shape and motion */

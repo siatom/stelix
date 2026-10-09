@@ -93,7 +93,7 @@ function onContext(ev: MouseEvent, tabId: string) {
   display: flex;
   align-items: stretch;
   gap: 2px;
-  height: var(--toolbar-h);
+  height: var(--pane-bar-h);
   padding: 3px 4px 0;
   background: var(--pane-title-bg);
   border-bottom: 1px solid var(--border);

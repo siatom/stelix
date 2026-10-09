@@ -118,7 +118,7 @@ watch(
   display: flex;
   align-items: center;
   gap: 4px;
-  height: var(--toolbar-h);
+  height: var(--pane-bar-h);
   padding: 0 6px;
   background: var(--bg-panel);
   border-bottom: 1px solid var(--border);

@@ -55,7 +55,7 @@ const modes: { key: ViewMode; icon: IconName; title: string }[] = [
   display: flex;
   align-items: center;
   gap: 6px;
-  height: var(--toolbar-h);
+  height: var(--pane-bar-h);
   padding: 0 6px;
   background: var(--bg-panel);
   border-bottom: 1px solid var(--border);
