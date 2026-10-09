@@ -28,6 +28,18 @@
   --warn: #d29922;
   --ok: #3fb950;
 
+  /* 文件类型配色（图标 + 目录名），浅色主题下会换成深色版本 */
+  --ico-folder: #7fb2ff;
+  --ico-doc: #e5c07b;
+  --ico-image: #98c379;
+  --ico-video: #c678dd;
+  --ico-audio: #56b6c2;
+  --ico-archive: #d19a66;
+  --ico-app: #e06c75;
+  --ico-code: #61afef;
+  --ico-disc: #abb2bf;
+  --ico-file: var(--fg-muted);
+
   --radius: 4px;
   --font: -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
   --mono: 'Cascadia Mono', 'Consolas', monospace;
@@ -57,4 +69,15 @@
   --danger: #cf222e;
   --warn: #9a6700;
   --ok: #1a7f37;
+
+  /* 浅色下改为深色版本，保证在浅背景上有足够对比度 */
+  --ico-folder: #1f6feb;
+  --ico-doc: #8a6100;
+  --ico-image: #1a7f37;
+  --ico-video: #8250df;
+  --ico-audio: #0f7b8a;
+  --ico-archive: #bc4c00;
+  --ico-app: #cf222e;
+  --ico-code: #0550ae;
+  --ico-disc: #57606a;
 }

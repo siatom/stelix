@@ -435,7 +435,7 @@ const emptyByFilter = computed(
   text-overflow: ellipsis;
 }
 .row.dir .nm {
-  color: #7fb2ff;
+  color: var(--ico-folder);
 }
 .row .size,
 .row .time,
@@ -495,7 +495,7 @@ const emptyByFilter = computed(
   white-space: nowrap;
 }
 .icon-cell.dir .icon-name {
-  color: #7fb2ff;
+  color: var(--ico-folder);
 }
 .cap-hint {
   margin: 12px 0 4px;
@@ -542,33 +542,33 @@ const emptyByFilter = computed(
 
 /* ---- 文件类型配色：让列表在不依赖彩色 emoji 的前提下仍有辨识度 ---- */
 .k-folder {
-  color: #7fb2ff;
+  color: var(--ico-folder);
 }
 .k-doc {
-  color: #e5c07b;
+  color: var(--ico-doc);
 }
 .k-image {
-  color: #98c379;
+  color: var(--ico-image);
 }
 .k-video {
-  color: #c678dd;
+  color: var(--ico-video);
 }
 .k-audio {
-  color: #56b6c2;
+  color: var(--ico-audio);
 }
 .k-archive {
-  color: #d19a66;
+  color: var(--ico-archive);
 }
 .k-app {
-  color: #e06c75;
+  color: var(--ico-app);
 }
 .k-code {
-  color: #61afef;
+  color: var(--ico-code);
 }
 .k-disc {
-  color: #abb2bf;
+  color: var(--ico-disc);
 }
 .k-file {
-  color: var(--fg-muted);
+  color: var(--ico-file);
 }
 </style>
