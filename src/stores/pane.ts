@@ -344,6 +344,49 @@ export const usePaneStore = defineStore('pane', () => {
     await refresh(dstPane.id)
   }
 
+  /** 把选中项（或指定项）移动到另一个窗格当前目录 */
+  async function moveToOtherPane(paneId: string, sources?: string[]) {
+    const srcPane = paneById(paneId)
+    const dstPane = panes.value.find((p) => p.id !== paneId)
+    if (!srcPane || !dstPane) return
+    const srcTab = activeTabOf(srcPane)
+    const dstTab = activeTabOf(dstPane)
+    if (!srcTab || !dstTab) return
+    const paths = sources && sources.length ? sources : srcTab.selected
+    if (!paths.length) {
+      setStatus('未选择任何条目')
+      return
+    }
+    await runFs(paneId, { op: 'move', sources: paths, target: dstTab.path })
+    await refresh(dstPane.id)
+  }
+
+  /** 把当前窗格的活动目录导航到对侧窗格 */
+  async function showInOtherPane(paneId: string) {
+    const srcPane = paneById(paneId)
+    const dstPane = panes.value.find((p) => p.id !== paneId)
+    if (!srcPane || !dstPane) return
+    const srcTab = activeTabOf(srcPane)
+    if (!srcTab) return
+    await navigateTo(dstPane.id, srcTab.path)
+  }
+
+  /** 交换左右两个窗格的标签 / 视图状态（历史随标签移动） */
+  function swapPanes() {
+    const [a, b] = panes.value
+    if (!a || !b) return
+    const tabs = a.tabs
+    const activeTabId = a.activeTabId
+    const viewMode = a.viewMode
+    a.tabs = b.tabs
+    a.activeTabId = b.activeTabId
+    a.viewMode = b.viewMode
+    b.tabs = tabs
+    b.activeTabId = activeTabId
+    b.viewMode = viewMode
+    setStatus('已交换左右窗格')
+  }
+
   /** 把剪贴板内容粘贴到指定目录 */
   async function pasteInto(paneId: string, targetDir: string) {
     const clip = clipboard.value
@@ -407,6 +450,9 @@ export const usePaneStore = defineStore('pane', () => {
     setClipboard,
     runFs,
     copyToOtherPane,
+    moveToOtherPane,
+    showInOtherPane,
+    swapPanes,
     pasteInto,
     init,
   }

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 标签栏：显示目录名，点击切换，中键 / × 关闭，末尾 + 新建（WS-D）
+// 标签栏（窗格标题栏）：标签切换/关闭 + 新建；右侧双栏动作按钮；活动窗格用底色区分焦点（WS-D）
 import { computed } from 'vue'
 import { usePaneStore } from '../../stores/pane'
 import { basename } from './utils'
@@ -9,6 +9,7 @@ const props = defineProps<{ paneId: string }>()
 const paneStore = usePaneStore()
 
 const pane = computed(() => paneStore.panes.find((p) => p.id === props.paneId))
+const isActive = computed(() => paneStore.activePaneId === props.paneId)
 
 function label(path: string): string {
   return basename(path) || path
@@ -28,30 +29,47 @@ function onContext(ev: MouseEvent, tabId: string) {
 </script>
 
 <template>
-  <div class="tab-bar">
-    <button
-      v-for="t in pane?.tabs ?? []"
-      :key="t.id"
-      class="tab"
-      :class="{ active: t.id === pane?.activeTabId }"
-      :title="t.path"
-      @click="paneStore.setActiveTab(paneId, t.id)"
-      @mousedown.middle="onMiddle($event, t.id)"
-      @contextmenu="onContext($event, t.id)"
-    >
-      <span class="tab-name">{{ label(t.path) }}</span>
-      <span
-        v-if="(pane?.tabs.length ?? 0) > 1"
-        class="tab-close"
-        title="关闭标签"
-        @click.stop="paneStore.closeTab(paneId, t.id)"
+  <div class="tab-bar" :class="{ 'is-active': isActive }">
+    <div class="tabs">
+      <button
+        v-for="t in pane?.tabs ?? []"
+        :key="t.id"
+        class="tab"
+        :class="{ active: t.id === pane?.activeTabId }"
+        :title="t.path"
+        @click="paneStore.setActiveTab(paneId, t.id)"
+        @mousedown.middle="onMiddle($event, t.id)"
+        @contextmenu="onContext($event, t.id)"
       >
-        <Icon name="x" :size="12" />
-      </span>
-    </button>
-    <button class="tab-add" title="新建标签" @click="paneStore.addTab(paneId)">
-      <Icon name="plus" :size="14" />
-    </button>
+        <span class="tab-name">{{ label(t.path) }}</span>
+        <span
+          v-if="(pane?.tabs.length ?? 0) > 1"
+          class="tab-close"
+          title="关闭标签"
+          @click.stop="paneStore.closeTab(paneId, t.id)"
+        >
+          <Icon name="x" :size="12" />
+        </span>
+      </button>
+      <button class="tab-add" title="新建标签" @click="paneStore.addTab(paneId)">
+        <Icon name="plus" :size="14" />
+      </button>
+    </div>
+
+    <div class="pane-actions">
+      <button title="在另一栏打开当前文件夹" @click="paneStore.showInOtherPane(paneId)">
+        <Icon name="pane-open-other" :size="15" />
+      </button>
+      <button title="交换左右栏" @click="paneStore.swapPanes()">
+        <Icon name="pane-swap" :size="15" />
+      </button>
+      <button title="移动选中项到对侧窗格" @click="paneStore.moveToOtherPane(paneId)">
+        <Icon name="pane-move" :size="15" />
+      </button>
+      <button title="复制选中项到对侧窗格" @click="paneStore.copyToOtherPane(paneId)">
+        <Icon name="copy" :size="15" />
+      </button>
+    </div>
   </div>
 </template>
 
@@ -62,12 +80,23 @@ function onContext(ev: MouseEvent, tabId: string) {
   gap: 2px;
   height: var(--toolbar-h);
   padding: 3px 4px 0;
-  background: var(--bg-panel);
+  background: var(--pane-title-bg);
   border-bottom: 1px solid var(--border);
+  transition: background 0.12s ease;
+}
+.tab-bar.is-active {
+  background: var(--pane-title-bg-active);
+}
+.tabs {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
   overflow-x: auto;
   overflow-y: hidden;
 }
-.tab-bar::-webkit-scrollbar {
+.tabs::-webkit-scrollbar {
   height: 0;
 }
 .tab {
@@ -113,6 +142,35 @@ function onContext(ev: MouseEvent, tabId: string) {
   border-radius: var(--radius);
 }
 .tab-add:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+
+/* 非活动窗格：标签与动作按钮整体压暗，配合标题栏底色区分焦点 */
+.tab-bar:not(.is-active) .tab:not(.active):not(:hover),
+.tab-bar:not(.is-active) .tab-add:not(:hover),
+.tab-bar:not(.is-active) .pane-actions button:not(:hover) {
+  color: var(--fg-dim);
+}
+
+.pane-actions {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  flex: none;
+  padding-left: 4px;
+  border-left: 1px solid var(--border);
+}
+.pane-actions button {
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius);
+  color: var(--fg-muted);
+}
+.pane-actions button:hover {
   background: var(--bg-hover);
   color: var(--fg);
 }

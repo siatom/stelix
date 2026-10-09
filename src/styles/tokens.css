@@ -16,6 +16,10 @@
   --bg-selected: #2d4a6b;
   --bg-input: #16181c;
 
+  /* 窗格标题栏：活动窗格用更亮的底色区分焦点（不再用边框） */
+  --pane-title-bg: var(--bg-panel);
+  --pane-title-bg-active: #2e3540;
+
   --border: #33383f;
   --border-strong: #454c56;
 
@@ -57,6 +61,8 @@
   --bg-active: #d8dde4;
   --bg-selected: #cfe0fa;
   --bg-input: #ffffff;
+
+  --pane-title-bg-active: #e2e8f2;
 
   --border: #d5d9e0;
   --border-strong: #b6bcc6;

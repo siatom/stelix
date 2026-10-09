@@ -95,7 +95,7 @@ async function confirmDelete() {
 </script>
 
 <template>
-  <section class="pane" :class="{ active: paneStore.activePaneId === paneId }" @mousedown="activate">
+  <section class="pane" @mousedown="activate">
     <TabBar :pane-id="paneId" />
     <template v-if="tab">
       <PaneToolbar
@@ -160,9 +160,6 @@ async function confirmDelete() {
   background: var(--bg-app);
   border: 1px solid transparent;
   position: relative;
-}
-.pane.active {
-  border-color: var(--accent);
 }
 .state {
   flex: 1;
