@@ -42,7 +42,7 @@ export const useUiStore = defineStore('ui', () => {
   const sidebarCollapsed = ref(false)
   const aiVisible = ref(readBool(LS_AI_VISIBLE, false))
   const theme = ref<ThemeMode>(readTheme())
-  const hideProtected = ref(readBool(LS_HIDE_PROTECTED, false))
+  const hideProtected = ref(readBool(LS_HIDE_PROTECTED, true))
   const activePanel = ref<PanelKey>('files')
   const statusText = ref('就绪')
   const indexTotal = ref(0)
