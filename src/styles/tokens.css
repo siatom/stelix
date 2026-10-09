@@ -75,47 +75,52 @@
  * 仅覆盖配色 token（尺寸/质感类继承上面的 :root），保证浅背景 + 深文字对比度合理。
  */
 :root[data-theme='light'] {
-  --bg-app: #f7f7f9;
+  /*
+   * 暖调近白 + 纯白卡片 + 鲜亮蓝强调（参考 Ramp 风）：
+   * 画布用带一点暖色的近白，面板保持纯白拉开层次；边框极细且偏暖，
+   * 强调色由靛蓝换成更鲜亮的蓝，语义色偏鲜亮（琥珀/绿）。
+   */
+  --bg-app: #f7f7f5;
   --bg-panel: #ffffff;
   --bg-elevated: #ffffff;
-  --bg-hover: #f0f0f3;
-  --bg-active: #e7e7ec;
-  --bg-selected: #e6e9ff;
+  --bg-hover: #f3f3f1;
+  --bg-active: #ebebe8;
+  --bg-selected: #eaf1fe;
   --bg-input: #ffffff;
 
-  --pane-title-bg-active: #eef0f7;
+  --pane-title-bg-active: #f1f1ef;
 
-  --border: #e7e7ec;
-  --border-strong: #d0d0d8;
+  --border: #ececea;
+  --border-strong: #dcdcd8;
 
-  --fg: #17171c;
-  --fg-muted: #5d5d69;
-  --fg-dim: #8c8c98;
+  --fg: #1a1a19;
+  --fg-muted: #6b6b68;
+  --fg-dim: #9b9b97;
 
-  --accent: #4b5bd6;
+  --accent: #2563eb;
   --accent-fg: #ffffff;
-  --danger: #d1242f;
-  --warn: #9a6700;
-  --ok: #1a7f37;
+  --danger: #d92d20;
+  --warn: #a16207;
+  --ok: #2f855a;
 
-  --accent-soft: rgba(75, 91, 214, 0.15);
-  --danger-soft: rgba(209, 36, 47, 0.1);
-  --warn-soft: rgba(154, 103, 0, 0.1);
-  --ok-soft: rgba(26, 127, 55, 0.1);
-  --mask: rgba(20, 20, 30, 0.32);
+  --accent-soft: rgba(37, 99, 235, 0.1);
+  --danger-soft: rgba(217, 45, 32, 0.09);
+  --warn-soft: rgba(161, 98, 7, 0.12);
+  --ok-soft: rgba(47, 133, 90, 0.1);
+  --mask: rgba(24, 24, 20, 0.32);
 
-  --shadow-sm: 0 1px 2px rgba(20, 20, 30, 0.06);
-  --shadow-md: 0 8px 24px rgba(20, 20, 30, 0.12);
-  --shadow-lg: 0 16px 48px rgba(20, 20, 30, 0.18);
+  --shadow-sm: 0 1px 2px rgba(24, 24, 20, 0.05);
+  --shadow-md: 0 6px 20px rgba(24, 24, 20, 0.09);
+  --shadow-lg: 0 16px 40px rgba(24, 24, 20, 0.14);
 
-  /* 浅色下改为深色版本，保证在浅背景上有足够对比度 */
-  --ico-folder: #2f6fd0;
-  --ico-doc: #8a6100;
-  --ico-image: #2f8a3f;
-  --ico-video: #7a4dd0;
-  --ico-audio: #0f7b8a;
-  --ico-archive: #bc4c00;
-  --ico-app: #cf222e;
-  --ico-code: #0b7285;
-  --ico-disc: #57606a;
+  /* 浅色下改为鲜亮版本（参考图图标为高饱和色块），保证白底上清晰可辨 */
+  --ico-folder: #3b82f6;
+  --ico-doc: #d97706;
+  --ico-image: #16a34a;
+  --ico-video: #8b5cf6;
+  --ico-audio: #0891b2;
+  --ico-archive: #ea580c;
+  --ico-app: #ef4444;
+  --ico-code: #0d9488;
+  --ico-disc: #6b7280;
 }
