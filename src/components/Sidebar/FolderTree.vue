@@ -27,7 +27,7 @@ async function loadRoots() {
   try {
     const drives = await api.getRoots()
     roots.value = drives.map((d) => ({
-      name: d.name ? `${d.name} (${d.mount})` : d.mount,
+      name: d.name || d.mount,
       path: d.mount,
     }))
   } catch (e) {
@@ -81,6 +81,21 @@ onMounted(() => {
 
 <template>
   <div class="files-nav">
+    <!-- 常用位置 -->
+    <section class="nav-section">
+      <div class="nav-head">
+        <span class="nav-title">常用位置</span>
+      </div>
+      <div v-if="locLoading" class="state">加载中…</div>
+      <div v-else-if="locError" class="state err">系统路径不可用：{{ locError }}</div>
+      <ul v-else class="nav-list">
+        <li v-for="loc in system" :key="loc.path" :title="loc.path" @click="go(loc.path)">
+          <span class="ico"><Icon :name="loc.icon" :size="14" /></span>
+          <span class="label">{{ loc.label }}</span>
+        </li>
+      </ul>
+    </section>
+
     <!-- 此电脑 -->
     <section class="nav-section">
       <div class="nav-head">
@@ -101,21 +116,6 @@ onMounted(() => {
           @navigate="go"
         />
       </div>
-    </section>
-
-    <!-- 常用位置 -->
-    <section class="nav-section">
-      <div class="nav-head">
-        <span class="nav-title">常用位置</span>
-      </div>
-      <div v-if="locLoading" class="state">加载中…</div>
-      <div v-else-if="locError" class="state err">系统路径不可用：{{ locError }}</div>
-      <ul v-else class="nav-list">
-        <li v-for="loc in system" :key="loc.path" :title="loc.path" @click="go(loc.path)">
-          <span class="ico"><Icon :name="loc.icon" :size="14" /></span>
-          <span class="label">{{ loc.label }}</span>
-        </li>
-      </ul>
     </section>
 
     <!-- 收藏 -->
