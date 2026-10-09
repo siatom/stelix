@@ -39,10 +39,27 @@ const virtualizer = useVirtualizer(
 )
 
 let anchor = -1
+let lastItemClick: { path: string; at: number } | null = null
 
 // ---- 选择 ----
 
 function onClick(ev: MouseEvent, index: number, entry: FileEntry) {
+  const now = Date.now()
+  const isPlainClick = !ev.shiftKey && !ev.ctrlKey && !ev.metaKey
+  const isRenameClick =
+    isPlainClick &&
+    props.tab.selected.length === 1 &&
+    props.tab.selected[0] === entry.path &&
+    lastItemClick?.path === entry.path &&
+    now - lastItemClick.at >= 400
+
+  if (isRenameClick) {
+    lastItemClick = null
+    startRename(entry.path)
+    return
+  }
+
+  lastItemClick = isPlainClick ? { path: entry.path, at: now } : null
   if (ev.shiftKey && anchor >= 0) {
     const a = Math.min(anchor, index)
     const b = Math.max(anchor, index)
@@ -60,6 +77,7 @@ function onClick(ev: MouseEvent, index: number, entry: FileEntry) {
 function clearSelection() {
   paneStore.clearSelection(props.tab)
   anchor = -1
+  lastItemClick = null
 }
 
 // ---- 打开 ----
@@ -77,6 +95,7 @@ async function openEntry(entry: FileEntry) {
 }
 
 async function onDblClick(entry: FileEntry) {
+  lastItemClick = null
   await openEntry(entry)
 }
 
@@ -255,6 +274,14 @@ function onGlobalKey(ev: KeyboardEvent) {
     if (props.tab.selected.length === 1) {
       ev.preventDefault()
       startRename(props.tab.selected[0])
+    }
+    return
+  }
+
+  if (key === 'delete' && !ctrl && !ev.altKey && !ev.shiftKey) {
+    if (props.tab.selected.length) {
+      ev.preventDefault()
+      emit('delete', [...props.tab.selected])
     }
   }
 }
