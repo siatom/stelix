@@ -12,6 +12,10 @@ dist
 dist-ssr
 *.local
 
+# Local CI/CD（含本机绝对路径，不入库）
+.local-cicd/
+.local-cicd.yaml
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
