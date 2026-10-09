@@ -711,7 +711,6 @@ function onDrop(ev: DragEvent) {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--fg-muted);
 }
 .row .nm {
   overflow: hidden;
@@ -767,7 +766,17 @@ function onDrop(ev: DragEvent) {
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 32px;
+  width: 44px;
+  height: 44px;
+  border-radius: 13px;
+  background: color-mix(in srgb, currentColor 13%, var(--bg-panel));
+  transition: transform 120ms ease, background-color 120ms ease;
+}
+.icon-cell:hover .icon-big {
+  transform: translateY(-1px);
+}
+.icon-cell.selected .icon-big {
+  background: color-mix(in srgb, currentColor 19%, var(--bg-panel));
 }
 .icon-name {
   font-size: 11.5px;
