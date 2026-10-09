@@ -29,6 +29,10 @@ const entryCount = computed(() => pane.activeTab?.entries.length ?? 0)
       <span v-else class="dot" />
       索引 {{ ui.indexTotal.toLocaleString() }} 项
     </span>
+    <span class="sep" />
+    <span class="seg build-info" :title="`构建号 ${__BUILD_NUMBER__}`">
+      v{{ __APP_VERSION__ }} · 构建 {{ __BUILD_NUMBER__ }}
+    </span>
   </footer>
 </template>
 
@@ -61,6 +65,10 @@ const entryCount = computed(() => pane.activeTab?.entries.length ?? 0)
 }
 .status {
   color: var(--fg-muted);
+}
+.build-info {
+  color: var(--fg-muted);
+  font-size: 11px;
 }
 .index {
   display: inline-flex;
