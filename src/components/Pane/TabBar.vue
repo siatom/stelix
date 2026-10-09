@@ -10,7 +10,6 @@ const paneStore = usePaneStore()
 
 const pane = computed(() => paneStore.panes.find((p) => p.id === props.paneId))
 const isActive = computed(() => paneStore.activePaneId === props.paneId)
-
 function label(path: string): string {
   return basename(path) || path
 }
@@ -58,10 +57,32 @@ function onContext(ev: MouseEvent, tabId: string) {
 
     <div class="pane-actions">
       <button title="在另一栏打开当前文件夹" @click="paneStore.showInOtherPane(paneId)">
-        <Icon name="pane-open-other" :size="15" />
+        <span class="directional-icon" :class="{ reversed: paneId === 'right' }">
+          <Icon name="pane-open-other" :size="15" />
+        </span>
       </button>
       <button title="交换左右栏" @click="paneStore.swapPanes()">
-        <Icon name="pane-swap" :size="15" />
+        <span class="directional-icon" :class="{ reversed: paneId === 'right' }">
+          <Icon name="pane-swap" :size="15" />
+        </span>
+      </button>
+      <button
+        title="单窗口"
+        aria-label="单窗口"
+        :aria-pressed="paneStore.singlePane"
+        :class="{ selected: paneStore.singlePane }"
+        @click="paneStore.setSinglePane(true)"
+      >
+        <Icon name="panel-single" :size="15" />
+      </button>
+      <button
+        title="双窗口"
+        aria-label="双窗口"
+        :aria-pressed="!paneStore.singlePane"
+        :class="{ selected: !paneStore.singlePane }"
+        @click="paneStore.setSinglePane(false)"
+      >
+        <Icon name="columns" :size="15" />
       </button>
     </div>
   </div>
@@ -167,5 +188,16 @@ function onContext(ev: MouseEvent, tabId: string) {
 .pane-actions button:hover {
   background: var(--bg-hover);
   color: var(--fg);
+}
+.pane-actions button.selected {
+  color: var(--fg);
+  background: var(--bg-active);
+}
+.directional-icon {
+  display: flex;
+  transform-origin: center;
+}
+.directional-icon.reversed {
+  transform: scaleX(-1);
 }
 </style>

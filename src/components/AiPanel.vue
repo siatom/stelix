@@ -190,7 +190,7 @@ const OP_LABEL: Record<string, string> = {
   width: var(--ai-w);
   height: 100%;
   background: var(--bg-panel);
-  border-left: 1px solid var(--border);
+  border: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   overflow: hidden;

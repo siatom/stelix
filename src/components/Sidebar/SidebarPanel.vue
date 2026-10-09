@@ -7,18 +7,21 @@ import type { PanelKey } from '../../stores/ui'
 import FolderTree from './FolderTree.vue'
 import TabGroups from './TabGroups.vue'
 import SettingsPanel from './SettingsPanel.vue'
+import SearchBar from '../SearchBar.vue'
 
 const ui = useUiStore()
 
 const titles: Record<PanelKey, string> = {
-  files: '文件导航',
+  files: 'File Pivot',
   recent: '最近 / 标签页组',
+  search: '搜索',
   settings: '设置',
 }
 
 const panels: Record<PanelKey, Component> = {
   files: FolderTree,
   recent: TabGroups,
+  search: SearchBar,
   settings: SettingsPanel,
 }
 
@@ -29,7 +32,7 @@ const current = computed(() => panels[ui.activePanel])
 <template>
   <aside class="sidebar-panel">
     <header class="sidebar-head">{{ title }}</header>
-    <div class="sidebar-body">
+    <div class="sidebar-body" :class="{ 'files-panel': ui.activePanel === 'files' }">
       <component :is="current" />
     </div>
   </aside>
@@ -40,7 +43,10 @@ const current = computed(() => panels[ui.activePanel])
   width: var(--sidebar-w);
   height: 100%;
   background: var(--bg-panel);
-  border-right: 1px solid var(--border);
+  border: 1px solid var(--border);
+  border-top: 0;
+  border-left: 0;
+  border-radius: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -50,16 +56,18 @@ const current = computed(() => panels[ui.activePanel])
   display: flex;
   align-items: center;
   padding: 0 10px;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--fg-muted);
-  border-bottom: 1px solid var(--border);
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--fg);
+  border-bottom: 1px solid transparent;
   flex: none;
 }
 .sidebar-body {
   flex: 1;
   overflow: auto;
-  padding: 8px;
+  padding: 6px;
+}
+.sidebar-body.files-panel {
+  padding-top: 14px;
 }
 </style>

@@ -31,6 +31,7 @@ export interface TabGroup {
 
 export const FAVORITES_KEY = 'file-povit.favorites'
 export const TABGROUPS_KEY = 'file-povit.tabgroups'
+export const FAVORITES_CHANGED_EVENT = 'file-povit:favorites-changed'
 
 /** 系统路径不可用时的兜底常用位置 */
 const FALLBACK_LOCATIONS: QuickLocation[] = [
@@ -90,9 +91,18 @@ export function loadFavorites(): QuickLocation[] {
 export function saveFavorites(items: QuickLocation[]): void {
   try {
     localStorage.setItem(FAVORITES_KEY, JSON.stringify(items))
+    window.dispatchEvent(new Event(FAVORITES_CHANGED_EVENT))
   } catch {
     /* 忽略持久化失败（隐私模式 / 配额） */
   }
+}
+
+export function addFavorite(path: string): boolean {
+  const items = loadFavorites()
+  if (items.some((item) => item.path === path)) return false
+  const label = basename(path) || path
+  saveFavorites([...items, { label, icon: 'star', path }])
+  return true
 }
 
 export function loadTabGroups(): TabGroup[] {

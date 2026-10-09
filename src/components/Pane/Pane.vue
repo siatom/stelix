@@ -14,6 +14,7 @@ const props = defineProps<{ paneId: string }>()
 
 const paneStore = usePaneStore()
 const pane = computed(() => paneStore.panes.find((p) => p.id === props.paneId))
+const isActivePane = computed(() => paneStore.activePaneId === props.paneId)
 const tab = computed(() => {
   const p = pane.value
   if (!p) return undefined
@@ -56,7 +57,7 @@ async function confirmDelete() {
 <template>
   <section class="pane" @mousedown="activate">
     <template v-if="tab">
-      <div class="pane-topbar">
+      <div class="pane-topbar" :class="{ 'is-active': isActivePane }">
         <PaneToolbar :pane-id="paneId" />
         <PathBar :pane-id="paneId" :tab="tab" />
       </div>
@@ -96,8 +97,10 @@ async function confirmDelete() {
   min-width: 0;
   min-height: 0;
   background: var(--bg-app);
-  border: 1px solid transparent;
+  border: 1px solid var(--border);
+  border-radius: 0;
   position: relative;
+  overflow: hidden;
 }
 .state {
   flex: 1;
@@ -111,7 +114,6 @@ async function confirmDelete() {
   display: flex;
   min-width: 0;
   background: var(--bg-panel);
-  border-bottom: 1px solid var(--border);
 }
 .pane-topbar :deep(.pane-toolbar) {
   flex: none;
@@ -121,6 +123,13 @@ async function confirmDelete() {
   flex: 1;
   min-width: 0;
   border-bottom: 0;
+}
+.pane-topbar.is-active {
+  background: var(--pane-title-bg-active);
+}
+.pane-topbar.is-active :deep(.pane-toolbar),
+.pane-topbar.is-active :deep(.path-bar) {
+  background: transparent;
 }
 
 .error-bar {

@@ -28,6 +28,9 @@ const modes: { key: ViewMode; icon: IconName; title: string }[] = [
       <button title="前进" :disabled="!paneStore.canGoForward(paneId)" @click="paneStore.goForward(paneId)">
         <Icon name="arrow-right" />
       </button>
+      <button title="上级目录" @click="paneStore.goUp(paneId)">
+        <Icon name="arrow-up" />
+      </button>
       <button title="刷新" @click="paneStore.refresh(paneId)">
         <Icon name="refresh" />
       </button>
@@ -86,6 +89,6 @@ const modes: { key: ViewMode; icon: IconName; title: string }[] = [
 }
 .views button.on {
   background: var(--bg-active);
-  color: var(--accent);
+  color: var(--fg);
 }
 </style>

@@ -122,6 +122,7 @@ const childPad = (d: number) => `${d * 12 + 22}px`
   overflow: hidden;
   text-overflow: ellipsis;
   font-size: 12px;
+  color: var(--fg-folder);
 }
 .state {
   height: 20px;

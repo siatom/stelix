@@ -24,8 +24,10 @@ use types::*;
 // ---------------------------------------------------------------- 文件系统
 
 #[tauri::command]
-fn list_dir(path: String) -> Result<DirListing, String> {
-    fs_core::list_dir(&path)
+async fn list_dir(path: String) -> Result<DirListing, String> {
+    tauri::async_runtime::spawn_blocking(move || fs_core::list_dir(&path))
+        .await
+        .map_err(|error| format!("目录读取任务失败: {error}"))?
 }
 
 #[tauri::command]

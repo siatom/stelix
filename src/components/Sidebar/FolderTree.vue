@@ -1,11 +1,16 @@
 <script setup lang="ts">
 // 文件导航面板：此电脑（驱动器 + 文件夹懒加载树） + 常用位置 + 收藏
-import { onMounted, ref } from 'vue'
+import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { api } from '../../api'
 import { usePaneStore } from '../../stores/pane'
 import { useUiStore } from '../../stores/ui'
 import TreeNode from './TreeNode.vue'
-import { basename, loadFavorites, resolveSystemLocations, saveFavorites } from './shared'
+import {
+  FAVORITES_CHANGED_EVENT,
+  loadFavorites,
+  resolveSystemLocations,
+  saveFavorites,
+} from './shared'
 import type { QuickLocation, TreeNodeData } from './shared'
 import Icon from '../icons/Icon.vue'
 
@@ -57,26 +62,22 @@ function go(path: string) {
   void pane.navigate(path)
 }
 
-function addCurrent() {
-  const path = pane.activeTab?.path
-  if (!path) return
-  if (favorites.value.some((f) => f.path === path)) return
-  favorites.value = [
-    ...favorites.value,
-    { label: basename(path) || path, icon: 'star', path },
-  ]
-  saveFavorites(favorites.value)
-}
-
 function removeFavorite(path: string) {
   favorites.value = favorites.value.filter((f) => f.path !== path)
   saveFavorites(favorites.value)
 }
 
 onMounted(() => {
+  window.addEventListener(FAVORITES_CHANGED_EVENT, syncFavorites)
   void loadRoots()
   void loadLocations()
 })
+
+function syncFavorites() {
+  favorites.value = loadFavorites()
+}
+
+onBeforeUnmount(() => window.removeEventListener(FAVORITES_CHANGED_EVENT, syncFavorites))
 </script>
 
 <template>
@@ -122,11 +123,8 @@ onMounted(() => {
     <section class="nav-section">
       <div class="nav-head">
         <span class="nav-title">收藏</span>
-        <button class="mini" title="将当前目录加入收藏" @click="addCurrent">
-          <Icon name="star" :size="13" />
-        </button>
       </div>
-      <div v-if="!favorites.length" class="state">暂无收藏，点击上方星标添加当前目录</div>
+      <div v-if="!favorites.length" class="state">暂无收藏，可从窗格工具栏添加当前目录</div>
       <ul v-else class="nav-list">
         <li
           v-for="fav in favorites"

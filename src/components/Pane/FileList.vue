@@ -188,7 +188,7 @@ function openCtx(ev: MouseEvent, entry: FileEntry) {
   ev.preventDefault()
   if (!props.tab.selected.includes(entry.path)) props.tab.selected = [entry.path]
   const menuW = 176
-  const menuH = 210
+  const menuH = 244
   const x = Math.min(ev.clientX, window.innerWidth - menuW - 4)
   const y = Math.min(ev.clientY, window.innerHeight - menuH - 4)
   ctx.value = { x, y, entry }
@@ -196,6 +196,12 @@ function openCtx(ev: MouseEvent, entry: FileEntry) {
 
 function closeCtx() {
   ctx.value = null
+}
+
+function openInNewTab(entry: FileEntry) {
+  if (!entry.isDir) return
+  paneStore.addTab(props.paneId, entry.path)
+  closeCtx()
 }
 
 function copyToClipboard(op: 'copy' | 'move') {
@@ -519,6 +525,7 @@ function onDrop(ev: DragEvent) {
       @contextmenu.prevent
     >
       <button @click="openEntry(ctx.entry); closeCtx()">打开</button>
+      <button v-if="ctx.entry.isDir" @click="openInNewTab(ctx.entry)">在新标签页打开</button>
       <div class="sep" />
       <button @click="copyToClipboard('copy')">复制</button>
       <button @click="copyToClipboard('move')">剪切</button>
@@ -701,7 +708,7 @@ function onDrop(ev: DragEvent) {
   text-overflow: ellipsis;
 }
 .row.dir .nm {
-  color: var(--ico-folder);
+  color: var(--fg-folder);
 }
 .row .size,
 .row .time,
@@ -761,7 +768,7 @@ function onDrop(ev: DragEvent) {
   white-space: nowrap;
 }
 .icon-cell.dir .icon-name {
-  color: var(--ico-folder);
+  color: var(--fg-folder);
 }
 .cap-hint {
   margin: 12px 0 4px;

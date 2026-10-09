@@ -1,17 +1,19 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 
 /** 左侧栏面板类型 */
-export type PanelKey = 'files' | 'recent' | 'settings'
+export type PanelKey = 'files' | 'recent' | 'search' | 'settings'
 
 /** 主题模式 */
-export type ThemeMode = 'dark' | 'light'
+export type ThemeMode = 'system' | 'dark' | 'light'
 
 // ---- 本地偏好持久化（localStorage）----
 const LS_THEME = 'file-povit.theme'
 const LS_HIDE_PROTECTED = 'file-povit.hideProtected'
 const LS_HIDE_FILE_EXTENSIONS = 'file-povit.hideFileExtensions'
 const LS_AI_VISIBLE = 'file-povit.aiVisible'
+const LS_SIDEBAR_COLLAPSED = 'file-povit.sidebarCollapsed'
+const LS_ACTIVE_PANEL = 'file-povit.activePanel'
 
 function readBool(key: string, fallback: boolean): boolean {
   try {
@@ -22,16 +24,30 @@ function readBool(key: string, fallback: boolean): boolean {
   }
 }
 
-function readTheme(): ThemeMode {
+function readPanel(): PanelKey {
   try {
-    return localStorage.getItem(LS_THEME) === 'light' ? 'light' : 'dark'
+    const saved = localStorage.getItem(LS_ACTIVE_PANEL)
+    return saved === 'recent' || saved === 'search' || saved === 'settings' ? saved : 'files'
   } catch {
-    return 'dark'
+    return 'files'
   }
 }
 
+function readTheme(): ThemeMode {
+  try {
+    const saved = localStorage.getItem(LS_THEME)
+    return saved === 'dark' || saved === 'light' ? saved : 'system'
+  } catch {
+    return 'system'
+  }
+}
+
+function systemTheme(): 'dark' | 'light' {
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+}
+
 function applyTheme(mode: ThemeMode) {
-  document.documentElement.setAttribute('data-theme', mode)
+  document.documentElement.setAttribute('data-theme', mode === 'system' ? systemTheme() : mode)
 }
 
 /**
@@ -40,17 +56,22 @@ function applyTheme(mode: ThemeMode) {
  * `sidebarCollapsed` / `aiVisible`
  */
 export const useUiStore = defineStore('ui', () => {
-  const sidebarCollapsed = ref(false)
+  const sidebarCollapsed = ref(readBool(LS_SIDEBAR_COLLAPSED, false))
   const aiVisible = ref(readBool(LS_AI_VISIBLE, false))
   const theme = ref<ThemeMode>(readTheme())
+  const resolvedTheme = computed(() => theme.value === 'system' ? systemTheme() : theme.value)
   const hideProtected = ref(readBool(LS_HIDE_PROTECTED, true))
   const hideFileExtensions = ref(readBool(LS_HIDE_FILE_EXTENSIONS, false))
-  const activePanel = ref<PanelKey>('files')
+  const activePanel = ref<PanelKey>(readPanel())
   const statusText = ref('就绪')
   const indexTotal = ref(0)
 
   // 首次进入时应用已持久化的主题
   applyTheme(theme.value)
+  const systemThemeQuery = window.matchMedia('(prefers-color-scheme: dark)')
+  systemThemeQuery.addEventListener('change', () => {
+    if (theme.value === 'system') applyTheme('system')
+  })
 
   /** 索引根目录列表（由设置面板维护） */
   const indexRoots = ref<string[]>([])
@@ -61,6 +82,7 @@ export const useUiStore = defineStore('ui', () => {
 
   function toggleSidebar() {
     sidebarCollapsed.value = !sidebarCollapsed.value
+    persistSidebar()
   }
 
   function setPanel(panel: PanelKey) {
@@ -69,6 +91,16 @@ export const useUiStore = defineStore('ui', () => {
     } else {
       activePanel.value = panel
       sidebarCollapsed.value = false
+    }
+    persistSidebar()
+  }
+
+  function persistSidebar() {
+    try {
+      localStorage.setItem(LS_SIDEBAR_COLLAPSED, sidebarCollapsed.value ? '1' : '0')
+      localStorage.setItem(LS_ACTIVE_PANEL, activePanel.value)
+    } catch {
+      /* ignore */
     }
   }
 
@@ -92,7 +124,7 @@ export const useUiStore = defineStore('ui', () => {
   }
 
   function toggleTheme() {
-    setTheme(theme.value === 'dark' ? 'light' : 'dark')
+    setTheme(theme.value === 'system' ? 'light' : theme.value === 'light' ? 'dark' : 'system')
   }
 
   function setHideProtected(value: boolean) {
@@ -147,6 +179,7 @@ export const useUiStore = defineStore('ui', () => {
     sidebarCollapsed,
     aiVisible,
     theme,
+    resolvedTheme,
     hideProtected,
     hideFileExtensions,
     activePanel,

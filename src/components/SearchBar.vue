@@ -137,7 +137,7 @@ onBeforeUnmount(() => {
             <Icon :name="fileIcon(hit.entry)" :size="14" />
           </span>
           <span class="hit-main">
-            <span class="hit-name">{{ ui.displayFileName(hit.entry.name, hit.entry.isDir) }}</span>
+            <span class="hit-name" :class="{ 'is-folder': hit.entry.isDir }">{{ ui.displayFileName(hit.entry.name, hit.entry.isDir) }}</span>
             <span class="hit-path" :title="dirname(hit.entry.path)">{{ dirname(hit.entry.path) }}</span>
           </span>
           <span class="hit-size">{{ formatSize(hit.entry.size, hit.entry.isDir) }}</span>
@@ -154,25 +154,30 @@ onBeforeUnmount(() => {
   flex: none;
 }
 .search-bar {
-  height: var(--search-bar-h);
+  min-height: 60px;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
-  padding: 0 10px;
+  gap: 6px;
+  padding: 8px;
   background: var(--bg-panel);
   border-bottom: 1px solid var(--border);
 }
 .search-bar.focused {
-  border-bottom-color: var(--accent);
+  border-bottom-color: transparent;
 }
 .search-bar input {
-  flex: 1;
-  border: none;
-  background: transparent;
-  padding: 0;
+  flex: 1 1 150px;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-panel);
+  padding: 8px 14px;
+  height: 38px;
 }
 .search-bar input:focus {
-  border: none;
+  border-color: var(--border-strong);
+  box-shadow: none;
 }
 .icon {
   display: flex;
@@ -180,16 +185,20 @@ onBeforeUnmount(() => {
   color: var(--fg-muted);
 }
 .scope-switch {
-  flex: none;
+  flex: 1 1 100%;
   display: flex;
-  padding: 2px;
+  align-items: center;
+  height: 38px;
+  padding: 3px;
   gap: 1px;
   border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border-radius: 999px;
 }
 .scope-switch button {
-  padding: 2px 7px;
-  border-radius: calc(var(--radius) - 1px);
+  height: 30px;
+  flex: 1;
+  padding: 0 8px;
+  border-radius: 999px;
   color: var(--fg-muted);
   font-size: 11px;
   white-space: nowrap;
@@ -227,17 +236,12 @@ onBeforeUnmount(() => {
 }
 
 .panel {
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 100%;
-  z-index: 150;
+  position: static;
   max-height: 52vh;
   overflow: auto;
   background: var(--bg-elevated);
   border: 1px solid var(--border-strong);
-  border-top: none;
-  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-md);
 }
 .hit {
@@ -270,6 +274,9 @@ onBeforeUnmount(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.hit-name.is-folder {
+  color: var(--fg-folder);
 }
 .hit-path {
   font-size: 10.5px;

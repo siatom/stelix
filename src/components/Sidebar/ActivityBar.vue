@@ -10,12 +10,17 @@ const ui = useUiStore()
 const items: { key: PanelKey; icon: IconName; title: string }[] = [
   { key: 'files', icon: 'folder', title: '文件导航' },
   { key: 'recent', icon: 'clock', title: '最近 / 标签页组' },
+  { key: 'search', icon: 'search', title: '搜索' },
   { key: 'settings', icon: 'settings', title: '设置' },
 ]
 </script>
 
 <template>
   <nav class="activity-bar" aria-label="主工具栏">
+    <div class="brand" :class="{ collapsed: ui.sidebarCollapsed }" aria-label="File Pivot">
+      <img v-if="ui.sidebarCollapsed" class="brand-logo" src="/app-icon.svg" alt="" />
+      <span v-else>File Pivot</span>
+    </div>
     <button
       v-for="it in items"
       :key="it.key"
@@ -46,26 +51,54 @@ const items: { key: PanelKey; icon: IconName; title: string }[] = [
     <button
       type="button"
       class="activity-btn"
-      :title="ui.theme === 'dark' ? '切换到浅色主题' : '切换到深色主题'"
-      aria-label="切换主题"
+      :title="`主题：${ui.theme === 'system' ? `跟随系统（当前${ui.resolvedTheme === 'dark' ? '深色' : '浅色'}）` : ui.theme === 'dark' ? '深色' : '浅色'}，点击切换`"
+      aria-label="切换主题模式"
       @click="ui.toggleTheme()"
     >
-      <Icon :name="ui.theme === 'dark' ? 'sun' : 'moon'" :size="19" />
+      <Icon :name="ui.theme === 'system' ? 'monitor' : ui.theme === 'dark' ? 'sun' : 'moon'" :size="19" />
     </button>
   </nav>
 </template>
 
 <style scoped>
 .activity-bar {
+  position: relative;
+  z-index: 2;
   width: var(--activity-bar-w);
   height: 100%;
   background: var(--bg-panel);
-  border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 6px 0;
+  padding: 46px 0 6px;
   gap: 2px;
+}
+.brand {
+  position: absolute;
+  z-index: 3;
+  top: 0;
+  left: 0;
+  width: calc(var(--activity-bar-w) + var(--sidebar-w));
+  /* 高度与侧栏顶部留白一致（.area-sidebar padding-top），避免露出底色形成横线 */
+  height: 46px;
+  padding: 0 16px;
+  display: flex;
+  align-items: center;
+  color: var(--fg);
+  font-size: 22px;
+  font-weight: 700;
+  white-space: nowrap;
+  background: var(--bg-panel);
+}
+.brand.collapsed {
+  width: var(--activity-bar-w);
+  justify-content: center;
+  padding: 0;
+}
+.brand-logo {
+  width: 30px;
+  height: 30px;
+  object-fit: contain;
 }
 .activity-btn {
   width: 38px;
@@ -86,8 +119,7 @@ const items: { key: PanelKey; icon: IconName; title: string }[] = [
 }
 .activity-btn.active {
   background: var(--bg-active);
-  color: var(--accent);
-  box-shadow: inset 2px 0 0 var(--accent);
+  color: var(--fg);
 }
 .spacer {
   flex: 1;

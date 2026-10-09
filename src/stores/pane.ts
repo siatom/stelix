@@ -13,16 +13,67 @@ import { dirname } from '../components/Pane/utils'
 
 let tabSeq = 0
 const PANE_PATHS_KEY = 'file-povit.panePaths'
+const PANE_LAYOUT_KEY = 'file-povit.paneLayout'
 
-function readPanePaths(): Record<string, string> {
+interface SavedPaneLayout {
+  activePaneId?: 'left' | 'right'
+  splitRatio?: number
+  singlePane?: boolean
+}
+
+function readPaneLayout(): SavedPaneLayout {
+  try {
+    const saved: unknown = JSON.parse(localStorage.getItem(PANE_LAYOUT_KEY) ?? '{}')
+    if (!saved || typeof saved !== 'object' || Array.isArray(saved)) return {}
+    const value = saved as Record<string, unknown>
+    return {
+      activePaneId: value.activePaneId === 'right' ? 'right' : 'left',
+      splitRatio:
+        typeof value.splitRatio === 'number' && Number.isFinite(value.splitRatio)
+          ? Math.min(0.85, Math.max(0.15, value.splitRatio))
+          : 0.5,
+      singlePane: typeof value.singlePane === 'boolean' ? value.singlePane : false,
+    }
+  } catch {
+    return {}
+  }
+}
+
+interface SavedPanePaths {
+  tabs: string[]
+  activeTabIndex: number
+  viewMode: ViewMode
+}
+
+function readPanePaths(): Record<string, SavedPanePaths> {
   try {
     const saved: unknown = JSON.parse(localStorage.getItem(PANE_PATHS_KEY) ?? '{}')
     if (!saved || typeof saved !== 'object' || Array.isArray(saved)) return {}
-    return Object.fromEntries(
-      Object.entries(saved).filter(
-        ([id, path]) => (id === 'left' || id === 'right') && typeof path === 'string' && path.trim(),
-      ),
-    )
+    const result: Record<string, SavedPanePaths> = {}
+    for (const [id, value] of Object.entries(saved)) {
+      if (id !== 'left' && id !== 'right') continue
+      // 兼容旧版本只保存每个窗格当前目录的格式。
+      if (typeof value === 'string' && value.trim()) {
+        result[id] = { tabs: [value], activeTabIndex: 0, viewMode: 'details' }
+        continue
+      }
+      if (!value || typeof value !== 'object' || Array.isArray(value)) continue
+      const pane = value as Record<string, unknown>
+      const tabs = Array.isArray(pane.tabs)
+        ? pane.tabs.filter((path): path is string => typeof path === 'string' && !!path.trim()).slice(0, 50)
+        : []
+      if (!tabs.length) continue
+      result[id] = {
+        tabs,
+        activeTabIndex:
+          typeof pane.activeTabIndex === 'number' && Number.isFinite(pane.activeTabIndex)
+            ? Math.min(tabs.length - 1, Math.max(0, Math.floor(pane.activeTabIndex)))
+            : 0,
+        viewMode:
+          pane.viewMode === 'list' || pane.viewMode === 'icons' ? pane.viewMode : 'details',
+      }
+    }
+    return result
   } catch {
     return {}
   }
@@ -59,11 +110,14 @@ interface HistoryEntry {
 
 export const usePaneStore = defineStore('pane', () => {
   let fallbackHome = 'C:\\'
+  const savedLayout = readPaneLayout()
 
   const panes = ref<PaneState[]>([makePane('left', fallbackHome), makePane('right', fallbackHome)])
-  const activePaneId = ref('left')
+  const activePaneId = ref<string>(savedLayout.activePaneId ?? 'left')
   /** 左右窗格宽度比例（左窗格占比） */
-  const splitRatio = ref(0.5)
+  const splitRatio = ref(savedLayout.splitRatio ?? 0.5)
+  /** 是否只显示当前活动窗格 */
+  const singlePane = ref(savedLayout.singlePane ?? false)
   /** 内部剪贴板（复制 / 剪切） */
   const clipboard = ref<{ op: 'copy' | 'move'; paths: string[] } | null>(null)
   /** 每个标签的浏览历史（存于 store，避免改动冻结的 types.ts） */
@@ -94,15 +148,49 @@ export const usePaneStore = defineStore('pane', () => {
   function savePanePaths() {
     if (!pathsReady) return
     try {
-      const paths = Object.fromEntries(panes.value.map((pane) => [pane.id, activeTabOf(pane)?.path]))
+      const paths = Object.fromEntries(
+        panes.value.map((pane) => [
+          pane.id,
+          {
+            tabs: pane.tabs.map((tab) => tab.path),
+            activeTabIndex: Math.max(0, pane.tabs.findIndex((tab) => tab.id === pane.activeTabId)),
+            viewMode: pane.viewMode,
+          },
+        ]),
+      )
       localStorage.setItem(PANE_PATHS_KEY, JSON.stringify(paths))
     } catch {
       /* 忽略持久化失败，与其他本地偏好保持一致 */
     }
   }
 
+  function savePaneLayout() {
+    try {
+      localStorage.setItem(
+        PANE_LAYOUT_KEY,
+        JSON.stringify({
+          activePaneId: activePaneId.value,
+          splitRatio: splitRatio.value,
+          singlePane: singlePane.value,
+        }),
+      )
+    } catch {
+      /* 忽略持久化失败 */
+    }
+  }
+
   // 同步保存，涵盖导航、切换/关闭标签及交换窗格，也适用于直接从托盘退出。
-  watch(() => panes.value.map((pane) => activeTabOf(pane)?.path), savePanePaths, { flush: 'sync' })
+  watch(
+    () =>
+      panes.value.map((pane) => ({
+        paths: pane.tabs.map((tab) => tab.path),
+        activeTabId: pane.activeTabId,
+        viewMode: pane.viewMode,
+      })),
+    savePanePaths,
+    { flush: 'sync' },
+  )
+  watch(() => [activePaneId.value, splitRatio.value, singlePane.value], savePaneLayout, { flush: 'sync' })
 
   function hist(tabId: string, path: string): HistoryEntry {
     const existing = histories.value[tabId]
@@ -240,7 +328,11 @@ export const usePaneStore = defineStore('pane', () => {
     pane.tabs.push(tab)
     pane.activeTabId = tab.id
     recordHistory(tab.id, base)
-    if (!loaded) void load(tab)
+    // 从响应式数组重新取出代理对象；直接修改 makeTab 返回的原始对象不会触发 Vue 更新。
+    if (!loaded) {
+      const reactiveTab = pane.tabs.find((item) => item.id === tab.id)
+      if (reactiveTab) void load(reactiveTab)
+    }
   }
 
   function closeTab(paneId: string, tabId: string) {
@@ -269,7 +361,10 @@ export const usePaneStore = defineStore('pane', () => {
     pane.tabs.splice(srcIdx + 1, 0, tab)
     pane.activeTabId = tab.id
     recordHistory(tab.id, tab.path)
-    if (src.loading || src.error) void load(tab)
+    if (src.loading || src.error) {
+      const reactiveTab = pane.tabs.find((item) => item.id === tab.id)
+      if (reactiveTab) void load(reactiveTab)
+    }
   }
 
   function setActiveTab(paneId: string, tabId: string) {
@@ -288,12 +383,16 @@ export const usePaneStore = defineStore('pane', () => {
     splitRatio.value = Math.min(0.85, Math.max(0.15, ratio))
   }
 
+  function setSinglePane(value: boolean) {
+    singlePane.value = value
+  }
+
   function toggleSort(tab: TabState, key: TabState['sortKey']) {
     if (tab.sortKey === key) {
       tab.sortAsc = !tab.sortAsc
     } else {
       tab.sortKey = key
-      tab.sortAsc = true
+      tab.sortAsc = key !== 'modified'
     }
   }
 
@@ -443,8 +542,15 @@ export const usePaneStore = defineStore('pane', () => {
     }
     const savedPaths = readPanePaths()
     await Promise.all(panes.value.map(async (pane) => {
+      const savedPane = savedPaths[pane.id]
+      if (savedPane) {
+        pane.tabs = savedPane.tabs.map((path) => makeTab(path))
+        pane.activeTabId = pane.tabs[savedPane.activeTabIndex]?.id ?? pane.tabs[0].id
+        pane.viewMode = savedPane.viewMode
+      } else {
+        pane.tabs.forEach((tab) => (tab.path = fallbackHome))
+      }
       for (const tab of pane.tabs) {
-        tab.path = savedPaths[pane.id] ?? fallbackHome
         await load(tab)
         if (tab.error && tab.path !== fallbackHome) {
           tab.path = fallbackHome
@@ -463,6 +569,7 @@ export const usePaneStore = defineStore('pane', () => {
     activePane,
     activeTab,
     splitRatio,
+    singlePane,
     clipboard,
     revealTarget,
     navigate,
@@ -481,6 +588,7 @@ export const usePaneStore = defineStore('pane', () => {
     setActiveTab,
     setViewMode,
     setSplitRatio,
+    setSinglePane,
     toggleSort,
     entriesFor,
     select,

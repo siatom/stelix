@@ -9,8 +9,9 @@ const rootRef = ref<HTMLElement | null>(null)
 const dragging = ref(false)
 
 const columns = computed(() => {
+  if (paneStore.singlePane) return '1fr'
   const r = paneStore.splitRatio
-  return `${r}fr 5px ${1 - r}fr`
+  return `${r}fr 2px ${1 - r}fr`
 })
 
 function onMove(ev: MouseEvent) {
@@ -50,11 +51,11 @@ onBeforeUnmount(() => {
 
 <template>
   <div ref="rootRef" class="dual-pane" :class="{ dragging }" :style="{ gridTemplateColumns: columns }">
-    <Pane pane-id="left" />
-    <div class="divider" title="拖拽调整宽度，双击均分" @mousedown="startDrag" @dblclick="resetRatio">
+    <Pane v-if="!paneStore.singlePane || paneStore.activePaneId === 'left'" pane-id="left" />
+    <div v-if="!paneStore.singlePane" class="divider" title="拖拽调整宽度，双击均分" @mousedown="startDrag" @dblclick="resetRatio">
       <span class="grip" />
     </div>
-    <Pane pane-id="right" />
+    <Pane v-if="!paneStore.singlePane || paneStore.activePaneId === 'right'" pane-id="right" />
   </div>
 </template>
 
@@ -64,6 +65,8 @@ onBeforeUnmount(() => {
   display: grid;
   min-height: 0;
   overflow: hidden;
+  gap: 0;
+  padding: 0;
 }
 .dual-pane.dragging {
   cursor: col-resize;
@@ -71,24 +74,30 @@ onBeforeUnmount(() => {
 }
 .divider {
   position: relative;
-  background: var(--border);
+  background: transparent;
   cursor: col-resize;
   display: flex;
   align-items: center;
   justify-content: center;
+  border-radius: 6px;
+  transition: background 0.12s ease;
 }
 .divider:hover,
 .dual-pane.dragging .divider {
-  background: var(--accent);
+  background: var(--bg-hover);
 }
 .grip {
-  width: 3px;
-  height: 28px;
-  border-radius: 2px;
+  width: 2px;
+  height: 36px;
+  border-radius: 999px;
   background: var(--border-strong);
+  transition:
+    height 0.12s ease,
+    background 0.12s ease;
 }
 .divider:hover .grip,
 .dual-pane.dragging .grip {
-  background: var(--accent-fg);
+  height: 48px;
+  background: var(--fg-muted);
 }
 </style>

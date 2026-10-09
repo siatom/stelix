@@ -1,48 +1,48 @@
 :root {
   /* Layout */
-  --activity-bar-w: 58px;
-  --sidebar-w: 252px;
-  --ai-w: 368px;
+  --activity-bar-w: 52px;
+  --sidebar-w: 264px;
+  --ai-w: 360px;
   --status-bar-h: 30px;
   --toolbar-h: 38px;
   --search-bar-h: 50px;
 
   /* Shape and motion */
-  --radius-sm: 6px;
-  --radius: 9px;
-  --radius-lg: 14px;
+  --radius-sm: 8px;
+  --radius: 12px;
+  --radius-lg: 18px;
   --t-fast: 0.14s ease;
   --t: 0.2s ease;
 
-  /* Deep ink surfaces with a clear indigo accent */
-  --bg-app: #11131a;
-  --bg-panel: #171a23;
-  --bg-elevated: #202431;
-  --bg-hover: #252a38;
-  --bg-active: #2c3243;
-  --bg-selected: #252d48;
-  --bg-input: #12151d;
+  /* Quiet neutral dark surfaces inspired by the ChatGPT desktop UI */
+  --bg-app: #212121;
+  --bg-panel: #171717;
+  --bg-elevated: #2b2b2b;
+  --bg-hover: #2f2f2f;
+  --bg-active: #343434;
+  --bg-selected: #343434;
+  --bg-input: #2b2b2b;
   --pane-title-bg: var(--bg-panel);
-  --pane-title-bg-active: #1c2030;
+  --pane-title-bg-active: #293746;
 
-  --border: #282d3a;
-  --border-strong: #3a4152;
+  --border: #303030;
+  --border-strong: #484848;
 
-  --fg: #f1f2f8;
-  --fg-muted: #a2a9bb;
-  --fg-dim: #70798e;
+  --fg: #ececec;
+  --fg-muted: #b4b4b4;
+  --fg-dim: #858585;
 
-  --accent: #9b8cff;
-  --accent-fg: #171326;
+  --accent: #d4d4d4;
+  --accent-fg: #171717;
   --danger: #ff737f;
   --warn: #f2bd63;
   --ok: #62d5a1;
 
-  --accent-soft: rgba(155, 140, 255, 0.16);
+  --accent-soft: rgba(255, 255, 255, 0.12);
   --danger-soft: rgba(255, 115, 127, 0.14);
   --warn-soft: rgba(242, 189, 99, 0.13);
   --ok-soft: rgba(98, 213, 161, 0.14);
-  --mask: rgba(6, 8, 14, 0.68);
+  --mask: rgba(0, 0, 0, 0.58);
 
   --shadow-sm: 0 2px 6px rgba(4, 6, 12, 0.22);
   --shadow-md: 0 12px 30px rgba(4, 6, 12, 0.34);
@@ -50,6 +50,7 @@
 
   /* File type colors */
   --ico-folder: #83aaff;
+  --fg-folder: #83aaff;
   --ico-doc: #f3c46e;
   --ico-image: #78d7a4;
   --ico-video: #c2a1ff;
@@ -65,40 +66,41 @@
 }
 
 :root[data-theme='light'] {
-  /* Soft lavender gray canvas, crisp white surfaces and saturated violet */
-  --bg-app: #f3f4f9;
-  --bg-panel: #fafaff;
+  /* Warm white canvas and soft gray navigation surfaces */
+  --bg-app: #ffffff;
+  --bg-panel: #f9f9f9;
   --bg-elevated: #ffffff;
-  --bg-hover: #f0f1f8;
-  --bg-active: #e9eaf4;
-  --bg-selected: #e9eaff;
+  --bg-hover: #ececec;
+  --bg-active: #e5e5e5;
+  --bg-selected: #e5e5e5;
   --bg-input: #ffffff;
-  --pane-title-bg-active: #f1f0fb;
+  --pane-title-bg-active: #edf3fb;
 
-  --border: #e3e5ee;
-  --border-strong: #d1d5e2;
+  --border: #e5e5e5;
+  --border-strong: #d1d1d1;
 
-  --fg: #25283a;
-  --fg-muted: #646b82;
-  --fg-dim: #9097aa;
+  --fg: #212121;
+  --fg-muted: #5d5d5d;
+  --fg-dim: #8a8a8a;
 
-  --accent: #6857d9;
+  --accent: #404040;
   --accent-fg: #ffffff;
   --danger: #d94b5b;
   --warn: #a66b14;
   --ok: #23865f;
 
-  --accent-soft: rgba(104, 87, 217, 0.11);
+  --accent-soft: rgba(0, 0, 0, 0.08);
   --danger-soft: rgba(217, 75, 91, 0.09);
   --warn-soft: rgba(166, 107, 20, 0.1);
   --ok-soft: rgba(35, 134, 95, 0.1);
-  --mask: rgba(29, 31, 47, 0.38);
+  --mask: rgba(0, 0, 0, 0.32);
 
-  --shadow-sm: 0 2px 5px rgba(40, 43, 69, 0.06);
-  --shadow-md: 0 12px 28px rgba(40, 43, 69, 0.12);
-  --shadow-lg: 0 24px 60px rgba(40, 43, 69, 0.18);
+  --shadow-sm: 0 2px 5px rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 12px 28px rgba(0, 0, 0, 0.1);
+  --shadow-lg: 0 24px 60px rgba(0, 0, 0, 0.16);
 
   --ico-folder: #5279e7;
+  --fg-folder: #3558b8;
   --ico-doc: #bd7919;
   --ico-image: #27945a;
   --ico-video: #7952d5;
