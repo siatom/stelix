@@ -2,12 +2,15 @@
 // 目录树节点（自引用递归组件）—— 懒加载子目录
 import { ref } from 'vue'
 import { api } from '../../api'
+import { useUiStore } from '../../stores/ui'
 import type { TreeNodeData } from './shared'
 import Icon from '../icons/Icon.vue'
 import { folderIcon } from '../Pane/utils'
 
 const props = defineProps<{ node: TreeNodeData; depth: number }>()
 const emit = defineEmits<{ (e: 'navigate', path: string): void }>()
+
+const ui = useUiStore()
 
 const expanded = ref(false)
 const loaded = ref(false)
@@ -28,6 +31,8 @@ async function toggle() {
     const listing = await api.listDir(props.node.path)
     children.value = listing.entries
       .filter((e) => e.isDir)
+      // 「隐藏受保护的操作系统文件」（hidden && system）时同样过滤子树目录
+      .filter((e) => !(ui.hideProtected && e.hidden && e.system))
       .sort((a, b) => a.name.localeCompare(b.name))
       .map((e) => ({ name: e.name, path: e.path }))
     loaded.value = true
@@ -64,9 +69,6 @@ const childPad = (d: number) => `${d * 12 + 22}px`
       </div>
       <div v-else-if="error" class="state err" :style="{ paddingLeft: childPad(depth + 1) }">
         无法读取：{{ error }}
-      </div>
-      <div v-else-if="!children.length" class="state" :style="{ paddingLeft: childPad(depth + 1) }">
-        （无子文件夹）
       </div>
       <TreeNode
         v-for="child in children"

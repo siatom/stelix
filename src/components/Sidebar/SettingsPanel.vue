@@ -142,6 +142,18 @@ onUnmounted(() => {
       </button>
     </section>
 
+    <section class="sec">
+      <h4 class="sec-head">视图</h4>
+      <label class="toggle">
+        <input
+          type="checkbox"
+          :checked="ui.hideProtected"
+          @change="ui.setHideProtected(($event.target as HTMLInputElement).checked)"
+        />
+        <span class="toggle-text">隐藏受保护的操作系统文件</span>
+      </label>
+    </section>
+
     <div v-if="error" class="error">操作失败：{{ error }}</div>
   </div>
 </template>
@@ -264,6 +276,27 @@ onUnmounted(() => {
 .state {
   font-size: 11px;
   color: var(--fg-dim);
+}
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  background: var(--bg-elevated);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+.toggle:hover {
+  background: var(--bg-hover);
+}
+.toggle input {
+  flex: none;
+  margin: 0;
+  accent-color: var(--accent);
+}
+.toggle-text {
+  font-size: 11px;
+  color: var(--fg);
 }
 .error {
   padding: 4px 6px;

@@ -22,7 +22,11 @@ const ROW_H = 26
 const ICON_CAP = 600
 
 const viewMode = computed(() => paneStore.panes.find((p) => p.id === props.paneId)?.viewMode ?? 'details')
-const rows = computed(() => paneStore.entriesFor(props.tab))
+// 先取 store 的过滤+排序结果，再按「隐藏受保护的操作系统文件」剔除（Explorer 语义：hidden && system）
+const allRows = computed(() => paneStore.entriesFor(props.tab))
+const rows = computed(() =>
+  ui.hideProtected ? allRows.value.filter((e) => !(e.hidden && e.system)) : allRows.value,
+)
 const iconRows = computed(() => rows.value.slice(0, ICON_CAP))
 
 const scrollRef = ref<HTMLElement | null>(null)
@@ -170,7 +174,13 @@ watch(
 )
 
 const hasEntries = computed(() => props.tab.entries.length > 0)
-const emptyByFilter = computed(() => hasEntries.value && rows.value.length === 0)
+// 因「隐藏受保护的操作系统文件」而被清空的目录（无文本过滤时）
+const emptyByProtect = computed(
+  () => hasEntries.value && rows.value.length === 0 && !props.tab.filter.trim() && ui.hideProtected,
+)
+const emptyByFilter = computed(
+  () => hasEntries.value && rows.value.length === 0 && !!props.tab.filter.trim(),
+)
 </script>
 
 <template>
@@ -192,6 +202,10 @@ const emptyByFilter = computed(() => hasEntries.value && rows.value.length === 0
     <div v-else-if="!hasEntries" class="state">
       <Icon name="folder-open" :size="30" class="big-ico" />
       <p>此目录为空</p>
+    </div>
+    <div v-else-if="emptyByProtect" class="state">
+      <Icon name="folder-open" :size="30" class="big-ico" />
+      <p>已隐藏受保护的操作系统文件</p>
     </div>
     <div v-else-if="emptyByFilter" class="state">
       <Icon name="search" :size="30" class="big-ico" />
