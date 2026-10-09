@@ -7,6 +7,7 @@ import TabBar from './TabBar.vue'
 import PaneToolbar from './PaneToolbar.vue'
 import PathBar from './PathBar.vue'
 import FileList from './FileList.vue'
+import StatusBar from '../StatusBar.vue'
 import Icon from '../icons/Icon.vue'
 
 const props = defineProps<{ paneId: string }>()
@@ -79,6 +80,7 @@ async function confirmDelete() {
       <FileList ref="fileListRef" :pane-id="paneId" :tab="tab" @delete="openDelete" />
     </template>
     <div v-else class="state">没有可用标签</div>
+    <StatusBar :pane-id="paneId" />
 
     <div v-if="errorMsg" class="error-bar">
       <span>{{ errorMsg }}</span>

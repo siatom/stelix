@@ -88,10 +88,9 @@ textarea:focus {
   display: grid;
   grid-template-columns: auto auto 1fr auto;
   /* minmax(0, 1fr)：首行不允许被内容撑高（否则文件多时会把状态栏顶出视口） */
-  grid-template-rows: minmax(0, 1fr) auto;
+  grid-template-rows: minmax(0, 1fr);
   grid-template-areas:
-    'activity sidebar main ai'
-    'status status status status';
+    'activity sidebar main ai';
   height: 100%;
   width: 100%;
 }
@@ -111,7 +110,4 @@ textarea:focus {
 }
 .area-ai {
   grid-area: ai;
-}
-.area-status {
-  grid-area: status;
 }

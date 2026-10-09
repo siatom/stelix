@@ -7,7 +7,6 @@ import SidebarPanel from './components/Sidebar/SidebarPanel.vue'
 import SearchBar from './components/SearchBar.vue'
 import DualPane from './components/Pane/DualPane.vue'
 import AiPanel from './components/AiPanel.vue'
-import StatusBar from './components/StatusBar.vue'
 import CommandPalette from './components/CommandPalette.vue'
 import Icon from './components/icons/Icon.vue'
 
@@ -36,7 +35,6 @@ const ui = useUiStore()
       <Icon name="bot" :size="16" />
     </button>
 
-    <StatusBar class="area-status" />
     <CommandPalette />
   </div>
 </template>

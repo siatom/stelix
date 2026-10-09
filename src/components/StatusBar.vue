@@ -4,12 +4,17 @@ import { computed } from 'vue'
 import { usePaneStore } from '../stores/pane'
 import { useUiStore } from '../stores/ui'
 
-const pane = usePaneStore()
+const props = defineProps<{ paneId: string }>()
+const paneStore = usePaneStore()
 const ui = useUiStore()
 
-const currentPath = computed(() => pane.activeTab?.path ?? '')
-const selectedCount = computed(() => pane.activeTab?.selected.length ?? 0)
-const entryCount = computed(() => pane.activeTab?.entries.length ?? 0)
+const tab = computed(() => {
+  const pane = paneStore.panes.find((item) => item.id === props.paneId)
+  return pane?.tabs.find((item) => item.id === pane.activeTabId) ?? pane?.tabs[0]
+})
+const currentPath = computed(() => tab.value?.path ?? '')
+const selectedCount = computed(() => tab.value?.selected.length ?? 0)
+const entryCount = computed(() => tab.value?.entries.length ?? 0)
 </script>
 
 <template>
