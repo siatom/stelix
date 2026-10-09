@@ -76,7 +76,10 @@ function buildCommands(locations: QuickLocation[]) {
       id: 'close-tab',
       label: '关闭当前标签页',
       hint: 'Ctrl+W',
-      run: () => pane.closeTab(pane.activePaneId, pane.activeTab.id),
+      run: () => {
+        const tab = pane.activeTab
+        if (tab) pane.closeTab(pane.activePaneId, tab.id)
+      },
     },
     { id: 'toggle-ai', label: '切换 AI 助手面板', run: () => ui.toggleAi() },
     { id: 'toggle-sidebar', label: '切换侧边栏', run: () => ui.toggleSidebar() },

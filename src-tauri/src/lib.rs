@@ -48,7 +48,26 @@ fn index_status(state: State<'_, AppState>) -> IndexStatus {
 
 #[tauri::command]
 fn search_files(state: State<'_, AppState>, query: SearchQuery) -> Vec<SearchHit> {
-    state.index.search(&query)
+    // 集成点：搜索框里可以直接写语法，例如
+    //   `ext:pdf size:>100mb modified:today dir: 报告`
+    // parse_query 把语法 token 解析为结构化条件，剩余 token 作为关键词。
+    // 前端显式传入的结构化字段优先（未被语法覆盖）。
+    let parsed = search_engine::parse_query(&query.text);
+    let merged = SearchQuery {
+        text: parsed.text,
+        scope: query.scope.or(parsed.scope),
+        is_dir: query.is_dir.or(parsed.is_dir),
+        ext: if query.ext.is_empty() {
+            parsed.ext
+        } else {
+            query.ext
+        },
+        min_size: query.min_size.or(parsed.min_size),
+        max_size: query.max_size.or(parsed.max_size),
+        modified_after: query.modified_after.or(parsed.modified_after),
+        limit: query.limit,
+    };
+    state.index.search(&merged)
 }
 
 // ---------------------------------------------------------------- AI
