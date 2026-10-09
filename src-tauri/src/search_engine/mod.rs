@@ -292,6 +292,8 @@ mod tests {
             size,
             modified: 0,
             ext: ext.map(|s| s.to_string()),
+            hidden: false,
+            system: false,
         }
     }
 

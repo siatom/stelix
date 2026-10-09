@@ -24,6 +24,28 @@ pub fn path_id(path: &str) -> u64 {
     h.finish()
 }
 
+/// 读取 Windows 文件属性中的「隐藏 / 系统」标志。
+///
+/// 非 Windows 平台恒返回 `(false, false)`，保持契约字段可用。
+fn file_flags(meta: &fs::Metadata) -> (bool, bool) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        const FILE_ATTRIBUTE_HIDDEN: u32 = 0x2;
+        const FILE_ATTRIBUTE_SYSTEM: u32 = 0x4;
+        let attrs = meta.file_attributes();
+        (
+            attrs & FILE_ATTRIBUTE_HIDDEN != 0,
+            attrs & FILE_ATTRIBUTE_SYSTEM != 0,
+        )
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = meta;
+        (false, false)
+    }
+}
+
 /// 构造 FileEntry
 pub fn to_entry(path: &Path, meta: &fs::Metadata) -> FileEntry {
     let name = path
@@ -42,6 +64,7 @@ pub fn to_entry(path: &Path, meta: &fs::Metadata) -> FileEntry {
         .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
         .map(|d| d.as_millis() as i64)
         .unwrap_or(0);
+    let (hidden, system) = file_flags(meta);
     FileEntry {
         id: path_id(&path_str),
         name,
@@ -50,6 +73,8 @@ pub fn to_entry(path: &Path, meta: &fs::Metadata) -> FileEntry {
         size: if meta.is_dir() { 0 } else { meta.len() },
         modified,
         ext,
+        hidden,
+        system,
     }
 }
 

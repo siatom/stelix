@@ -428,6 +428,8 @@ mod tests {
                 size: 10,
                 modified: 0,
                 ext: Some("pdf".into()),
+                hidden: false,
+                system: false,
             },
         );
         store.entries.insert(
@@ -440,6 +442,8 @@ mod tests {
                 size: 20,
                 modified: 0,
                 ext: Some("docx".into()),
+                hidden: false,
+                system: false,
             },
         );
 
@@ -463,6 +467,8 @@ mod tests {
                 size: 1,
                 modified: 0,
                 ext: None,
+                hidden: false,
+                system: false,
             },
         );
         assert_eq!(store.snapshot().len(), 1);

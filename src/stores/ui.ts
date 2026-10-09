@@ -4,6 +4,35 @@ import { ref } from 'vue'
 /** 左侧栏面板类型 */
 export type PanelKey = 'files' | 'quick' | 'recent' | 'settings'
 
+/** 主题模式 */
+export type ThemeMode = 'dark' | 'light'
+
+// ---- 本地偏好持久化（localStorage）----
+const LS_THEME = 'file-povit.theme'
+const LS_HIDE_PROTECTED = 'file-povit.hideProtected'
+const LS_AI_VISIBLE = 'file-povit.aiVisible'
+
+function readBool(key: string, fallback: boolean): boolean {
+  try {
+    const v = localStorage.getItem(key)
+    return v === null ? fallback : v === '1'
+  } catch {
+    return fallback
+  }
+}
+
+function readTheme(): ThemeMode {
+  try {
+    return localStorage.getItem(LS_THEME) === 'light' ? 'light' : 'dark'
+  } catch {
+    return 'dark'
+  }
+}
+
+function applyTheme(mode: ThemeMode) {
+  document.documentElement.setAttribute('data-theme', mode)
+}
+
 /**
  * UI 全局状态 —— 由 **WS-C (feat/ui-shell)** 实现。
  * ⚠️ App.vue（Foundation 拥有）依赖以下字段名，WS-C 不得改名：
@@ -11,10 +40,15 @@ export type PanelKey = 'files' | 'quick' | 'recent' | 'settings'
  */
 export const useUiStore = defineStore('ui', () => {
   const sidebarCollapsed = ref(false)
-  const aiVisible = ref(true)
+  const aiVisible = ref(readBool(LS_AI_VISIBLE, false))
+  const theme = ref<ThemeMode>(readTheme())
+  const hideProtected = ref(readBool(LS_HIDE_PROTECTED, false))
   const activePanel = ref<PanelKey>('files')
   const statusText = ref('就绪')
   const indexTotal = ref(0)
+
+  // 首次进入时应用已持久化的主题
+  applyTheme(theme.value)
 
   /** 索引根目录列表（由设置面板维护） */
   const indexRoots = ref<string[]>([])
@@ -38,6 +72,38 @@ export const useUiStore = defineStore('ui', () => {
 
   function toggleAi() {
     aiVisible.value = !aiVisible.value
+    try {
+      localStorage.setItem(LS_AI_VISIBLE, aiVisible.value ? '1' : '0')
+    } catch {
+      /* ignore */
+    }
+  }
+
+  function setTheme(mode: ThemeMode) {
+    theme.value = mode
+    applyTheme(mode)
+    try {
+      localStorage.setItem(LS_THEME, mode)
+    } catch {
+      /* ignore */
+    }
+  }
+
+  function toggleTheme() {
+    setTheme(theme.value === 'dark' ? 'light' : 'dark')
+  }
+
+  function setHideProtected(value: boolean) {
+    hideProtected.value = value
+    try {
+      localStorage.setItem(LS_HIDE_PROTECTED, value ? '1' : '0')
+    } catch {
+      /* ignore */
+    }
+  }
+
+  function toggleHideProtected() {
+    setHideProtected(!hideProtected.value)
   }
 
   function setIndexRoots(roots: string[]) {
@@ -63,6 +129,8 @@ export const useUiStore = defineStore('ui', () => {
   return {
     sidebarCollapsed,
     aiVisible,
+    theme,
+    hideProtected,
     activePanel,
     statusText,
     indexTotal,
@@ -72,6 +140,10 @@ export const useUiStore = defineStore('ui', () => {
     toggleSidebar,
     setPanel,
     toggleAi,
+    setTheme,
+    toggleTheme,
+    setHideProtected,
+    toggleHideProtected,
     setIndexRoots,
     setScanning,
     setIndexTotal,

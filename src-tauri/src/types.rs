@@ -22,6 +22,10 @@ pub struct FileEntry {
     pub modified: i64,
     /// 小写扩展名，无扩展名为 None
     pub ext: Option<String>,
+    /// Windows 隐藏属性（FILE_ATTRIBUTE_HIDDEN）；非 Windows 恒 false
+    pub hidden: bool,
+    /// Windows 系统属性（FILE_ATTRIBUTE_SYSTEM）；非 Windows 恒 false
+    pub system: bool,
 }
 
 /// 目录列表结果

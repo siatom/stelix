@@ -1437,6 +1437,8 @@ mod tests {
                 size: if i == N - 1 { 999_999_999 } else { i as u64 },
                 modified: 0,
                 ext: Some("bin".into()),
+                hidden: false,
+                system: false,
             })
             .collect();
 
@@ -1463,6 +1465,8 @@ mod tests {
             size: 1,
             modified: 0,
             ext: Some("txt".into()),
+            hidden: false,
+            system: false,
         };
         assert!(in_scope(&e, Some("C:\\tmp")));
         assert!(in_scope(&e, Some("c:\\TMP\\")));

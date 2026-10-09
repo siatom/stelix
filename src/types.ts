@@ -9,6 +9,10 @@ export interface FileEntry {
   size: number
   modified: number
   ext: string | null
+  /** Windows 隐藏属性（FILE_ATTRIBUTE_HIDDEN） */
+  hidden: boolean
+  /** Windows 系统属性（FILE_ATTRIBUTE_SYSTEM） */
+  system: boolean
 }
 
 export interface DirListing {
