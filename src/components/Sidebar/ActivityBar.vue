@@ -6,6 +6,7 @@ import Icon from '../icons/Icon.vue'
 import type { IconName } from '../icons/paths'
 
 const ui = useUiStore()
+const isDev = import.meta.env.DEV
 
 const items: { key: PanelKey; icon: IconName; title: string }[] = [
   { key: 'files', icon: 'folder', title: '文件导航' },
@@ -19,7 +20,10 @@ const items: { key: PanelKey; icon: IconName; title: string }[] = [
   <nav class="activity-bar" aria-label="主工具栏">
     <div class="brand" :class="{ collapsed: ui.sidebarCollapsed }" aria-label="File Pivot">
       <img v-if="ui.sidebarCollapsed" class="brand-logo" src="/app-icon.svg" alt="" />
-      <span v-else>File Pivot</span>
+      <span v-else class="brand-title">
+        File Pivot
+        <span v-if="isDev" class="dev-badge">dev</span>
+      </span>
     </div>
     <button
       v-for="it in items"
@@ -99,6 +103,23 @@ const items: { key: PanelKey; icon: IconName; title: string }[] = [
   width: 30px;
   height: 30px;
   object-fit: contain;
+}
+.brand-title {
+  position: relative;
+}
+.dev-badge {
+  position: absolute;
+  top: -5px;
+  left: calc(100% + 5px);
+  padding: 2px 4px;
+  border-radius: 4px;
+  background: var(--bg-active);
+  color: var(--fg-muted);
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 .activity-btn {
   width: 38px;
