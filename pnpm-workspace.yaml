@@ -1,0 +1,3 @@
+# pnpm 11 起依赖构建脚本白名单设置迁移到本文件
+allowBuilds:
+  vue-demi: true

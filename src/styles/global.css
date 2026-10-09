@@ -1,0 +1,93 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+body {
+  font-family: var(--font);
+  font-size: 13px;
+  color: var(--fg);
+  background: var(--bg-app);
+  user-select: none;
+}
+
+button {
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+input {
+  font-family: inherit;
+  font-size: inherit;
+  color: var(--fg);
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 4px 8px;
+  outline: none;
+}
+
+input:focus {
+  border-color: var(--accent);
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #454c56;
+  border-radius: 5px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #5a6270;
+}
+
+/* ---- 根布局：左侧图标栏 | 侧栏面板 | 主区 | AI 面板 ---- */
+.app-root {
+  display: grid;
+  grid-template-columns: auto auto 1fr auto;
+  grid-template-rows: 1fr auto;
+  grid-template-areas:
+    'activity sidebar main ai'
+    'status status status status';
+  height: 100%;
+  width: 100%;
+}
+
+.area-activity {
+  grid-area: activity;
+}
+.area-sidebar {
+  grid-area: sidebar;
+}
+.area-main {
+  grid-area: main;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.area-ai {
+  grid-area: ai;
+}
+.area-status {
+  grid-area: status;
+}

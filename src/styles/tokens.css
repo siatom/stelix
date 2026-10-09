@@ -1,0 +1,34 @@
+:root {
+  /* 尺寸 */
+  --activity-bar-w: 52px;
+  --sidebar-w: 240px;
+  --ai-w: 360px;
+  --status-bar-h: 26px;
+  --toolbar-h: 34px;
+  --search-bar-h: 40px;
+
+  /* 暗色主题 */
+  --bg-app: #1b1d21;
+  --bg-panel: #22252a;
+  --bg-elevated: #2a2e35;
+  --bg-hover: #32373f;
+  --bg-active: #3a4150;
+  --bg-selected: #2d4a6b;
+  --bg-input: #16181c;
+
+  --border: #33383f;
+  --border-strong: #454c56;
+
+  --fg: #d6dae0;
+  --fg-muted: #8b939e;
+  --fg-dim: #626a75;
+  --accent: #4a9eff;
+  --accent-fg: #ffffff;
+  --danger: #e5534b;
+  --warn: #d29922;
+  --ok: #3fb950;
+
+  --radius: 4px;
+  --font: -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  --mono: 'Cascadia Mono', 'Consolas', monospace;
+}

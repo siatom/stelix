@@ -1,0 +1,62 @@
+[package]
+name = "file-povit"
+version = "0.1.0"
+description = "File Povit - 智能文件管理器"
+authors = ["file-povit"]
+edition = "2021"
+
+[lib]
+# Windows 上 lib 与 bin 同名会冲突，故加 _lib 后缀
+name = "file_povit_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# 异步 / 并发
+tokio = { version = "1", features = ["sync", "time", "macros"] }
+rayon = "1"
+dashmap = "6"
+parking_lot = "0.12"
+once_cell = "1"
+
+# 文件系统遍历
+walkdir = "2"
+
+# AI 接入（Windows 走 SChannel，无需额外 C 依赖）
+reqwest = { version = "0.12", features = ["json", "stream"] }
+
+# 工具
+thiserror = "2"
+chrono = { version = "0.4", features = ["serde"] }
+dirs = "6"
+uuid = { version = "1", features = ["v4", "serde"] }
+
+# Windows 原生能力（驱动器信息 / MFT 预留）
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_Storage_FileSystem",
+] }
+
+# Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = 3
+panic = "abort"
+strip = true
+
+# 开发构建也开启一定优化：索引/检索是 CPU 密集路径，
+# opt-level=0 会让"秒级检索"在 dev 下明显变慢。
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 2
