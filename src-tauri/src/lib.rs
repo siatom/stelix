@@ -12,7 +12,11 @@ mod search_engine;
 mod state;
 mod types;
 
-use tauri::State;
+use tauri::{
+    menu::{Menu, MenuItem},
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    Manager, State, WindowEvent,
+};
 
 use state::AppState;
 use types::*;
@@ -102,6 +106,74 @@ fn ai_config_set(state: State<'_, AppState>, config: AiConfig) {
     state.ai.set_config(config);
 }
 
+// ---------------------------------------------------------------- 系统托盘
+
+/// 主窗口标签，与 tauri.conf.json 中窗口配置对应。
+const MAIN_WINDOW_LABEL: &str = "main";
+
+/// 显示并聚焦主窗口（从托盘恢复）。
+fn show_main_window(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+}
+
+/// 切换主窗口显示 / 隐藏（托盘左键单击）。
+fn toggle_main_window(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
+        if window.is_visible().unwrap_or(false) {
+            let _ = window.hide();
+        } else {
+            let _ = window.show();
+            let _ = window.unminimize();
+            let _ = window.set_focus();
+        }
+    }
+}
+
+/// 构建系统托盘图标与菜单。
+///
+/// 交互约定：
+/// - 左键单击：切换主窗口显示 / 隐藏。
+/// - 右键菜单：「显示主窗口」恢复窗口，「退出」真正结束进程。
+///
+/// 图标复用应用默认窗口图标（bundle 的 `icon.ico`），无需额外资源。
+fn setup_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
+    let show_item = MenuItem::with_id(app, "show", "显示主窗口", true, None::<&str>)?;
+    let quit_item = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&show_item, &quit_item])?;
+
+    let mut builder = TrayIconBuilder::with_id("main-tray")
+        .tooltip("File Povit")
+        .menu(&menu)
+        // 菜单只在右键弹出，左键留给「切换窗口」
+        .show_menu_on_left_click(false)
+        .on_menu_event(|app, event| match event.id.as_ref() {
+            "show" => show_main_window(app),
+            "quit" => app.exit(0),
+            _ => {}
+        })
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
+                toggle_main_window(tray.app_handle());
+            }
+        });
+
+    if let Some(icon) = app.default_window_icon().cloned() {
+        builder = builder.icon(icon);
+    }
+
+    builder.build(app)?;
+    Ok(())
+}
+
 // ---------------------------------------------------------------- 入口
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -109,6 +181,18 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(AppState::new())
+        .setup(|app| {
+            setup_tray(app.handle())?;
+            Ok(())
+        })
+        .on_window_event(|window, event| {
+            // 关闭窗口默认最小化到系统托盘：阻止退出，改为隐藏窗口。
+            // 真正退出走托盘菜单的「退出」（app.exit(0)），不走这里。
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                let _ = window.hide();
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             list_dir,
             get_roots,
