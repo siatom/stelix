@@ -53,12 +53,12 @@ input:focus {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #454c56;
+  background: var(--border-strong);
   border-radius: 5px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #5a6270;
+  background: var(--fg-dim);
 }
 
 /* ---- 根布局：左侧图标栏 | 侧栏面板 | 主区 | AI 面板 ---- */
