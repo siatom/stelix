@@ -13,10 +13,12 @@
     "windows": [
       {
         "title": "File Povit",
-        "width": 1440,
-        "height": 900,
+        "width": 1200,
+        "height": 760,
         "minWidth": 1024,
         "minHeight": 640,
+        "center": true,
+        "maximized": true,
         "decorations": true,
         "devtools": false
       }
