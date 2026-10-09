@@ -301,7 +301,7 @@ onUnmounted(() => {
 .error {
   padding: 4px 6px;
   border-radius: var(--radius);
-  background: rgba(229, 83, 75, 0.12);
+  background: var(--danger-soft);
   color: var(--danger);
   font-size: 11px;
   word-break: break-all;

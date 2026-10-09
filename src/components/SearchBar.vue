@@ -179,8 +179,8 @@ onBeforeUnmount(() => {
   background: var(--bg-elevated);
   border: 1px solid var(--border-strong);
   border-top: none;
-  border-radius: 0 0 6px 6px;
-  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.45);
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+  box-shadow: var(--shadow-md);
 }
 .hit {
   width: 100%;

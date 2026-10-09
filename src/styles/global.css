@@ -17,6 +17,8 @@ body {
   color: var(--fg);
   background: var(--bg-app);
   user-select: none;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 button {
@@ -26,9 +28,14 @@ button {
   background: transparent;
   border: none;
   cursor: pointer;
+  transition:
+    background var(--t-fast),
+    color var(--t-fast),
+    border-color var(--t-fast);
 }
 
-input {
+input,
+textarea {
   font-family: inherit;
   font-size: inherit;
   color: var(--fg);
@@ -37,10 +44,21 @@ input {
   border-radius: var(--radius);
   padding: 4px 8px;
   outline: none;
+  transition:
+    border-color var(--t-fast),
+    box-shadow var(--t-fast);
 }
 
-input:focus {
+input:focus,
+textarea:focus {
   border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+/* 键盘可达性：仅键盘聚焦时给一圈克制的强调色描边 */
+:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
 }
 
 ::-webkit-scrollbar {
@@ -52,13 +70,17 @@ input:focus {
   background: transparent;
 }
 
+/* 用透明边框 + padding-box 裁切，让滚动条呈现更细的胶囊状，观感更现代 */
 ::-webkit-scrollbar-thumb {
   background: var(--border-strong);
-  border-radius: 5px;
+  background-clip: padding-box;
+  border: 3px solid transparent;
+  border-radius: 6px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
   background: var(--fg-dim);
+  background-clip: padding-box;
 }
 
 /* ---- 根布局：左侧图标栏 | 侧栏面板 | 主区 | AI 面板 ---- */

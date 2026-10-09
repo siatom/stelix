@@ -179,7 +179,7 @@ async function confirmDelete() {
   align-items: center;
   gap: 8px;
   padding: 6px 10px;
-  background: rgba(229, 83, 75, 0.16);
+  background: var(--danger-soft);
   border: 1px solid var(--danger);
   border-radius: var(--radius);
   font-size: 12px;
@@ -197,7 +197,7 @@ async function confirmDelete() {
   position: fixed;
   inset: 0;
   z-index: 300;
-  background: rgba(0, 0, 0, 0.45);
+  background: var(--mask);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -207,7 +207,8 @@ async function confirmDelete() {
   max-width: 90vw;
   background: var(--bg-elevated);
   border: 1px solid var(--border-strong);
-  border-radius: 6px;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
   padding: 14px;
   display: flex;
   flex-direction: column;
@@ -263,7 +264,7 @@ async function confirmDelete() {
 .actions button.danger {
   background: var(--danger);
   border-color: var(--danger);
-  color: #fff;
+  color: var(--accent-fg);
 }
 .actions button:disabled {
   opacity: 0.5;
