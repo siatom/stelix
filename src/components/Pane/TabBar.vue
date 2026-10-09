@@ -63,12 +63,6 @@ function onContext(ev: MouseEvent, tabId: string) {
       <button title="交换左右栏" @click="paneStore.swapPanes()">
         <Icon name="pane-swap" :size="15" />
       </button>
-      <button title="移动选中项到对侧窗格" @click="paneStore.moveToOtherPane(paneId)">
-        <Icon name="pane-move" :size="15" />
-      </button>
-      <button title="复制选中项到对侧窗格" @click="paneStore.copyToOtherPane(paneId)">
-        <Icon name="copy" :size="15" />
-      </button>
     </div>
   </div>
 </template>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 底部状态栏：当前路径 / 选中数 / 条目数 / 索引总数 / 状态文本
+// 底部状态栏：选中数 / 条目数 / 索引总数 / 状态文本
 import { computed } from 'vue'
 import { usePaneStore } from '../stores/pane'
 import { useUiStore } from '../stores/ui'
@@ -12,15 +12,12 @@ const tab = computed(() => {
   const pane = paneStore.panes.find((item) => item.id === props.paneId)
   return pane?.tabs.find((item) => item.id === pane.activeTabId) ?? pane?.tabs[0]
 })
-const currentPath = computed(() => tab.value?.path ?? '')
 const selectedCount = computed(() => tab.value?.selected.length ?? 0)
 const entryCount = computed(() => tab.value?.entries.length ?? 0)
 </script>
 
 <template>
   <footer class="status-bar">
-    <span class="seg path" :title="currentPath">{{ currentPath || '—' }}</span>
-    <span class="sep" />
     <span class="seg">选中 {{ selectedCount }} 项</span>
     <span class="sep" />
     <span class="seg">条目 {{ entryCount }}</span>
@@ -33,10 +30,6 @@ const entryCount = computed(() => tab.value?.entries.length ?? 0)
       <span v-if="ui.scanning" class="dot scanning" />
       <span v-else class="dot" />
       索引 {{ ui.indexTotal.toLocaleString() }} 项
-    </span>
-    <span class="sep" />
-    <span class="seg build-info" :title="`构建号 ${__BUILD_NUMBER__}`">
-      v{{ __APP_VERSION__ }} · 构建 {{ __BUILD_NUMBER__ }}
     </span>
   </footer>
 </template>
@@ -60,20 +53,8 @@ const entryCount = computed(() => tab.value?.entries.length ?? 0)
   padding: 0 6px;
   white-space: nowrap;
 }
-.path {
-  max-width: 40vw;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  color: var(--fg);
-  font-family: var(--mono);
-  font-size: 11px;
-}
 .status {
   color: var(--fg-muted);
-}
-.build-info {
-  color: var(--fg-muted);
-  font-size: 11px;
 }
 .index {
   display: inline-flex;

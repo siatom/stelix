@@ -150,13 +150,6 @@ function startRename(path: string) {
   focusEdit()
 }
 
-/** 在列表顶部插入一行行内「新建文件夹」输入 */
-function startNewFolder() {
-  const name = '新建文件夹'
-  editing.value = { mode: 'mkdir', name, selStart: 0, selEnd: name.length }
-  focusEdit()
-}
-
 function cancelEdit() {
   editing.value = null
 }
@@ -181,8 +174,6 @@ async function commitEdit() {
     target: joinPath(dirname(e.path), name),
   })
 }
-
-defineExpose({ startRename, startNewFolder })
 
 // ---- 右键菜单 ----
 
@@ -329,10 +320,45 @@ const emptyByProtect = computed(
 const emptyByFilter = computed(
   () => hasEntries.value && rows.value.length === 0 && !!props.tab.filter.trim(),
 )
+
+interface DragPayload {
+  paneId: string
+  paths: string[]
+}
+
+function onDragStart(ev: DragEvent, entry: FileEntry) {
+  if (!ev.dataTransfer) return
+  if (!props.tab.selected.includes(entry.path)) props.tab.selected = [entry.path]
+  const payload: DragPayload = {
+    paneId: props.paneId,
+    paths: props.tab.selected.length ? [...props.tab.selected] : [entry.path],
+  }
+  ev.dataTransfer.setData('application/x-file-povit-items', JSON.stringify(payload))
+  ev.dataTransfer.effectAllowed = 'copyMove'
+}
+
+function onDragOver(ev: DragEvent) {
+  if (Array.from(ev.dataTransfer?.types ?? []).includes('application/x-file-povit-items')) {
+    ev.dataTransfer!.dropEffect = ev.shiftKey ? 'copy' : 'move'
+  }
+}
+
+function onDrop(ev: DragEvent) {
+  const raw = ev.dataTransfer?.getData('application/x-file-povit-items')
+  if (!raw) return
+  try {
+    const payload = JSON.parse(raw) as DragPayload
+    if (payload.paneId === props.paneId || !payload.paths.length) return
+    if (ev.shiftKey) void paneStore.copyToOtherPane(payload.paneId, payload.paths)
+    else void paneStore.moveToOtherPane(payload.paneId, payload.paths)
+  } catch {
+    // Ignore malformed drag data.
+  }
+}
 </script>
 
 <template>
-  <div ref="rootRef" class="file-list" :class="viewMode">
+  <div ref="rootRef" class="file-list" :class="viewMode" @dragover.prevent="onDragOver" @drop.prevent="onDrop">
     <!-- 加载中 -->
     <div v-if="tab.loading" class="state">
       <span class="spinner" />
@@ -399,11 +425,13 @@ const emptyByFilter = computed(
             v-for="vi in virtualizer.getVirtualItems()"
             :key="String(vi.key)"
             class="row"
+            :draggable="!editing"
             :class="{ selected: tab.selected.includes(rows[vi.index].path), dir: rows[vi.index].isDir }"
             :style="{ height: `${vi.size}px`, transform: `translateY(${vi.start}px)` }"
             @click="onClick($event, vi.index, rows[vi.index])"
             @dblclick="onDblClick(rows[vi.index])"
             @contextmenu="openCtx($event, rows[vi.index])"
+            @dragstart="onDragStart($event, rows[vi.index])"
           >
             <span class="ico" :class="`k-${fileKind(rows[vi.index])}`">
               <Icon :name="fileIcon(rows[vi.index])" :size="14" />
@@ -451,11 +479,13 @@ const emptyByFilter = computed(
           v-for="(entry, i) in iconRows"
           :key="entry.path"
           class="icon-cell"
+          :draggable="!editing"
           :class="{ selected: tab.selected.includes(entry.path), dir: entry.isDir }"
           :title="entry.path"
           @click="onClick($event, i, entry)"
           @dblclick="onDblClick(entry)"
           @contextmenu="openCtx($event, entry)"
+          @dragstart="onDragStart($event, entry)"
         >
           <span class="icon-big" :class="`k-${fileKind(entry)}`">
             <Icon :name="fileIcon(entry)" :size="30" :stroke-width="1.4" />

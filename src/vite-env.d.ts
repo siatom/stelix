@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 
 declare const __APP_VERSION__: string;
-declare const __BUILD_NUMBER__: string;
+declare const __COMMIT_ID__: string;
 
 declare module "*.vue" {
   import type { DefineComponent } from "vue";

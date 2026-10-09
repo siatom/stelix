@@ -24,18 +24,6 @@ function activate() {
   paneStore.activePaneId = props.paneId
 }
 
-// ---- 行内编辑入口（由工具栏 / 右键触发，转发给 FileList） ----
-
-const fileListRef = ref<InstanceType<typeof FileList> | null>(null)
-
-function startRename(path: string) {
-  fileListRef.value?.startRename(path)
-}
-
-function startNewFolder() {
-  fileListRef.value?.startNewFolder()
-}
-
 // ---- 删除确认对话框 ----
 
 const deleteDialog = ref<string[] | null>(null)
@@ -69,15 +57,9 @@ async function confirmDelete() {
   <section class="pane" @mousedown="activate">
     <TabBar :pane-id="paneId" />
     <template v-if="tab">
-      <PaneToolbar
-        :pane-id="paneId"
-        :tab="tab"
-        @new-folder="startNewFolder"
-        @rename="startRename"
-        @delete="openDelete"
-      />
+      <PaneToolbar :pane-id="paneId" />
       <PathBar :pane-id="paneId" :tab="tab" />
-      <FileList ref="fileListRef" :pane-id="paneId" :tab="tab" @delete="openDelete" />
+      <FileList :pane-id="paneId" :tab="tab" @delete="openDelete" />
     </template>
     <div v-else class="state">没有可用标签</div>
     <StatusBar :pane-id="paneId" />

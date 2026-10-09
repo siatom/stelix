@@ -9,6 +9,8 @@ import type { IndexProgress, IndexStatus } from '../../types'
 
 const pane = usePaneStore()
 const ui = useUiStore()
+const appVersion = __APP_VERSION__
+const commitId = __COMMIT_ID__
 
 const newRoot = ref('')
 const busy = ref(false)
@@ -163,6 +165,8 @@ onUnmounted(() => {
     </section>
 
     <div v-if="error" class="error">操作失败：{{ error }}</div>
+
+    <div class="build-info">版本 {{ appVersion }} · Commit {{ commitId }}</div>
   </div>
 </template>
 
@@ -313,5 +317,14 @@ onUnmounted(() => {
   color: var(--danger);
   font-size: 11px;
   word-break: break-all;
+}
+.build-info {
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  color: var(--fg-dim);
+  font-family: var(--mono);
+  font-size: 10px;
+  text-align: center;
 }
 </style>
