@@ -19,6 +19,9 @@ const ui = useUiStore()
 
 const ROW_H = 26
 const ICON_CAP = 600
+const DRAG_TYPE = 'application/x-file-povit-items'
+const DRAG_FALLBACK_TYPE = 'text/plain'
+const DRAG_PREFIX = 'file-povit:'
 
 const viewMode = computed(() => paneStore.panes.find((p) => p.id === props.paneId)?.viewMode ?? 'details')
 // 先取 store 的过滤+排序结果，再按「隐藏受保护的操作系统文件」剔除（Explorer 语义：hidden && system）
@@ -339,18 +342,25 @@ function onDragStart(ev: DragEvent, entry: FileEntry) {
     paneId: props.paneId,
     paths: props.tab.selected.length ? [...props.tab.selected] : [entry.path],
   }
-  ev.dataTransfer.setData('application/x-file-povit-items', JSON.stringify(payload))
+  const data = JSON.stringify(payload)
+  ev.dataTransfer.setData(DRAG_TYPE, data)
+  // WebView2 在拖放过程中可能不暴露自定义 MIME 类型；用带标记的标准文本类型兼容。
+  ev.dataTransfer.setData(DRAG_FALLBACK_TYPE, `${DRAG_PREFIX}${data}`)
   ev.dataTransfer.effectAllowed = 'copyMove'
 }
 
 function onDragOver(ev: DragEvent) {
-  if (Array.from(ev.dataTransfer?.types ?? []).includes('application/x-file-povit-items')) {
-    ev.dataTransfer!.dropEffect = ev.shiftKey ? 'copy' : 'move'
+  const types = Array.from(ev.dataTransfer?.types ?? [])
+  if (types.includes(DRAG_TYPE) || types.includes(DRAG_FALLBACK_TYPE)) {
+    if (ev.dataTransfer) ev.dataTransfer.dropEffect = ev.shiftKey ? 'copy' : 'move'
   }
 }
 
 function onDrop(ev: DragEvent) {
-  const raw = ev.dataTransfer?.getData('application/x-file-povit-items')
+  const transfer = ev.dataTransfer
+  const custom = transfer?.getData(DRAG_TYPE)
+  const plain = transfer?.getData(DRAG_FALLBACK_TYPE) ?? ''
+  const raw = custom || (plain.startsWith(DRAG_PREFIX) ? plain.slice(DRAG_PREFIX.length) : '')
   if (!raw) return
   try {
     const payload = JSON.parse(raw) as DragPayload

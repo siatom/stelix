@@ -21,7 +21,8 @@
         "maximized": true,
         "visible": false,
         "decorations": true,
-        "devtools": false
+        "devtools": false,
+        "dragDropEnabled": false
       }
     ],
     "security": {
