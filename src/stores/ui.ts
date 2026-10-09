@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 
 /** 左侧栏面板类型 */
-export type PanelKey = 'files' | 'quick' | 'recent' | 'settings'
+export type PanelKey = 'files' | 'recent' | 'settings'
 
 /** 主题模式 */
 export type ThemeMode = 'dark' | 'light'

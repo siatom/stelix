@@ -1,11 +1,10 @@
 <script setup lang="ts">
-// 二级面板容器：按 activePanel 渲染目录树 / 快速访问 / 工作区 / 设置
+// 二级面板容器：按 activePanel 渲染文件导航 / 工作区 / 设置
 import { computed } from 'vue'
 import type { Component } from 'vue'
 import { useUiStore } from '../../stores/ui'
 import type { PanelKey } from '../../stores/ui'
 import FolderTree from './FolderTree.vue'
-import QuickAccess from './QuickAccess.vue'
 import TabGroups from './TabGroups.vue'
 import SettingsPanel from './SettingsPanel.vue'
 
@@ -13,14 +12,12 @@ const ui = useUiStore()
 
 const titles: Record<PanelKey, string> = {
   files: '文件导航',
-  quick: '快速访问',
   recent: '最近 / 标签页组',
   settings: '设置',
 }
 
 const panels: Record<PanelKey, Component> = {
   files: FolderTree,
-  quick: QuickAccess,
   recent: TabGroups,
   settings: SettingsPanel,
 }
