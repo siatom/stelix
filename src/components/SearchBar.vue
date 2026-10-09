@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // 全局搜索栏（Everything 式，走索引引擎）（WS-D）
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useSearchStore } from '../stores/search'
 import { usePaneStore } from '../stores/pane'
 import { useUiStore } from '../stores/ui'
@@ -13,16 +13,33 @@ const paneStore = usePaneStore()
 const ui = useUiStore()
 
 const text = ref('')
+const scope = ref<'global' | 'current'>('global')
 const open = ref(false)
 const rootRef = ref<HTMLElement | null>(null)
+
+const activeTab = computed(() => paneStore.activeTab)
+
+watch(
+  () => [scope.value, paneStore.activePaneId, activeTab.value?.id],
+  ([mode]) => {
+    paneStore.panes.forEach((pane) => pane.tabs.forEach((tab) => (tab.filter = '')))
+    if (mode === 'current' && activeTab.value) activeTab.value.filter = text.value
+  },
+)
 
 let timer: ReturnType<typeof setTimeout> | null = null
 
 const showPanel = computed(
-  () => open.value && (search.searching || search.hits.length > 0 || !!search.error),
+  () => scope.value === 'global' && open.value && (search.searching || search.hits.length > 0 || !!search.error),
 )
 
 function onInput() {
+  if (scope.value === 'current') {
+    if (activeTab.value) activeTab.value.filter = text.value
+    search.clear()
+    open.value = false
+    return
+  }
   open.value = true
   if (timer) clearTimeout(timer)
   timer = setTimeout(() => void search.run(text.value), 150)
@@ -30,8 +47,25 @@ function onInput() {
 
 function clearAll() {
   text.value = ''
+  if (scope.value === 'current' && activeTab.value) activeTab.value.filter = ''
   search.clear()
   open.value = false
+}
+
+function setScope(next: 'global' | 'current') {
+  if (scope.value === next) return
+  scope.value = next
+  if (next === 'current') {
+    search.clear()
+    if (activeTab.value) activeTab.value.filter = text.value
+    open.value = false
+  } else {
+    paneStore.panes.forEach((pane) => pane.tabs.forEach((tab) => (tab.filter = '')))
+    if (text.value.trim()) {
+      open.value = true
+      void search.run(text.value)
+    }
+  }
 }
 
 async function goTo(hit: SearchHit) {
@@ -44,6 +78,7 @@ async function goTo(hit: SearchHit) {
 }
 
 function onEnter() {
+  if (scope.value === 'current') return
   const first = search.hits[0]
   if (first) void goTo(first)
   else void search.run(text.value)
@@ -64,17 +99,21 @@ onBeforeUnmount(() => {
   <div ref="rootRef" class="search-wrap">
     <div class="search-bar" :class="{ focused: open }">
       <span class="icon"><Icon name="search" :size="15" /></span>
+      <div class="scope-switch" role="group" aria-label="搜索范围">
+        <button :class="{ on: scope === 'global' }" @click="setScope('global')">全局</button>
+        <button :class="{ on: scope === 'current' }" @click="setScope('current')">当前目录</button>
+      </div>
       <input
         v-model="text"
-        placeholder="全盘搜索…（支持 ext:pdf  size:>100mb）"
+        :placeholder="scope === 'global' ? '全局搜索…（支持 ext:pdf  size:>100mb）' : '搜索当前 panel 目录…'"
         spellcheck="false"
         @input="onInput"
         @focus="open = true"
         @keyup.enter="onEnter"
         @keyup.esc="open = false"
       />
-      <span v-if="search.searching" class="spinner" />
-      <span v-else-if="text" class="meta">
+      <span v-if="scope === 'global' && search.searching" class="spinner" />
+      <span v-else-if="scope === 'global' && text" class="meta">
         {{ search.hits.length }} 项 / {{ search.elapsedMs.toFixed(1) }}ms
       </span>
       <button v-if="text" class="clear" title="清空" @click="clearAll">
@@ -139,6 +178,25 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   color: var(--fg-muted);
+}
+.scope-switch {
+  flex: none;
+  display: flex;
+  padding: 2px;
+  gap: 1px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.scope-switch button {
+  padding: 2px 7px;
+  border-radius: calc(var(--radius) - 1px);
+  color: var(--fg-muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.scope-switch button.on {
+  background: var(--bg-active);
+  color: var(--accent);
 }
 .meta {
   font-size: 11px;

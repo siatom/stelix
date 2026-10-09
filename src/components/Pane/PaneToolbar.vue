@@ -82,7 +82,6 @@ function requestDelete() {
       </button>
     </div>
 
-    <input v-model="tab.filter" class="filter" placeholder="过滤当前目录…" spellcheck="false" />
     <span v-if="selectedCount" class="sel">已选 {{ selectedCount }}</span>
   </div>
 </template>
@@ -127,12 +126,6 @@ function requestDelete() {
 .views button.on {
   background: var(--bg-active);
   color: var(--accent);
-}
-.filter {
-  flex: 1;
-  min-width: 60px;
-  height: 22px;
-  font-size: 12px;
 }
 .sel {
   flex: none;
