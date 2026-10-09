@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// TODO(WS-C / feat/ui-shell): 左侧图标导航栏（文件导航/快速访问/最近/设置）
+// 左侧图标导航栏：文件导航 / 快速访问 / 最近&工作区 / 设置 + AI 助手开关
 import { useUiStore } from '../../stores/ui'
 import type { PanelKey } from '../../stores/ui'
 
@@ -14,19 +14,33 @@ const items: { key: PanelKey; icon: string; title: string }[] = [
 </script>
 
 <template>
-  <nav class="activity-bar">
+  <nav class="activity-bar" aria-label="主工具栏">
     <button
       v-for="it in items"
       :key="it.key"
+      type="button"
       class="activity-btn"
       :class="{ active: ui.activePanel === it.key && !ui.sidebarCollapsed }"
       :title="it.title"
+      :aria-label="it.title"
       @click="ui.setPanel(it.key)"
     >
       {{ it.icon }}
     </button>
+
     <div class="spacer" />
-    <button class="activity-btn" title="AI 助手" @click="ui.toggleAi()">🤖</button>
+
+    <div class="divider" />
+    <button
+      type="button"
+      class="activity-btn"
+      :class="{ active: ui.aiVisible }"
+      :title="ui.aiVisible ? '隐藏 AI 助手' : '显示 AI 助手'"
+      aria-label="AI 助手"
+      @click="ui.toggleAi()"
+    >
+      🤖
+    </button>
   </nav>
 </template>
 
@@ -50,6 +64,8 @@ const items: { key: PanelKey; icon: string; title: string }[] = [
   display: flex;
   align-items: center;
   justify-content: center;
+  position: relative;
+  transition: background 0.12s ease;
 }
 .activity-btn:hover {
   background: var(--bg-hover);
@@ -60,5 +76,11 @@ const items: { key: PanelKey; icon: string; title: string }[] = [
 }
 .spacer {
   flex: 1;
+}
+.divider {
+  width: 24px;
+  height: 1px;
+  background: var(--border);
+  margin: 4px 0;
 }
 </style>
