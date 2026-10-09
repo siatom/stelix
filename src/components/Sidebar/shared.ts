@@ -1,4 +1,4 @@
-import { desktopDir, documentDir, downloadDir, homeDir } from '@tauri-apps/api/path'
+import { desktopDir, documentDir, downloadDir, homeDir, pictureDir } from '@tauri-apps/api/path'
 import type { IconName } from '../icons/paths'
 
 /** 快速访问条目 */
@@ -40,23 +40,25 @@ const FALLBACK_LOCATIONS: QuickLocation[] = [
 ]
 
 /**
- * 解析用户主目录 / 桌面 / 下载 / 文档。
+ * 解析用户主目录 / 桌面 / 下载 / 文档 / 图片。
  * 依赖 Tauri 的 path 插件（core:default 已包含 path 权限），
  * 任何失败都回退到固定常用路径，保证界面不白屏。
  */
 export async function resolveSystemLocations(): Promise<QuickLocation[]> {
   try {
-    const [home, desktop, downloads, documents] = await Promise.all([
+    const [home, desktop, downloads, documents, pictures] = await Promise.all([
       homeDir(),
       desktopDir(),
       downloadDir(),
       documentDir(),
+      pictureDir(),
     ])
     const items: QuickLocation[] = [
       { label: '主目录', icon: 'home', path: home },
       { label: '桌面', icon: 'monitor', path: desktop },
       { label: '下载', icon: 'download', path: downloads },
       { label: '文档', icon: 'file-text', path: documents },
+      { label: '图片', icon: 'image', path: pictures },
     ]
     return items.filter((it) => !!it.path)
   } catch {
