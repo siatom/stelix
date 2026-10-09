@@ -19,6 +19,11 @@ body {
   user-select: none;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+  color-scheme: dark;
+}
+
+:root[data-theme='light'] body {
+  color-scheme: light;
 }
 
 button {
@@ -31,7 +36,9 @@ button {
   transition:
     background var(--t-fast),
     color var(--t-fast),
-    border-color var(--t-fast);
+    border-color var(--t-fast),
+    box-shadow var(--t-fast),
+    transform var(--t-fast);
 }
 
 input,
@@ -53,6 +60,20 @@ input:focus,
 textarea:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--fg-dim);
+}
+
+button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+button:disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
 }
 
 /* 键盘可达性：仅键盘聚焦时给一圈克制的强调色描边 */
@@ -81,6 +102,11 @@ textarea:focus {
 ::-webkit-scrollbar-thumb:hover {
   background: var(--fg-dim);
   background-clip: padding-box;
+}
+
+::selection {
+  color: var(--fg);
+  background: var(--accent-soft);
 }
 
 /* ---- 根布局：左侧图标栏 | 侧栏面板 | 主区 | AI 面板 ---- */
