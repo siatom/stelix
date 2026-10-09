@@ -935,12 +935,12 @@ fn modified_reply(context: &AiContext, index: &IndexStore, days: i64) -> AiReply
 }
 
 fn keyword_reply(context: &AiContext, index: &IndexStore, input: &str) -> AiReply {
-    let q = SearchQuery {
-        text: input.to_string(),
-        scope: context.active_path.clone(),
-        limit: 200,
-        ..Default::default()
-    };
+    // 复用 WS-A 的查询解析器：支持 ext:pdf / size:>100mb / modified:7d 等高级语法。
+    let mut q = crate::search_engine::parse_query(input);
+    q.scope = context.active_path.clone();
+    if q.limit == 0 {
+        q.limit = 200;
+    }
     let hits = search_with_fallback(index, &q);
     let files: Vec<FileEntry> = hits.into_iter().map(|h| h.entry).collect();
     if files.is_empty() {
