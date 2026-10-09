@@ -196,6 +196,11 @@ impl IndexStore {
     ///
     /// 不依赖 `AppHandle`，供测试与 `start_scan` 内部复用；
     /// 与 `start_scan` 走同一套过滤/写入/prune 逻辑（[`scan_core`]）。
+    ///
+    /// 生产路径目前只走 `start_scan`（异步 + 进度事件），本方法主要服务于
+    /// 端到端测试（见 `end_to_end_index_and_search`），并作为 Phase 2
+    /// 命令行/预索引等同步场景的入口保留。
+    #[allow(dead_code)]
     pub fn scan_blocking(&self, roots: &[String]) -> usize {
         scan_core(&self.entries, roots, |_, _| {})
     }
