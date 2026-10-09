@@ -1,5 +1,6 @@
 // Pane 视图层纯工具函数（路径 / 格式化 / 图标）—— WS-D 拥有。
 import type { FileEntry } from '../../types'
+import type { IconName } from '../icons/paths'
 
 /** 去掉尾部斜杠后的路径 */
 function trimTrailing(p: string): string {
@@ -57,25 +58,62 @@ export function formatTime(ms: number): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
-const EXT_ICONS: Record<string, string> = {
-  txt: '📃', md: '📝', log: '📃', rtf: '📃',
-  pdf: '📕', doc: '📘', docx: '📘', xls: '📗', xlsx: '📗', ppt: '📙', pptx: '📙',
-  jpg: '🖼️', jpeg: '🖼️', png: '🖼️', gif: '🖼️', bmp: '🖼️', webp: '🖼️', svg: '🖼️', ico: '🖼️',
-  mp3: '🎵', wav: '🎵', flac: '🎵', m4a: '🎵', ogg: '🎵',
-  mp4: '🎬', mkv: '🎬', avi: '🎬', mov: '🎬', wmv: '🎬', flv: '🎬',
-  zip: '🗜️', rar: '🗜️', '7z': '🗜️', tar: '🗜️', gz: '🗜️', bz2: '🗜️', xz: '🗜️',
-  exe: '⚙️', msi: '⚙️', bat: '⚙️', cmd: '⚙️', dll: '⚙️', sys: '⚙️',
-  js: '📜', ts: '📜', jsx: '📜', tsx: '📜', vue: '📜', json: '📜', html: '📜', css: '📜',
-  py: '🐍', java: '☕', c: '📜', cpp: '📜', h: '📜', hpp: '📜', cs: '📜', go: '📜', rs: '📜',
-  sh: '⌨️', ps1: '⌨️', yml: '📜', yaml: '📜', toml: '📜', ini: '📜', xml: '📜',
-  iso: '💿', apk: '📦', dmg: '📦',
+/** 文件大类，用于选择图标与配色 */
+export type FileKind =
+  | 'folder'
+  | 'doc'
+  | 'image'
+  | 'video'
+  | 'audio'
+  | 'archive'
+  | 'app'
+  | 'code'
+  | 'disc'
+  | 'file'
+
+const KIND_BY_EXT: Record<string, FileKind> = {}
+
+function register(kind: FileKind, exts: string) {
+  for (const e of exts.split(' ')) KIND_BY_EXT[e] = kind
 }
 
-/** 根据扩展名给出 emoji 图标 */
-export function fileIcon(entry: FileEntry): string {
-  if (entry.isDir) return '📁'
+register('doc', 'txt md log rtf pdf doc docx xls xlsx ppt pptx csv odt ods')
+register('image', 'jpg jpeg png gif bmp webp svg ico tif tiff avif heic psd ai')
+register('video', 'mp4 mkv avi mov wmv flv webm m4v mpg mpeg ts')
+register('audio', 'mp3 wav flac m4a ogg aac wma opus mid')
+register('archive', 'zip rar 7z tar gz bz2 xz zst cab lz4')
+register('app', 'exe msi bat cmd dll sys com scr lnk')
+register('code', 'js mjs cjs ts jsx tsx vue json html htm css scss less py java c cpp h hpp cs go rs rb php swift kt scala sh ps1 yml yaml toml ini xml sql lua r pl')
+register('disc', 'iso img vhd vmdk bin cue')
+
+const KIND_ICON: Record<FileKind, IconName> = {
+  folder: 'folder',
+  doc: 'file-text',
+  image: 'image',
+  video: 'video',
+  audio: 'music',
+  archive: 'archive',
+  app: 'executable',
+  code: 'code',
+  disc: 'disc',
+  file: 'file',
+}
+
+/** 判断文件大类 */
+export function fileKind(entry: FileEntry): FileKind {
+  if (entry.isDir) return 'folder'
   const ext = (entry.ext ?? '').replace(/^\./, '').toLowerCase()
-  return EXT_ICONS[ext] ?? '📄'
+  return KIND_BY_EXT[ext] ?? 'file'
+}
+
+/** 根据大类给出图标名 */
+export function fileIcon(entry: FileEntry): IconName {
+  return KIND_ICON[fileKind(entry)]
+}
+
+/** 目录树里的展开/收起图标 */
+export function folderIcon(expanded: boolean): IconName {
+  return expanded ? 'folder-open' : 'folder'
 }
 
 /** 类型列文案 */

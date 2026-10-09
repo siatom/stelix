@@ -1,0 +1,51 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2c3543"/>
+      <stop offset="1" stop-color="#14171c"/>
+    </linearGradient>
+    <linearGradient id="folder" x1="0" y1="0" x2="0.6" y2="1">
+      <stop offset="0" stop-color="#8fc6ff"/>
+      <stop offset="1" stop-color="#3a86ff"/>
+    </linearGradient>
+    <linearGradient id="lens" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2b3340"/>
+      <stop offset="1" stop-color="#1a1e24"/>
+    </linearGradient>
+    <filter id="soft" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="18" stdDeviation="26" flood-color="#000000" flood-opacity="0.45"/>
+    </filter>
+    <filter id="glow" x="-40%" y="-40%" width="180%" height="180%">
+      <feDropShadow dx="0" dy="0" stdDeviation="22" flood-color="#4a9eff" flood-opacity="0.55"/>
+    </filter>
+  </defs>
+
+  <!-- 圆角方形底 -->
+  <rect width="1024" height="1024" rx="224" fill="url(#bg)"/>
+
+  <!-- 文件夹主体 -->
+  <g filter="url(#soft)">
+    <path d="M 208 372
+             a 44 44 0 0 1 44 -44
+             h 168
+             a 34 34 0 0 1 24 10
+             l 60 60
+             h 312
+             a 44 44 0 0 1 44 44
+             v 300
+             a 44 44 0 0 1 -44 44
+             h -564
+             a 44 44 0 0 1 -44 -44
+             z"
+          fill="url(#folder)"/>
+  </g>
+
+  <!-- 双窗格分隔线 -->
+  <rect x="506" y="452" width="12" height="252" rx="6" fill="#14171c" opacity="0.55"/>
+
+  <!-- 放大镜 -->
+  <g filter="url(#glow)">
+    <circle cx="702" cy="700" r="132" fill="url(#lens)" stroke="#eaf4ff" stroke-width="34"/>
+    <line x1="800" y1="798" x2="892" y2="890" stroke="#eaf4ff" stroke-width="42" stroke-linecap="round"/>
+  </g>
+</svg>

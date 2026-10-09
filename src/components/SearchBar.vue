@@ -5,7 +5,8 @@ import { useSearchStore } from '../stores/search'
 import { usePaneStore } from '../stores/pane'
 import { useUiStore } from '../stores/ui'
 import type { SearchHit } from '../types'
-import { dirname, fileIcon, formatSize } from './Pane/utils'
+import { dirname, fileIcon, fileKind, formatSize } from './Pane/utils'
+import Icon from './icons/Icon.vue'
 
 const search = useSearchStore()
 const paneStore = usePaneStore()
@@ -62,7 +63,7 @@ onBeforeUnmount(() => {
 <template>
   <div ref="rootRef" class="search-wrap">
     <div class="search-bar" :class="{ focused: open }">
-      <span class="icon">🔍</span>
+      <span class="icon"><Icon name="search" :size="15" /></span>
       <input
         v-model="text"
         placeholder="全盘搜索…（支持 ext:pdf  size:>100mb）"
@@ -76,7 +77,9 @@ onBeforeUnmount(() => {
       <span v-else-if="text" class="meta">
         {{ search.hits.length }} 项 / {{ search.elapsedMs.toFixed(1) }}ms
       </span>
-      <button v-if="text" class="clear" title="清空" @click="clearAll">×</button>
+      <button v-if="text" class="clear" title="清空" @click="clearAll">
+        <Icon name="x" :size="13" />
+      </button>
     </div>
 
     <div v-if="showPanel" class="panel">
@@ -91,7 +94,9 @@ onBeforeUnmount(() => {
           :class="{ first: i === 0 }"
           @click="goTo(hit)"
         >
-          <span class="hit-ico">{{ fileIcon(hit.entry) }}</span>
+          <span class="hit-ico" :class="`k-${fileKind(hit.entry)}`">
+            <Icon :name="fileIcon(hit.entry)" :size="14" />
+          </span>
           <span class="hit-main">
             <span class="hit-name">{{ hit.entry.name }}</span>
             <span class="hit-path" :title="dirname(hit.entry.path)">{{ dirname(hit.entry.path) }}</span>
@@ -131,6 +136,8 @@ onBeforeUnmount(() => {
   border: none;
 }
 .icon {
+  display: flex;
+  align-items: center;
   color: var(--fg-muted);
 }
 .meta {
@@ -139,9 +146,9 @@ onBeforeUnmount(() => {
   white-space: nowrap;
 }
 .clear {
+  display: flex;
+  align-items: center;
   color: var(--fg-dim);
-  font-size: 15px;
-  line-height: 1;
   padding: 0 4px;
 }
 .clear:hover {
@@ -189,7 +196,9 @@ onBeforeUnmount(() => {
 }
 .hit-ico {
   flex: none;
-  font-size: 13px;
+  display: flex;
+  align-items: center;
+  color: var(--fg-muted);
 }
 .hit-main {
   flex: 1;
@@ -224,5 +233,37 @@ onBeforeUnmount(() => {
 }
 .panel-state.err {
   color: var(--danger);
+}
+
+/* 与 FileList 保持一致的文件类型配色 */
+.k-folder {
+  color: #7fb2ff;
+}
+.k-doc {
+  color: #e5c07b;
+}
+.k-image {
+  color: #98c379;
+}
+.k-video {
+  color: #c678dd;
+}
+.k-audio {
+  color: #56b6c2;
+}
+.k-archive {
+  color: #d19a66;
+}
+.k-app {
+  color: #e06c75;
+}
+.k-code {
+  color: #61afef;
+}
+.k-disc {
+  color: #abb2bf;
+}
+.k-file {
+  color: var(--fg-muted);
 }
 </style>

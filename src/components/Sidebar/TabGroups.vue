@@ -5,6 +5,7 @@ import { usePaneStore } from '../../stores/pane'
 import { useUiStore } from '../../stores/ui'
 import { loadTabGroups, saveTabGroups } from './shared'
 import type { TabGroup } from './shared'
+import Icon from '../icons/Icon.vue'
 
 const pane = usePaneStore()
 const ui = useUiStore()
@@ -86,7 +87,8 @@ onMounted(() => {
   <div class="tab-groups">
     <div class="tg-toolbar">
       <button class="save-btn" title="保存当前双窗格标签布局" @click="saveCurrent">
-        ＋ 保存当前布局为工作区
+        <Icon name="plus" :size="13" />
+        <span>保存当前布局为工作区</span>
       </button>
     </div>
 
@@ -122,6 +124,10 @@ onMounted(() => {
 .save-btn {
   width: 100%;
   height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
   border-radius: var(--radius);
   border: 1px dashed var(--border-strong);
   color: var(--fg-muted);

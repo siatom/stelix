@@ -4,6 +4,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { api, events } from '../../api'
 import { usePaneStore } from '../../stores/pane'
 import { useUiStore } from '../../stores/ui'
+import Icon from '../icons/Icon.vue'
 import type { IndexProgress, IndexStatus } from '../../types'
 
 const pane = usePaneStore()
@@ -122,7 +123,7 @@ onUnmounted(() => {
         <div v-for="root in ui.indexRoots" :key="root" class="root-item" :title="root">
           <span class="root-path">{{ root }}</span>
           <button class="del" title="移除该根目录" :disabled="busy" @click="removeRoot(root)">
-            ×
+            <Icon name="x" :size="13" />
           </button>
         </div>
       </div>

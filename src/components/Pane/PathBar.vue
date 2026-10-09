@@ -4,6 +4,7 @@ import { computed, nextTick, ref, watch } from 'vue'
 import type { TabState } from '../../types'
 import { usePaneStore } from '../../stores/pane'
 import { joinPath } from './utils'
+import Icon from '../icons/Icon.vue'
 
 const props = defineProps<{ paneId: string; tab: TabState }>()
 const paneStore = usePaneStore()
@@ -62,15 +63,19 @@ watch(
 
 <template>
   <div class="path-bar">
-    <button class="up" title="上级目录" @click="paneStore.goUp(paneId)">↑</button>
+    <button class="up" title="上级目录" @click="paneStore.goUp(paneId)">
+      <Icon name="arrow-up" :size="14" />
+    </button>
     <div v-if="!editing" class="crumbs" title="双击切换为可编辑路径">
       <template v-for="(seg, i) in segments" :key="seg.path">
-        <span v-if="i > 0" class="sep">›</span>
+        <span v-if="i > 0" class="sep"><Icon name="chevron-right" :size="11" /></span>
         <button class="crumb" :class="{ last: i === segments.length - 1 }" @click="go(seg.path)">
           {{ seg.label }}
         </button>
       </template>
-      <button class="edit-toggle" title="编辑路径" @click="startEdit">✎</button>
+      <button class="edit-toggle" title="编辑路径" @click="startEdit">
+        <Icon name="pencil" :size="13" />
+      </button>
     </div>
     <input
       v-else
@@ -99,6 +104,9 @@ watch(
   flex: none;
   width: 24px;
   height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   border-radius: var(--radius);
   color: var(--fg-muted);
 }
@@ -133,15 +141,17 @@ watch(
   color: var(--fg);
 }
 .sep {
+  display: flex;
+  align-items: center;
   color: var(--fg-dim);
-  font-size: 12px;
 }
 .edit-toggle {
   flex: none;
   margin-left: auto;
+  display: flex;
+  align-items: center;
   padding: 2px 6px;
   color: var(--fg-dim);
-  font-size: 12px;
 }
 .edit-toggle:hover {
   color: var(--fg);

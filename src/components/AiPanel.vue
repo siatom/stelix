@@ -3,6 +3,7 @@
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import type { AiConfig } from '../types'
 import { useAiStore } from '../stores/ai'
+import Icon from './icons/Icon.vue'
 
 const ai = useAiStore()
 const draft = ref('')
@@ -95,10 +96,14 @@ const OP_LABEL: Record<string, string> = {
 <template>
   <aside class="ai-panel">
     <header class="ai-head">
-      <span class="title">🤖 AI 助手</span>
+      <span class="title"><Icon name="bot" :size="15" /> AI 助手</span>
       <div class="spacer" />
-      <button class="head-btn" title="设置" @click="showSettings = !showSettings">⚙</button>
-      <button class="head-btn" title="清空对话" @click="ai.clear">🗑</button>
+      <button class="head-btn" title="设置" @click="showSettings = !showSettings">
+        <Icon name="settings" :size="14" />
+      </button>
+      <button class="head-btn" title="清空对话" @click="ai.clear">
+        <Icon name="trash" :size="14" />
+      </button>
     </header>
 
     <!-- 配置区 -->
@@ -140,7 +145,7 @@ const OP_LABEL: Record<string, string> = {
 
       <!-- 写操作二次确认 -->
       <div v-if="confirmSummary" class="confirm">
-        <p class="confirm-title">⚠️ AI 请求执行写操作</p>
+        <p class="confirm-title"><Icon name="alert-triangle" :size="13" /> AI 请求执行写操作</p>
         <ul class="confirm-detail">
           <li>操作：{{ OP_LABEL[confirmSummary.op] ?? confirmSummary.op }}</li>
           <li v-if="confirmSummary.call">工具：{{ confirmSummary.call }}</li>
@@ -167,7 +172,10 @@ const OP_LABEL: Record<string, string> = {
         spellcheck="false"
         @keydown.enter.exact.prevent="send"
       />
-      <button class="send" :disabled="ai.streaming || !draft.trim()" @click="send">发送</button>
+      <button class="send" :disabled="ai.streaming || !draft.trim()" @click="send">
+        <Icon name="send" :size="13" />
+        <span>发送</span>
+      </button>
     </footer>
   </aside>
 </template>
@@ -194,6 +202,9 @@ const OP_LABEL: Record<string, string> = {
   color: var(--fg-muted);
 }
 .title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   color: var(--fg);
 }
 .spacer {
@@ -202,6 +213,9 @@ const OP_LABEL: Record<string, string> = {
 .head-btn {
   width: 24px;
   height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   border-radius: var(--radius);
   color: var(--fg-muted);
 }
@@ -348,6 +362,9 @@ const OP_LABEL: Record<string, string> = {
 }
 .confirm-title {
   margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 5px;
   font-size: 12.5px;
   color: var(--warn);
 }
@@ -408,6 +425,9 @@ const OP_LABEL: Record<string, string> = {
 }
 .send {
   flex: none;
+  display: flex;
+  align-items: center;
+  gap: 5px;
   padding: 6px 14px;
   border-radius: var(--radius);
   background: var(--accent);

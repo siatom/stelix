@@ -5,6 +5,7 @@ import { usePaneStore } from '../../stores/pane'
 import { useUiStore } from '../../stores/ui'
 import { basename, loadFavorites, resolveSystemLocations, saveFavorites } from './shared'
 import type { QuickLocation } from './shared'
+import Icon from '../icons/Icon.vue'
 
 const pane = usePaneStore()
 const ui = useUiStore()
@@ -39,7 +40,7 @@ function addCurrent() {
   if (favorites.value.some((f) => f.path === path)) return
   favorites.value = [
     ...favorites.value,
-    { label: basename(path) || path, icon: '⭐', path },
+    { label: basename(path) || path, icon: 'star', path },
   ]
   saveFavorites(favorites.value)
 }
@@ -56,7 +57,8 @@ onMounted(init)
   <div class="quick-access">
     <div class="qa-toolbar">
       <button class="add-btn" title="将当前目录加入收藏" @click="addCurrent">
-        ＋ 收藏当前目录
+        <Icon name="star" :size="13" />
+        <span>收藏当前目录</span>
       </button>
     </div>
 
@@ -66,7 +68,7 @@ onMounted(init)
       <div v-else-if="error" class="state err">系统路径不可用：{{ error }}</div>
       <ul v-else class="qa-list">
         <li v-for="loc in system" :key="loc.path" :title="loc.path" @click="go(loc.path)">
-          <span class="ico">{{ loc.icon }}</span>
+          <span class="ico"><Icon :name="loc.icon" :size="14" /></span>
           <span class="label">{{ loc.label }}</span>
         </li>
       </ul>
@@ -82,9 +84,11 @@ onMounted(init)
           :title="fav.path"
           @click="go(fav.path)"
         >
-          <span class="ico">{{ fav.icon }}</span>
+          <span class="ico"><Icon :name="fav.icon" :size="14" /></span>
           <span class="label">{{ fav.label }}</span>
-          <button class="del" title="移除收藏" @click.stop="removeFavorite(fav.path)">×</button>
+          <button class="del" title="移除收藏" @click.stop="removeFavorite(fav.path)">
+            <Icon name="x" :size="11" />
+          </button>
         </li>
       </ul>
     </section>
@@ -103,6 +107,10 @@ onMounted(init)
 .add-btn {
   width: 100%;
   height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
   border-radius: var(--radius);
   border: 1px dashed var(--border-strong);
   color: var(--fg-muted);
@@ -144,7 +152,9 @@ onMounted(init)
 }
 .ico {
   flex: none;
-  font-size: 13px;
+  display: flex;
+  align-items: center;
+  color: var(--fg-muted);
 }
 .label {
   flex: 1;
@@ -157,10 +167,11 @@ onMounted(init)
   flex: none;
   width: 16px;
   height: 16px;
-  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   border-radius: var(--radius);
   color: var(--fg-dim);
-  font-size: 13px;
 }
 .del:hover {
   background: var(--danger);

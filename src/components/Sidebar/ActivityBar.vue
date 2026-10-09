@@ -2,14 +2,16 @@
 // 左侧图标导航栏：文件导航 / 快速访问 / 最近&工作区 / 设置 + AI 助手开关
 import { useUiStore } from '../../stores/ui'
 import type { PanelKey } from '../../stores/ui'
+import Icon from '../icons/Icon.vue'
+import type { IconName } from '../icons/paths'
 
 const ui = useUiStore()
 
-const items: { key: PanelKey; icon: string; title: string }[] = [
-  { key: 'files', icon: '📁', title: '文件导航' },
-  { key: 'quick', icon: '⚡', title: '快速访问' },
-  { key: 'recent', icon: '🕐', title: '最近 / 标签页组' },
-  { key: 'settings', icon: '⚙', title: '设置' },
+const items: { key: PanelKey; icon: IconName; title: string }[] = [
+  { key: 'files', icon: 'folder', title: '文件导航' },
+  { key: 'quick', icon: 'star', title: '快速访问' },
+  { key: 'recent', icon: 'clock', title: '最近 / 标签页组' },
+  { key: 'settings', icon: 'settings', title: '设置' },
 ]
 </script>
 
@@ -25,7 +27,7 @@ const items: { key: PanelKey; icon: string; title: string }[] = [
       :aria-label="it.title"
       @click="ui.setPanel(it.key)"
     >
-      {{ it.icon }}
+      <Icon :name="it.icon" :size="19" />
     </button>
 
     <div class="spacer" />
@@ -39,7 +41,7 @@ const items: { key: PanelKey; icon: string; title: string }[] = [
       aria-label="AI 助手"
       @click="ui.toggleAi()"
     >
-      🤖
+      <Icon name="bot" :size="19" />
     </button>
   </nav>
 </template>
@@ -59,19 +61,23 @@ const items: { key: PanelKey; icon: string; title: string }[] = [
 .activity-btn {
   width: 38px;
   height: 38px;
-  font-size: 18px;
   border-radius: var(--radius);
+  color: var(--fg-muted);
   display: flex;
   align-items: center;
   justify-content: center;
   position: relative;
-  transition: background 0.12s ease;
+  transition:
+    background 0.12s ease,
+    color 0.12s ease;
 }
 .activity-btn:hover {
   background: var(--bg-hover);
+  color: var(--fg);
 }
 .activity-btn.active {
   background: var(--bg-active);
+  color: var(--accent);
   box-shadow: inset 2px 0 0 var(--accent);
 }
 .spacer {

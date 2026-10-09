@@ -4,6 +4,8 @@ import { computed } from 'vue'
 import type { TabState, ViewMode } from '../../types'
 import { usePaneStore } from '../../stores/pane'
 import { useUiStore } from '../../stores/ui'
+import Icon from '../icons/Icon.vue'
+import type { IconName } from '../icons/paths'
 
 const props = defineProps<{ paneId: string; tab: TabState }>()
 const emit = defineEmits<{
@@ -17,10 +19,10 @@ const ui = useUiStore()
 
 const pane = computed(() => paneStore.panes.find((p) => p.id === props.paneId))
 
-const modes: { key: ViewMode; icon: string; title: string }[] = [
-  { key: 'details', icon: '☰', title: '详细' },
-  { key: 'list', icon: '≣', title: '列表' },
-  { key: 'icons', icon: '▦', title: '图标' },
+const modes: { key: ViewMode; icon: IconName; title: string }[] = [
+  { key: 'details', icon: 'view-details', title: '详细' },
+  { key: 'list', icon: 'view-list', title: '列表' },
+  { key: 'icons', icon: 'view-icons', title: '图标' },
 ]
 
 const sortOptions: { key: TabState['sortKey']; label: string }[] = [
@@ -46,17 +48,33 @@ function requestDelete() {
 <template>
   <div class="pane-toolbar">
     <div class="group">
-      <button title="后退" :disabled="!paneStore.canGoBack(paneId)" @click="paneStore.goBack(paneId)">←</button>
-      <button title="前进" :disabled="!paneStore.canGoForward(paneId)" @click="paneStore.goForward(paneId)">→</button>
-      <button title="上级目录" @click="paneStore.goUp(paneId)">↑</button>
-      <button title="刷新" @click="paneStore.refresh(paneId)">⟳</button>
+      <button title="后退" :disabled="!paneStore.canGoBack(paneId)" @click="paneStore.goBack(paneId)">
+        <Icon name="arrow-left" />
+      </button>
+      <button title="前进" :disabled="!paneStore.canGoForward(paneId)" @click="paneStore.goForward(paneId)">
+        <Icon name="arrow-right" />
+      </button>
+      <button title="上级目录" @click="paneStore.goUp(paneId)">
+        <Icon name="arrow-up" />
+      </button>
+      <button title="刷新" @click="paneStore.refresh(paneId)">
+        <Icon name="refresh" />
+      </button>
     </div>
 
     <div class="group">
-      <button title="新建文件夹" @click="emit('new-folder')">＋📁</button>
-      <button title="重命名选中项" @click="requestRename">✎</button>
-      <button title="删除选中项" @click="requestDelete">🗑</button>
-      <button title="复制到对侧窗格" @click="paneStore.copyToOtherPane(paneId)">⇄</button>
+      <button title="新建文件夹" @click="emit('new-folder')">
+        <Icon name="folder-plus" />
+      </button>
+      <button title="重命名选中项" @click="requestRename">
+        <Icon name="pencil" />
+      </button>
+      <button title="删除选中项" @click="requestDelete">
+        <Icon name="trash" />
+      </button>
+      <button title="复制到对侧窗格" @click="paneStore.copyToOtherPane(paneId)">
+        <Icon name="swap" />
+      </button>
     </div>
 
     <div class="group views">
@@ -67,7 +85,7 @@ function requestDelete() {
         :title="m.title"
         @click="paneStore.setViewMode(paneId, m.key)"
       >
-        {{ m.icon }}
+        <Icon :name="m.icon" />
       </button>
     </div>
 
@@ -80,7 +98,7 @@ function requestDelete() {
       <option v-for="o in sortOptions" :key="o.key" :value="o.key">{{ o.label }}</option>
     </select>
     <button class="order" :title="tab.sortAsc ? '升序' : '降序'" @click="paneStore.toggleSort(tab, tab.sortKey)">
-      {{ tab.sortAsc ? '▲' : '▼' }}
+      <Icon :name="tab.sortAsc ? 'chevron-up' : 'chevron-down'" :size="13" />
     </button>
 
     <input v-model="tab.filter" class="filter" placeholder="过滤当前目录…" spellcheck="false" />

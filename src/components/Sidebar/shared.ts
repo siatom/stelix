@@ -1,9 +1,10 @@
 import { desktopDir, documentDir, downloadDir, homeDir } from '@tauri-apps/api/path'
+import type { IconName } from '../icons/paths'
 
 /** 快速访问条目 */
 export interface QuickLocation {
   label: string
-  icon: string
+  icon: IconName
   path: string
 }
 
@@ -33,9 +34,9 @@ export const TABGROUPS_KEY = 'file-povit.tabgroups'
 
 /** 系统路径不可用时的兜底常用位置 */
 const FALLBACK_LOCATIONS: QuickLocation[] = [
-  { label: 'C 盘根目录', icon: '💽', path: 'C:\\' },
-  { label: '公共用户', icon: '👤', path: 'C:\\Users\\Public' },
-  { label: 'Windows', icon: '🪟', path: 'C:\\Windows' },
+  { label: 'C 盘根目录', icon: 'drive', path: 'C:\\' },
+  { label: '公共用户', icon: 'user', path: 'C:\\Users\\Public' },
+  { label: 'Windows', icon: 'windows', path: 'C:\\Windows' },
 ]
 
 /**
@@ -52,10 +53,10 @@ export async function resolveSystemLocations(): Promise<QuickLocation[]> {
       documentDir(),
     ])
     const items: QuickLocation[] = [
-      { label: '主目录', icon: '🏠', path: home },
-      { label: '桌面', icon: '🖥', path: desktop },
-      { label: '下载', icon: '⬇', path: downloads },
-      { label: '文档', icon: '📄', path: documents },
+      { label: '主目录', icon: 'home', path: home },
+      { label: '桌面', icon: 'monitor', path: desktop },
+      { label: '下载', icon: 'download', path: downloads },
+      { label: '文档', icon: 'file-text', path: documents },
     ]
     return items.filter((it) => !!it.path)
   } catch {
@@ -76,7 +77,7 @@ export function loadFavorites(): QuickLocation[] {
       )
       .map((x) => ({
         label: x.label || x.path,
-        icon: x.icon || '⭐',
+        icon: (x.icon || 'star') as IconName,
         path: x.path,
       }))
   } catch {

@@ -6,7 +6,8 @@ import { openPath } from '@tauri-apps/plugin-opener'
 import type { FileEntry, TabState } from '../../types'
 import { usePaneStore } from '../../stores/pane'
 import { useUiStore } from '../../stores/ui'
-import { fileIcon, formatSize, formatTime, typeLabel } from './utils'
+import { fileIcon, fileKind, formatSize, formatTime, typeLabel } from './utils'
+import Icon from '../icons/Icon.vue'
 
 const props = defineProps<{ paneId: string; tab: TabState }>()
 const emit = defineEmits<{
@@ -182,18 +183,18 @@ const emptyByFilter = computed(() => hasEntries.value && rows.value.length === 0
 
     <!-- 错误 -->
     <div v-else-if="tab.error" class="state error">
-      <p class="big">⚠️</p>
+      <Icon name="alert-triangle" :size="30" class="big-ico" />
       <p class="msg">{{ tab.error }}</p>
       <button class="retry" @click="paneStore.refresh(paneId)">重试</button>
     </div>
 
     <!-- 空目录 / 无匹配 -->
     <div v-else-if="!hasEntries" class="state">
-      <p class="big">📂</p>
+      <Icon name="folder-open" :size="30" class="big-ico" />
       <p>此目录为空</p>
     </div>
     <div v-else-if="emptyByFilter" class="state">
-      <p class="big">🔍</p>
+      <Icon name="search" :size="30" class="big-ico" />
       <p>没有匹配「{{ tab.filter }}」的条目</p>
     </div>
 
@@ -202,16 +203,16 @@ const emptyByFilter = computed(() => hasEntries.value && rows.value.length === 0
       <div v-if="viewMode === 'details'" class="header">
         <span class="col-ico" />
         <button class="col name" @click="paneStore.toggleSort(tab, 'name')">
-          名称 <span v-if="tab.sortKey === 'name'">{{ tab.sortAsc ? '▲' : '▼' }}</span>
+          名称 <Icon v-if="tab.sortKey === 'name'" :name="tab.sortAsc ? 'chevron-up' : 'chevron-down'" :size="11" />
         </button>
         <button class="col size" @click="paneStore.toggleSort(tab, 'size')">
-          大小 <span v-if="tab.sortKey === 'size'">{{ tab.sortAsc ? '▲' : '▼' }}</span>
+          大小 <Icon v-if="tab.sortKey === 'size'" :name="tab.sortAsc ? 'chevron-up' : 'chevron-down'" :size="11" />
         </button>
         <button class="col time" @click="paneStore.toggleSort(tab, 'modified')">
-          修改时间 <span v-if="tab.sortKey === 'modified'">{{ tab.sortAsc ? '▲' : '▼' }}</span>
+          修改时间 <Icon v-if="tab.sortKey === 'modified'" :name="tab.sortAsc ? 'chevron-up' : 'chevron-down'" :size="11" />
         </button>
         <button class="col type" @click="paneStore.toggleSort(tab, 'ext')">
-          类型 <span v-if="tab.sortKey === 'ext'">{{ tab.sortAsc ? '▲' : '▼' }}</span>
+          类型 <Icon v-if="tab.sortKey === 'ext'" :name="tab.sortAsc ? 'chevron-up' : 'chevron-down'" :size="11" />
         </button>
       </div>
 
@@ -227,7 +228,9 @@ const emptyByFilter = computed(() => hasEntries.value && rows.value.length === 0
             @dblclick="onDblClick(rows[vi.index])"
             @contextmenu="openCtx($event, rows[vi.index])"
           >
-            <span class="ico">{{ fileIcon(rows[vi.index]) }}</span>
+            <span class="ico" :class="`k-${fileKind(rows[vi.index])}`">
+              <Icon :name="fileIcon(rows[vi.index])" :size="14" />
+            </span>
             <span class="nm" :title="rows[vi.index].path">{{ rows[vi.index].name }}</span>
             <template v-if="viewMode === 'details'">
               <span class="size">{{ formatSize(rows[vi.index].size, rows[vi.index].isDir) }}</span>
@@ -251,7 +254,9 @@ const emptyByFilter = computed(() => hasEntries.value && rows.value.length === 0
           @dblclick="onDblClick(entry)"
           @contextmenu="openCtx($event, entry)"
         >
-          <span class="icon-big">{{ fileIcon(entry) }}</span>
+          <span class="icon-big" :class="`k-${fileKind(entry)}`">
+            <Icon :name="fileIcon(entry)" :size="30" :stroke-width="1.4" />
+          </span>
           <span class="icon-name">{{ entry.name }}</span>
         </div>
       </div>
@@ -307,9 +312,11 @@ const emptyByFilter = computed(() => hasEntries.value && rows.value.length === 0
   padding: 20px;
   text-align: center;
 }
-.state .big {
-  font-size: 28px;
-  margin: 0;
+.state .big-ico {
+  color: var(--fg-dim);
+}
+.state.error .big-ico {
+  color: var(--danger);
 }
 .state .msg {
   max-width: 90%;
@@ -368,9 +375,9 @@ const emptyByFilter = computed(() => hasEntries.value && rows.value.length === 0
 .header .col:hover {
   color: var(--fg);
 }
-.header .col span {
-  font-size: 9px;
+.header .col .icon {
   color: var(--accent);
+  vertical-align: -0.1em;
 }
 
 /* 虚拟滚动 */
@@ -404,8 +411,10 @@ const emptyByFilter = computed(() => hasEntries.value && rows.value.length === 0
   background: var(--bg-selected);
 }
 .row .ico {
-  font-size: 13px;
-  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--fg-muted);
 }
 .row .nm {
   overflow: hidden;
@@ -458,8 +467,10 @@ const emptyByFilter = computed(() => hasEntries.value && rows.value.length === 0
   background: var(--bg-selected);
 }
 .icon-big {
-  font-size: 30px;
-  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 32px;
 }
 .icon-name {
   font-size: 11.5px;
@@ -513,5 +524,37 @@ const emptyByFilter = computed(() => hasEntries.value && rows.value.length === 0
   height: 1px;
   margin: 4px 6px;
   background: var(--border);
+}
+
+/* ---- 文件类型配色：让列表在不依赖彩色 emoji 的前提下仍有辨识度 ---- */
+.k-folder {
+  color: #7fb2ff;
+}
+.k-doc {
+  color: #e5c07b;
+}
+.k-image {
+  color: #98c379;
+}
+.k-video {
+  color: #c678dd;
+}
+.k-audio {
+  color: #56b6c2;
+}
+.k-archive {
+  color: #d19a66;
+}
+.k-app {
+  color: #e06c75;
+}
+.k-code {
+  color: #61afef;
+}
+.k-disc {
+  color: #abb2bf;
+}
+.k-file {
+  color: var(--fg-muted);
 }
 </style>

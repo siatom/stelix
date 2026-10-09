@@ -7,6 +7,7 @@ import TabBar from './TabBar.vue'
 import PaneToolbar from './PaneToolbar.vue'
 import PathBar from './PathBar.vue'
 import FileList from './FileList.vue'
+import Icon from '../icons/Icon.vue'
 
 const props = defineProps<{ paneId: string }>()
 
@@ -111,7 +112,7 @@ async function confirmDelete() {
 
     <div v-if="errorMsg" class="error-bar">
       <span>{{ errorMsg }}</span>
-      <button @click="errorMsg = null">×</button>
+      <button @click="errorMsg = null"><Icon name="x" :size="13" /></button>
     </div>
 
     <!-- 名称对话框 -->

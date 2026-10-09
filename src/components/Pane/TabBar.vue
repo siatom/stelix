@@ -3,6 +3,7 @@
 import { computed } from 'vue'
 import { usePaneStore } from '../../stores/pane'
 import { basename } from './utils'
+import Icon from '../icons/Icon.vue'
 
 const props = defineProps<{ paneId: string }>()
 const paneStore = usePaneStore()
@@ -44,10 +45,13 @@ function onContext(ev: MouseEvent, tabId: string) {
         class="tab-close"
         title="关闭标签"
         @click.stop="paneStore.closeTab(paneId, t.id)"
-        >×</span
       >
+        <Icon name="x" :size="12" />
+      </span>
     </button>
-    <button class="tab-add" title="新建标签" @click="paneStore.addTab(paneId)">+</button>
+    <button class="tab-add" title="新建标签" @click="paneStore.addTab(paneId)">
+      <Icon name="plus" :size="14" />
+    </button>
   </div>
 </template>
 
@@ -91,9 +95,9 @@ function onContext(ev: MouseEvent, tabId: string) {
   text-overflow: ellipsis;
 }
 .tab-close {
-  font-size: 14px;
-  line-height: 1;
-  padding: 0 2px;
+  display: flex;
+  align-items: center;
+  padding: 1px;
   border-radius: 3px;
   color: var(--fg-dim);
 }
@@ -102,6 +106,8 @@ function onContext(ev: MouseEvent, tabId: string) {
   color: var(--fg);
 }
 .tab-add {
+  display: flex;
+  align-items: center;
   padding: 0 10px;
   color: var(--fg-muted);
   border-radius: var(--radius);

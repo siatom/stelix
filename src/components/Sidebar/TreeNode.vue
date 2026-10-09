@@ -3,6 +3,8 @@
 import { ref } from 'vue'
 import { api } from '../../api'
 import type { TreeNodeData } from './shared'
+import Icon from '../icons/Icon.vue'
+import { folderIcon } from '../Pane/utils'
 
 const props = defineProps<{ node: TreeNodeData; depth: number }>()
 const emit = defineEmits<{ (e: 'navigate', path: string): void }>()
@@ -49,8 +51,10 @@ const childPad = (d: number) => `${d * 12 + 22}px`
       :title="node.path"
       @click="emit('navigate', node.path)"
     >
-      <span class="twist" :class="{ open: expanded }" @click.stop="toggle">▸</span>
-      <span class="ico">{{ expanded ? '📂' : '📁' }}</span>
+      <span class="twist" :class="{ open: expanded }" @click.stop="toggle">
+        <Icon name="chevron-right" :size="11" />
+      </span>
+      <span class="ico"><Icon :name="folderIcon(expanded)" :size="14" /></span>
       <span class="label">{{ node.name }}</span>
     </div>
 
@@ -93,17 +97,23 @@ const childPad = (d: number) => `${d * 12 + 22}px`
 .twist {
   width: 12px;
   flex: none;
-  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   color: var(--fg-dim);
-  font-size: 10px;
   transition: transform 0.12s ease;
+}
+.twist:hover {
+  color: var(--fg);
 }
 .twist.open {
   transform: rotate(90deg);
 }
 .ico {
   flex: none;
-  font-size: 12px;
+  display: flex;
+  align-items: center;
+  color: var(--accent);
 }
 .label {
   flex: 1;
