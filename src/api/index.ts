@@ -32,6 +32,9 @@ export const api = {
     invoke<ToolOutcome>('ai_execute_tool', { call, approved }),
   aiConfigGet: () => invoke<AiConfig>('ai_config_get'),
   aiConfigSet: (config: AiConfig) => invoke<void>('ai_config_set', { config }),
+
+  autostartGet: () => invoke<boolean>('autostart_get'),
+  autostartSet: (enabled: boolean) => invoke<void>('autostart_set', { enabled }),
 }
 
 /** 后端事件订阅 */

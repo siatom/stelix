@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { computed, ref, watch } from 'vue'
 import { homeDir } from '@tauri-apps/api/path'
 import { api } from '../api'
-import type { FileEntry, FsOp, FsOpResult, PaneState, TabState, ViewMode } from '../types'
+import type { FileEntry, FsOp, FsOpResult, PaneState, SearchHit, TabState, ViewMode } from '../types'
 import { useUiStore } from './ui'
 import { dirname } from '../components/Pane/utils'
 
@@ -148,16 +148,26 @@ export const usePaneStore = defineStore('pane', () => {
   function savePanePaths() {
     if (!pathsReady) return
     try {
-      const paths = Object.fromEntries(
-        panes.value.map((pane) => [
-          pane.id,
-          {
-            tabs: pane.tabs.map((tab) => tab.path),
-            activeTabIndex: Math.max(0, pane.tabs.findIndex((tab) => tab.id === pane.activeTabId)),
-            viewMode: pane.viewMode,
-          },
-        ]),
-      )
+      const paths: Record<string, SavedPanePaths> = {}
+      for (const pane of panes.value) {
+        // 搜索标签不持久化：命中结果无法跨会话还原，恢复时会被当成普通目录标签（表现为重复目录）。
+        const fileTabs = pane.tabs.filter((tab) => tab.kind !== 'search')
+        if (!fileTabs.length) continue
+        let activeTabIndex = fileTabs.findIndex((tab) => tab.id === pane.activeTabId)
+        if (activeTabIndex < 0) {
+          // 活动标签是搜索标签时，退回其左侧最近的文件标签。
+          const activePos = pane.tabs.findIndex((tab) => tab.id === pane.activeTabId)
+          const before = pane.tabs
+            .slice(0, activePos < 0 ? pane.tabs.length : activePos)
+            .filter((tab) => tab.kind !== 'search').length
+          activeTabIndex = Math.min(Math.max(before - 1, 0), fileTabs.length - 1)
+        }
+        paths[pane.id] = {
+          tabs: fileTabs.map((tab) => tab.path),
+          activeTabIndex,
+          viewMode: pane.viewMode,
+        }
+      }
       localStorage.setItem(PANE_PATHS_KEY, JSON.stringify(paths))
     } catch {
       /* 忽略持久化失败，与其他本地偏好保持一致 */
@@ -242,6 +252,9 @@ export const usePaneStore = defineStore('pane', () => {
     if (!pane) return
     const tab = tabId ? pane.tabs.find((t) => t.id === tabId) : activeTabOf(pane)
     if (!tab) return
+    tab.kind = 'files'
+    tab.title = undefined
+    tab.searchQuery = undefined
     tab.path = path
     if (pushHistory) recordHistory(tab.id, path)
     await load(tab)
@@ -333,6 +346,34 @@ export const usePaneStore = defineStore('pane', () => {
       const reactiveTab = pane.tabs.find((item) => item.id === tab.id)
       if (reactiveTab) void load(reactiveTab)
     }
+  }
+
+  /** 在活动窗格创建搜索结果标签；后续同一次输入只更新该标签。 */
+  function showSearchResults(query: string, hits: SearchHit[], tabId?: string): string | undefined {
+    const pane = activePane.value
+    if (!pane) return undefined
+    const existing = tabId ? pane.tabs.find((tab) => tab.id === tabId) : undefined
+    if (existing) {
+      existing.kind = 'search'
+      existing.searchQuery = query
+      existing.title = '搜索结果'
+      existing.entries = hits.map((hit) => hit.entry)
+      existing.loading = false
+      existing.error = null
+      existing.selected = []
+      pane.activeTabId = existing.id
+      return existing.id
+    }
+
+    const tab = makeTab(activeTabOf(pane)?.path ?? fallbackHome)
+    tab.kind = 'search'
+    tab.searchQuery = query
+    tab.title = '搜索结果'
+    tab.entries = hits.map((hit) => hit.entry)
+    pane.tabs.push(tab)
+    pane.activeTabId = tab.id
+    recordHistory(tab.id, tab.path)
+    return tab.id
   }
 
   function closeTab(paneId: string, tabId: string) {
@@ -583,6 +624,7 @@ export const usePaneStore = defineStore('pane', () => {
     refresh,
     reveal,
     addTab,
+    showSearchResults,
     closeTab,
     duplicateTab,
     setActiveTab,

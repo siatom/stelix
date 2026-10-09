@@ -110,6 +110,10 @@ export interface AiConfig {
 export interface TabState {
   id: string
   path: string
+  /** 搜索结果标签页使用的标题和查询词 */
+  kind?: 'files' | 'search'
+  title?: string
+  searchQuery?: string
   entries: FileEntry[]
   loading: boolean
   error: string | null

@@ -391,7 +391,7 @@ function onDrop(ev: DragEvent) {
     <!-- 空目录 / 无匹配 -->
     <div v-else-if="!hasEntries && !editingMkdir" class="state">
       <Icon name="folder-open" :size="30" class="big-ico" />
-      <p>此目录为空</p>
+      <p>{{ tab.kind === 'search' ? '没有找到匹配项' : '此目录为空' }}</p>
     </div>
     <div v-else-if="emptyByProtect && !editingMkdir" class="state">
       <Icon name="folder-open" :size="30" class="big-ico" />

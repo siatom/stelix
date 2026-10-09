@@ -59,7 +59,10 @@ async function confirmDelete() {
     <template v-if="tab">
       <div class="pane-topbar" :class="{ 'is-active': isActivePane }">
         <PaneToolbar :pane-id="paneId" />
-        <PathBar :pane-id="paneId" :tab="tab" />
+        <div v-if="tab.kind === 'search'" class="search-heading" :title="tab.searchQuery">
+          搜索结果：{{ tab.searchQuery }}
+        </div>
+        <PathBar v-else :pane-id="paneId" :tab="tab" />
       </div>
       <FileList :pane-id="paneId" :tab="tab" @delete="openDelete" />
     </template>
@@ -123,6 +126,18 @@ async function confirmDelete() {
   flex: 1;
   min-width: 0;
   border-bottom: 0;
+}
+.search-heading {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  color: var(--fg-muted);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .pane-topbar.is-active {
   background: var(--pane-title-bg-active);

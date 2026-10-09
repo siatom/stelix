@@ -10,8 +10,8 @@ const paneStore = usePaneStore()
 
 const pane = computed(() => paneStore.panes.find((p) => p.id === props.paneId))
 const isActive = computed(() => paneStore.activePaneId === props.paneId)
-function label(path: string): string {
-  return basename(path) || path
+function label(tab: { path: string; title?: string }): string {
+  return tab.title || basename(tab.path) || tab.path
 }
 
 function onMiddle(ev: MouseEvent, tabId: string) {
@@ -35,12 +35,12 @@ function onContext(ev: MouseEvent, tabId: string) {
         :key="t.id"
         class="tab"
         :class="{ active: t.id === pane?.activeTabId }"
-        :title="t.path"
+        :title="t.title || t.path"
         @click="paneStore.setActiveTab(paneId, t.id)"
         @mousedown.middle="onMiddle($event, t.id)"
         @contextmenu="onContext($event, t.id)"
       >
-        <span class="tab-name">{{ label(t.path) }}</span>
+        <span class="tab-name">{{ label(t) }}</span>
         <span
           v-if="(pane?.tabs.length ?? 0) > 1"
           class="tab-close"
