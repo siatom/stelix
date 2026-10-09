@@ -43,6 +43,16 @@ const items: { key: PanelKey; icon: IconName; title: string }[] = [
     >
       <Icon name="bot" :size="19" />
     </button>
+
+    <button
+      type="button"
+      class="activity-btn"
+      :title="ui.theme === 'dark' ? '切换到浅色主题' : '切换到深色主题'"
+      aria-label="切换主题"
+      @click="ui.toggleTheme()"
+    >
+      <Icon :name="ui.theme === 'dark' ? 'sun' : 'moon'" :size="19" />
+    </button>
   </nav>
 </template>
 
