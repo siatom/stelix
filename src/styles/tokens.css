@@ -66,7 +66,7 @@
   --ico-disc: #9aa5b1;
   --ico-file: var(--fg-muted);
 
-  --font: -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  --font: 'Microsoft YaHei', 'Segoe UI', -apple-system, sans-serif;
   --mono: 'Cascadia Mono', 'Consolas', monospace;
 }
 

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 窗格内嵌工具栏（替代传统顶部菜单）：导航 / 文件操作 / 视图 / 排序 / 本地过滤（WS-D）
+// 窗格内嵌工具栏（替代传统顶部菜单）：导航 / 文件操作 / 视图 / 本地过滤（WS-D）
 import { computed } from 'vue'
 import type { TabState, ViewMode } from '../../types'
 import { usePaneStore } from '../../stores/pane'
@@ -23,13 +23,6 @@ const modes: { key: ViewMode; icon: IconName; title: string }[] = [
   { key: 'details', icon: 'view-details', title: '详细' },
   { key: 'list', icon: 'view-list', title: '列表' },
   { key: 'icons', icon: 'view-icons', title: '图标' },
-]
-
-const sortOptions: { key: TabState['sortKey']; label: string }[] = [
-  { key: 'name', label: '名称' },
-  { key: 'size', label: '大小' },
-  { key: 'modified', label: '修改时间' },
-  { key: 'ext', label: '类型' },
 ]
 
 const selectedCount = computed(() => props.tab.selected.length)
@@ -89,18 +82,6 @@ function requestDelete() {
       </button>
     </div>
 
-    <select
-      class="sort"
-      :value="tab.sortKey"
-      title="排序字段"
-      @change="paneStore.toggleSort(tab, ($event.target as HTMLSelectElement).value as TabState['sortKey'])"
-    >
-      <option v-for="o in sortOptions" :key="o.key" :value="o.key">{{ o.label }}</option>
-    </select>
-    <button class="order" :title="tab.sortAsc ? '升序' : '降序'" @click="paneStore.toggleSort(tab, tab.sortKey)">
-      <Icon :name="tab.sortAsc ? 'chevron-up' : 'chevron-down'" :size="13" />
-    </button>
-
     <input v-model="tab.filter" class="filter" placeholder="过滤当前目录…" spellcheck="false" />
     <span v-if="selectedCount" class="sel">已选 {{ selectedCount }}</span>
   </div>
@@ -146,26 +127,6 @@ function requestDelete() {
 .views button.on {
   background: var(--bg-active);
   color: var(--accent);
-}
-.sort {
-  flex: none;
-  height: 22px;
-  background: var(--bg-input);
-  color: var(--fg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  font-size: 12px;
-  padding: 0 2px;
-}
-.order {
-  flex: none;
-  width: 20px;
-  height: 22px;
-  color: var(--fg-muted);
-  font-size: 10px;
-}
-.order:hover {
-  color: var(--fg);
 }
 .filter {
   flex: 1;
