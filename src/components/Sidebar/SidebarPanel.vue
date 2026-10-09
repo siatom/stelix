@@ -12,7 +12,7 @@ import SearchBar from '../SearchBar.vue'
 const ui = useUiStore()
 
 const titles: Record<PanelKey, string> = {
-  files: 'File Pivot',
+  files: '文件导航',
   recent: '最近 / 标签页组',
   search: '搜索',
   settings: '设置',
@@ -56,7 +56,7 @@ const current = computed(() => panels[ui.activePanel])
   display: flex;
   align-items: center;
   padding: 0 10px;
-  font-size: 20px;
+  font-size: 14px;
   font-weight: 700;
   color: var(--fg);
   border-bottom: 1px solid transparent;
@@ -66,8 +66,5 @@ const current = computed(() => panels[ui.activePanel])
   flex: 1;
   overflow: auto;
   padding: 6px;
-}
-.sidebar-body.files-panel {
-  padding-top: 14px;
 }
 </style>
