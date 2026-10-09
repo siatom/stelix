@@ -13,7 +13,14 @@ export const useSearchStore = defineStore('search', () => {
 
   async function run(text?: string) {
     if (text !== undefined) query.value = text
-    const q: SearchQuery = { text: query.value, limit: 500 }
+    const trimmed = query.value.trim()
+    if (!trimmed) {
+      hits.value = []
+      elapsedMs.value = 0
+      error.value = null
+      return
+    }
+    const q: SearchQuery = { text: trimmed, limit: 500 }
     searching.value = true
     error.value = null
     const t0 = performance.now()

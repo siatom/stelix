@@ -1,7 +1,12 @@
 <script setup lang="ts">
-// TODO(WS-D / feat/ui-panes): 单个窗格 = 标签栏 + 内嵌工具栏 + 文件列表（虚拟滚动）
-import { computed } from 'vue'
+// 单个窗格 = 标签栏 + 内嵌工具栏 + 面包屑 + 文件列表（虚拟滚动）（WS-D）
+import { computed, ref } from 'vue'
 import { usePaneStore } from '../../stores/pane'
+import { basename, dirname, joinPath } from './utils'
+import TabBar from './TabBar.vue'
+import PaneToolbar from './PaneToolbar.vue'
+import PathBar from './PathBar.vue'
+import FileList from './FileList.vue'
 
 const props = defineProps<{ paneId: string }>()
 
@@ -12,27 +17,135 @@ const tab = computed(() => {
   if (!p) return undefined
   return p.tabs.find((t) => t.id === p.activeTabId) ?? p.tabs[0]
 })
+
+function activate() {
+  paneStore.activePaneId = props.paneId
+}
+
+// ---- 名称对话框（新建文件夹 / 重命名） ----
+
+interface NameDialog {
+  mode: 'mkdir' | 'rename'
+  value: string
+  target?: string
+}
+const nameDialog = ref<NameDialog | null>(null)
+const deleteDialog = ref<string[] | null>(null)
+const errorMsg = ref<string | null>(null)
+const busy = ref(false)
+
+function openMkdir() {
+  errorMsg.value = null
+  nameDialog.value = { mode: 'mkdir', value: '' }
+}
+
+function openRename(path: string) {
+  errorMsg.value = null
+  nameDialog.value = { mode: 'rename', value: basename(path), target: path }
+}
+
+function openDelete(paths: string[]) {
+  errorMsg.value = null
+  deleteDialog.value = [...paths]
+}
+
+function closeDialogs() {
+  nameDialog.value = null
+  deleteDialog.value = null
+}
+
+async function confirmName() {
+  const d = nameDialog.value
+  const t = tab.value
+  if (!d || !t) return
+  const name = d.value.trim()
+  if (!name) return
+  busy.value = true
+  try {
+    if (d.mode === 'mkdir') {
+      const res = await paneStore.runFs(props.paneId, { op: 'mkdir', target: joinPath(t.path, name) })
+      if (!res.ok) errorMsg.value = res.errors.join('; ')
+    } else if (d.target) {
+      const res = await paneStore.runFs(props.paneId, {
+        op: 'rename',
+        sources: [d.target],
+        target: joinPath(dirname(d.target), name),
+      })
+      if (!res.ok) errorMsg.value = res.errors.join('; ')
+    }
+    nameDialog.value = null
+  } finally {
+    busy.value = false
+  }
+}
+
+async function confirmDelete() {
+  const paths = deleteDialog.value
+  if (!paths || !paths.length) return
+  busy.value = true
+  try {
+    const res = await paneStore.runFs(props.paneId, { op: 'delete', sources: paths })
+    if (!res.ok) errorMsg.value = res.errors.join('; ')
+    deleteDialog.value = null
+  } finally {
+    busy.value = false
+  }
+}
 </script>
 
 <template>
-  <section class="pane" :class="{ active: paneStore.activePaneId === paneId }" @mousedown="paneStore.activePaneId = paneId">
-    <div class="tab-bar">
-      <button
-        v-for="t in pane?.tabs ?? []"
-        :key="t.id"
-        class="tab"
-        :class="{ active: t.id === pane?.activeTabId }"
-        @click="pane && (pane.activeTabId = t.id)"
-      >
-        {{ t.path.split('\\').pop() || t.path }}
-      </button>
-      <button class="tab-add" @click="paneStore.addTab(paneId)">+</button>
+  <section class="pane" :class="{ active: paneStore.activePaneId === paneId }" @mousedown="activate">
+    <TabBar :pane-id="paneId" />
+    <template v-if="tab">
+      <PaneToolbar
+        :pane-id="paneId"
+        :tab="tab"
+        @new-folder="openMkdir"
+        @rename="openRename"
+        @delete="openDelete"
+      />
+      <PathBar :pane-id="paneId" :tab="tab" />
+      <FileList :pane-id="paneId" :tab="tab" @rename="openRename" @delete="openDelete" />
+    </template>
+    <div v-else class="state">没有可用标签</div>
+
+    <div v-if="errorMsg" class="error-bar">
+      <span>{{ errorMsg }}</span>
+      <button @click="errorMsg = null">×</button>
     </div>
-    <div class="toolbar">
-      <span class="path">{{ tab?.path ?? '' }}</span>
+
+    <!-- 名称对话框 -->
+    <div v-if="nameDialog" class="mask" @mousedown.stop @click.self="closeDialogs">
+      <div class="dialog">
+        <h3>{{ nameDialog.mode === 'mkdir' ? '新建文件夹' : '重命名' }}</h3>
+        <input
+          v-model="nameDialog.value"
+          autofocus
+          spellcheck="false"
+          @keyup.enter="confirmName"
+          @keyup.esc="closeDialogs"
+        />
+        <div class="actions">
+          <button :disabled="busy" @click="closeDialogs">取消</button>
+          <button class="primary" :disabled="busy || !nameDialog.value.trim()" @click="confirmName">确定</button>
+        </div>
+      </div>
     </div>
-    <div class="list">
-      <p class="hint">文件列表由 WS-D 实现（虚拟滚动 + 多视图）</p>
+
+    <!-- 删除确认 -->
+    <div v-if="deleteDialog" class="mask" @mousedown.stop @click.self="closeDialogs">
+      <div class="dialog">
+        <h3>确认删除</h3>
+        <p class="warn-text">将永久删除以下 {{ deleteDialog.length }} 项，此操作不可撤销：</p>
+        <ul class="del-list">
+          <li v-for="p in deleteDialog.slice(0, 8)" :key="p">{{ basename(p) }}</li>
+        </ul>
+        <p v-if="deleteDialog.length > 8" class="more">… 等共 {{ deleteDialog.length }} 项</p>
+        <div class="actions">
+          <button :disabled="busy" @click="closeDialogs">取消</button>
+          <button class="danger" :disabled="busy" @click="confirmDelete">删除</button>
+        </div>
+      </div>
     </div>
   </section>
 </template>
@@ -45,55 +158,117 @@ const tab = computed(() => {
   min-height: 0;
   background: var(--bg-app);
   border: 1px solid transparent;
+  position: relative;
 }
 .pane.active {
   border-color: var(--accent);
 }
-.tab-bar {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  height: var(--toolbar-h);
-  padding: 0 4px;
-  background: var(--bg-panel);
-  border-bottom: 1px solid var(--border);
-  overflow-x: auto;
-}
-.tab {
-  padding: 4px 10px;
-  border-radius: var(--radius);
-  white-space: nowrap;
-  color: var(--fg-muted);
-}
-.tab.active {
-  background: var(--bg-active);
-  color: var(--fg);
-}
-.tab-add {
-  padding: 2px 8px;
-  color: var(--fg-muted);
-}
-.toolbar {
-  height: var(--toolbar-h);
-  display: flex;
-  align-items: center;
-  padding: 0 10px;
-  border-bottom: 1px solid var(--border);
-  color: var(--fg-muted);
-  font-size: 12px;
-}
-.path {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.list {
+.state {
   flex: 1;
-  overflow: auto;
-  padding: 8px;
-}
-.hint {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   color: var(--fg-dim);
   font-size: 12px;
+}
+
+.error-bar {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: rgba(229, 83, 75, 0.16);
+  border: 1px solid var(--danger);
+  border-radius: var(--radius);
+  font-size: 12px;
+  color: var(--fg);
+}
+.error-bar span {
+  flex: 1;
+  word-break: break-word;
+}
+.error-bar button {
+  color: var(--fg-muted);
+}
+
+.mask {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.dialog {
+  width: 340px;
+  max-width: 90vw;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.dialog h3 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg);
+}
+.dialog input {
+  width: 100%;
+}
+.warn-text {
+  margin: 0;
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+.del-list {
+  margin: 0;
+  padding-left: 18px;
+  max-height: 140px;
+  overflow: auto;
+  font-size: 12px;
+  color: var(--fg);
+}
+.more {
+  margin: 0;
+  font-size: 11px;
+  color: var(--fg-dim);
+}
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.actions button {
+  padding: 4px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--fg-muted);
+}
+.actions button:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+.actions button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-fg);
+}
+.actions button.danger {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+}
+.actions button:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 </style>
