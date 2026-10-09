@@ -103,8 +103,17 @@ function makePane(id: string, path: string): PaneState {
   return { id, tabs: [tab], activeTabId: tab.id, viewMode: 'details' }
 }
 
+/** 浏览历史中的一处位置：普通目录只记路径，搜索结果还需带查询词与命中列表以便还原。 */
+interface HistoryItem {
+  path: string
+  kind?: 'files' | 'search'
+  title?: string
+  searchQuery?: string
+  entries?: FileEntry[]
+}
+
 interface HistoryEntry {
-  stack: string[]
+  stack: HistoryItem[]
   index: number
 }
 
@@ -202,22 +211,40 @@ export const usePaneStore = defineStore('pane', () => {
   )
   watch(() => [activePaneId.value, splitRatio.value, singlePane.value], savePaneLayout, { flush: 'sync' })
 
-  function hist(tabId: string, path: string): HistoryEntry {
+  function snapshot(tab: TabState): HistoryItem {
+    return {
+      path: tab.path,
+      kind: tab.kind,
+      title: tab.title,
+      searchQuery: tab.searchQuery,
+      entries: tab.kind === 'search' ? tab.entries : undefined,
+    }
+  }
+
+  function hist(tabId: string, tab: TabState): HistoryEntry {
     const existing = histories.value[tabId]
     if (existing) return existing
-    const entry: HistoryEntry = { stack: [path], index: 0 }
+    const entry: HistoryEntry = { stack: [snapshot(tab)], index: 0 }
     histories.value[tabId] = entry
     return entry
   }
 
-  function recordHistory(tabId: string, path: string) {
-    const h = hist(tabId, path)
+  function recordHistory(tab: TabState) {
+    const h = hist(tab.id, tab)
     h.stack = h.stack.slice(0, h.index + 1)
-    if (h.stack[h.stack.length - 1] !== path) {
-      h.stack.push(path)
-      h.index = h.stack.length - 1
+    if (h.stack[h.stack.length - 1]?.path !== tab.path) {
+      h.stack.push(snapshot(tab))
+    } else {
+      // 同一路径重复记录（如搜索结果刷新）时覆盖当前项，保持最新状态。
+      h.stack[h.stack.length - 1] = snapshot(tab)
     }
-    histories.value[tabId] = { ...h }
+    h.index = h.stack.length - 1
+    histories.value[tab.id] = { ...h }
+  }
+
+  /** 搜索结果标签页刷新后重建浏览历史（后退回到搜索结果时需还原最新命中） */
+  function resetHistory(tab: TabState) {
+    histories.value[tab.id] = { stack: [snapshot(tab)], index: 0 }
   }
 
   function setStatus(text: string) {
@@ -256,8 +283,24 @@ export const usePaneStore = defineStore('pane', () => {
     tab.title = undefined
     tab.searchQuery = undefined
     tab.path = path
-    if (pushHistory) recordHistory(tab.id, path)
+    if (pushHistory) recordHistory(tab)
     await load(tab)
+  }
+
+  /** 把标签页还原到某个历史位置：普通目录重新加载，搜索结果恢复其命中列表。 */
+  async function restoreHistory(paneId: string, tab: TabState, item: HistoryItem) {
+    if (item.kind === 'search') {
+      tab.kind = 'search'
+      tab.title = item.title
+      tab.searchQuery = item.searchQuery
+      tab.path = item.path
+      tab.entries = item.entries ?? []
+      tab.selected = []
+      tab.loading = false
+      tab.error = null
+      return
+    }
+    await navigateTo(paneId, item.path, tab.id, false)
   }
 
   async function goHistory(paneId: string, delta: number) {
@@ -271,7 +314,7 @@ export const usePaneStore = defineStore('pane', () => {
     if (next < 0 || next >= h.stack.length) return
     h.index = next
     histories.value[tab.id] = { ...h }
-    await navigateTo(paneId, h.stack[next], tab.id, false)
+    await restoreHistory(paneId, tab, h.stack[next])
   }
 
   function goBack(paneId: string) {
@@ -340,7 +383,7 @@ export const usePaneStore = defineStore('pane', () => {
     if (loaded) tab.entries = loaded.entries
     pane.tabs.push(tab)
     pane.activeTabId = tab.id
-    recordHistory(tab.id, base)
+    recordHistory(tab)
     // 从响应式数组重新取出代理对象；直接修改 makeTab 返回的原始对象不会触发 Vue 更新。
     if (!loaded) {
       const reactiveTab = pane.tabs.find((item) => item.id === tab.id)
@@ -362,6 +405,8 @@ export const usePaneStore = defineStore('pane', () => {
       existing.error = null
       existing.selected = []
       pane.activeTabId = existing.id
+      // 复用的搜索结果标签页重新作为起点：重建历史，避免后退落到旧目录。
+      resetHistory(existing)
       return existing.id
     }
 
@@ -372,7 +417,7 @@ export const usePaneStore = defineStore('pane', () => {
     tab.entries = hits.map((hit) => hit.entry)
     pane.tabs.push(tab)
     pane.activeTabId = tab.id
-    recordHistory(tab.id, tab.path)
+    resetHistory(tab)
     return tab.id
   }
 
@@ -401,7 +446,7 @@ export const usePaneStore = defineStore('pane', () => {
     if (!src.loading && !src.error) tab.entries = src.entries
     pane.tabs.splice(srcIdx + 1, 0, tab)
     pane.activeTabId = tab.id
-    recordHistory(tab.id, tab.path)
+    recordHistory(tab)
     if (src.loading || src.error) {
       const reactiveTab = pane.tabs.find((item) => item.id === tab.id)
       if (reactiveTab) void load(reactiveTab)
@@ -597,7 +642,7 @@ export const usePaneStore = defineStore('pane', () => {
           tab.path = fallbackHome
           await load(tab)
         }
-        recordHistory(tab.id, tab.path)
+        recordHistory(tab)
       }
     }))
     pathsReady = true
