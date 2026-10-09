@@ -55,13 +55,15 @@ async function confirmDelete() {
 
 <template>
   <section class="pane" @mousedown="activate">
-    <TabBar :pane-id="paneId" />
     <template v-if="tab">
-      <PaneToolbar :pane-id="paneId" />
-      <PathBar :pane-id="paneId" :tab="tab" />
+      <div class="pane-topbar">
+        <PaneToolbar :pane-id="paneId" />
+        <PathBar :pane-id="paneId" :tab="tab" />
+      </div>
       <FileList :pane-id="paneId" :tab="tab" @delete="openDelete" />
     </template>
     <div v-else class="state">没有可用标签</div>
+    <TabBar :pane-id="paneId" />
     <StatusBar :pane-id="paneId" />
 
     <div v-if="errorMsg" class="error-bar">
@@ -104,6 +106,21 @@ async function confirmDelete() {
   justify-content: center;
   color: var(--fg-dim);
   font-size: 12px;
+}
+.pane-topbar {
+  display: flex;
+  min-width: 0;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+}
+.pane-topbar :deep(.pane-toolbar) {
+  flex: none;
+  border-bottom: 0;
+}
+.pane-topbar :deep(.path-bar) {
+  flex: 1;
+  min-width: 0;
+  border-bottom: 0;
 }
 
 .error-bar {

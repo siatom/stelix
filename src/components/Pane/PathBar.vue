@@ -66,7 +66,7 @@ watch(
     <button class="up" title="上级目录" @click="paneStore.goUp(paneId)">
       <Icon name="arrow-up" :size="14" />
     </button>
-    <div v-if="!editing" class="crumbs" title="双击切换为可编辑路径">
+    <div v-if="!editing" class="crumbs" title="双击切换为可编辑路径" @dblclick.stop.prevent="startEdit">
       <template v-for="(seg, i) in segments" :key="seg.path">
         <span v-if="i > 0" class="sep"><Icon name="chevron-right" :size="11" /></span>
         <button class="crumb" :class="{ last: i === segments.length - 1 }" @click="go(seg.path)">
@@ -160,7 +160,7 @@ watch(
   flex: 1;
   height: 22px;
   min-width: 0;
-  font-family: var(--mono);
+  font-family: "Microsoft YaHei", "微软雅黑", sans-serif;
   font-size: 12px;
 }
 </style>

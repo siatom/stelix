@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 底部状态栏：选中数 / 条目数 / 索引总数 / 状态文本
+// 底部状态栏：窗格选中信息 + 仅在活动窗格显示的全局状态
 import { computed } from 'vue'
 import { usePaneStore } from '../stores/pane'
 import { useUiStore } from '../stores/ui'
@@ -13,24 +13,24 @@ const tab = computed(() => {
   return pane?.tabs.find((item) => item.id === pane.activeTabId) ?? pane?.tabs[0]
 })
 const selectedCount = computed(() => tab.value?.selected.length ?? 0)
-const entryCount = computed(() => tab.value?.entries.length ?? 0)
+const isActivePane = computed(() => paneStore.activePaneId === props.paneId)
 </script>
 
 <template>
   <footer class="status-bar">
     <span class="seg">选中 {{ selectedCount }} 项</span>
-    <span class="sep" />
-    <span class="seg">条目 {{ entryCount }}</span>
 
     <div class="spacer" />
 
-    <span class="seg status">{{ ui.statusText }}</span>
-    <span class="sep" />
-    <span class="seg index">
-      <span v-if="ui.scanning" class="dot scanning" />
-      <span v-else class="dot" />
-      索引 {{ ui.indexTotal.toLocaleString() }} 项
-    </span>
+    <template v-if="isActivePane">
+      <span class="seg status">{{ ui.statusText }}</span>
+      <span class="sep" />
+      <span class="seg index">
+        <span v-if="ui.scanning" class="dot scanning" />
+        <span v-else class="dot" />
+        索引 {{ ui.indexTotal.toLocaleString() }} 项
+      </span>
+    </template>
   </footer>
 </template>
 

@@ -141,7 +141,7 @@ export const usePaneStore = defineStore('pane', () => {
     } finally {
       tab.loading = false
     }
-    setStatus(tab.error ? `无法打开 ${tab.path}` : `${tab.entries.length} 项 · ${tab.path}`)
+    if (tab.error) setStatus(`无法打开目录：${tab.error}`)
   }
 
   /** 目录树 / 命令面板调用：把路径导航到当前活动窗格的活动标签 */
@@ -235,10 +235,12 @@ export const usePaneStore = defineStore('pane', () => {
     if (!pane) return
     const base = path ?? activeTabOf(pane)?.path ?? fallbackHome
     const tab = makeTab(base)
+    const loaded = pane.tabs.find((item) => item.path === base && !item.loading && !item.error)
+    if (loaded) tab.entries = loaded.entries
     pane.tabs.push(tab)
     pane.activeTabId = tab.id
     recordHistory(tab.id, base)
-    void load(tab)
+    if (!loaded) void load(tab)
   }
 
   function closeTab(paneId: string, tabId: string) {
@@ -263,10 +265,11 @@ export const usePaneStore = defineStore('pane', () => {
     tab.filter = src.filter
     tab.sortKey = src.sortKey
     tab.sortAsc = src.sortAsc
+    if (!src.loading && !src.error) tab.entries = src.entries
     pane.tabs.splice(srcIdx + 1, 0, tab)
     pane.activeTabId = tab.id
     recordHistory(tab.id, tab.path)
-    void load(tab)
+    if (src.loading || src.error) void load(tab)
   }
 
   function setActiveTab(paneId: string, tabId: string) {
