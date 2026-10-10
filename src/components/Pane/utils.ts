@@ -17,6 +17,8 @@ export function basename(p: string): string {
 /** 取父目录（Windows 风格；根返回自身） */
 export function dirname(p: string): string {
   const norm = trimTrailing(p)
+  const shareRoot = norm.match(/^(\\\\[^\\/]+[\\/][^\\/]+)/)
+  if (shareRoot && norm.length <= shareRoot[1].length) return shareRoot[1]
   const idx = Math.max(norm.lastIndexOf('\\'), norm.lastIndexOf('/'))
   if (idx < 0) return p
   // C:\foo -> C:\

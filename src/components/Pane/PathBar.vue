@@ -3,10 +3,11 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { TabState } from '../../types'
 import { usePaneStore } from '../../stores/pane'
-import { joinPath } from './utils'
+import { dirname, joinPath } from './utils'
 import Icon from '../icons/Icon.vue'
 import { addFavorite, FAVORITES_CHANGED_EVENT, loadFavorites } from '../Sidebar/shared'
 import { useUiStore } from '../../stores/ui'
+import { api } from '../../api'
 
 const props = defineProps<{ paneId: string; tab: TabState }>()
 const paneStore = usePaneStore()
@@ -19,6 +20,16 @@ const inputRef = ref<HTMLInputElement | null>(null)
 
 const segments = computed(() => {
   const norm = props.tab.path.replace(/\//g, '\\')
+  const share = norm.match(/^(\\\\[^\\]+\\[^\\]+)/)
+  if (share) {
+    const parts: { label: string; path: string }[] = [{ label: share[1].slice(2), path: share[1] }]
+    let acc = share[1]
+    for (const seg of norm.slice(share[1].length).split('\\').filter(Boolean)) {
+      acc = joinPath(acc, seg)
+      parts.push({ label: seg, path: acc })
+    }
+    return parts
+  }
   const drive = norm.match(/^([A-Za-z]:)\\?/)
   const parts: { label: string; path: string }[] = []
   let acc = ''
@@ -60,11 +71,31 @@ async function startEdit() {
   inputRef.value?.select()
 }
 
-function commit() {
+async function commit() {
   if (!editing.value) return
   const value = draft.value.trim()
   editing.value = false
-  if (value && value !== props.tab.path) go(value)
+  if (!value || value === props.tab.path) return
+
+  try {
+    if (await api.pathIsFile(value)) {
+      await paneStore.navigateTo(props.paneId, dirname(value), props.tab.id)
+      const normalized = value.replace(/\//g, '\\').replace(/\\+$/, '').toLowerCase()
+      const file = props.tab.entries.find(
+        (entry) => entry.isDir === false && entry.path.replace(/\//g, '\\').replace(/\\+$/, '').toLowerCase() === normalized,
+      )
+      if (file) {
+        props.tab.selected = [file.path]
+        paneStore.revealTarget = { tabId: props.tab.id, path: file.path }
+      }
+      return
+    }
+  } catch (error) {
+    ui.setStatusText(`无法检查路径：${String(error)}`)
+    return
+  }
+
+  go(value)
 }
 
 function cancel() {
@@ -161,7 +192,7 @@ watch(
   padding: 2px 6px;
   border-radius: var(--radius);
   color: var(--fg-muted);
-  font-size: 12px;
+  font-size: 1rem;
 }
 .crumb:hover {
   background: var(--bg-hover);
@@ -180,6 +211,6 @@ watch(
   height: 22px;
   min-width: 0;
   font-family: "Microsoft YaHei", "微软雅黑", sans-serif;
-  font-size: 12px;
+  font-size: 1rem;
 }
 </style>

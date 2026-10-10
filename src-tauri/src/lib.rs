@@ -7,10 +7,13 @@ mod ai_agent;
 mod app_core;
 mod fs_core;
 mod index_engine;
+mod network;
 mod persistence;
 mod search_engine;
+mod smb_discovery;
 mod state;
 mod types;
+mod wsl;
 
 use tauri::{
     menu::{Menu, MenuItem},
@@ -38,8 +41,115 @@ fn get_roots() -> Vec<DriveInfo> {
 }
 
 #[tauri::command]
+async fn list_remote(request: network::RemoteRequest) -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || network::list_remote(request))
+        .await
+        .map_err(|error| format!("远程读取任务失败: {error}"))?
+}
+
+#[tauri::command]
+async fn discover_smb_neighbors() -> Result<Vec<smb_discovery::SmbNeighbor>, String> {
+    tauri::async_runtime::spawn_blocking(smb_discovery::discover)
+        .await
+        .map_err(|error| format!("局域网扫描任务失败: {error}"))?
+}
+
+#[tauri::command]
+async fn list_smb_shares(server: String) -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || smb_discovery::list_shares(&server))
+        .await
+        .map_err(|error| format!("共享枚举任务失败: {error}"))?
+}
+
+#[tauri::command]
+async fn list_wsl_distros() -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(wsl::list_distros)
+        .await
+        .map_err(|error| format!("WSL 枚举任务失败: {error}"))?
+}
+
+#[tauri::command]
 fn fs_operation(op: FsOp) -> FsOpResult {
     fs_core::execute(&op)
+}
+
+#[tauri::command]
+fn path_is_file(path: String) -> bool {
+    std::path::Path::new(&path).is_file()
+}
+
+/// 在系统配置的默认终端中打开指定文件夹。
+#[tauri::command]
+fn open_in_terminal(path: String) -> Result<(), String> {
+    let directory = std::path::Path::new(&path);
+    if !directory.is_dir() {
+        return Err(format!("文件夹不存在或不可访问: {path}"));
+    }
+
+    #[cfg(windows)]
+    {
+        // 显式启动 Windows Terminal，避免 GUI 子进程创建控制台后立即退出。
+        std::process::Command::new("wt.exe")
+            .arg("-d")
+            .arg(directory)
+            .spawn()
+            .map(|_| ())
+            .map_err(|error| format!("无法启动 Windows Terminal（wt.exe）: {error}"))
+    }
+
+    #[cfg(not(windows))]
+    {
+        let _ = directory;
+        Err("当前平台暂不支持打开系统默认终端".to_string())
+    }
+}
+
+/// 使用 Windows Shell 显示文件或文件夹的系统属性对话框。
+#[tauri::command]
+fn show_item_properties(path: String) -> Result<(), String> {
+    let item = std::path::Path::new(&path);
+    if !item.exists() {
+        return Err(format!("文件或文件夹不存在: {path}"));
+    }
+
+    #[cfg(windows)]
+    {
+        use std::{mem::size_of, os::windows::ffi::OsStrExt};
+        use windows_sys::Win32::UI::Shell::{
+            ShellExecuteExW, SEE_MASK_INVOKEIDLIST, SHELLEXECUTEINFOW,
+        };
+
+        let verb: Vec<u16> = std::ffi::OsStr::new("properties")
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+        let file: Vec<u16> = item
+            .as_os_str()
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+        let mut info: SHELLEXECUTEINFOW = unsafe { std::mem::zeroed() };
+        info.cbSize = size_of::<SHELLEXECUTEINFOW>() as u32;
+        info.fMask = SEE_MASK_INVOKEIDLIST;
+        info.lpVerb = verb.as_ptr();
+        info.lpFile = file.as_ptr();
+        info.nShow = 1; // SW_SHOWNORMAL
+
+        if unsafe { ShellExecuteExW(&mut info) } != 0 {
+            Ok(())
+        } else {
+            Err(format!(
+                "无法打开系统属性窗口（Windows 错误码 {}）",
+                unsafe { windows_sys::Win32::Foundation::GetLastError() }
+            ))
+        }
+    }
+
+    #[cfg(not(windows))]
+    {
+        let _ = item;
+        Err("当前平台不支持 Windows 属性窗口".to_string())
+    }
 }
 
 // ---------------------------------------------------------------- 索引与检索
@@ -252,7 +362,14 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             list_dir,
             get_roots,
+            list_remote,
+            discover_smb_neighbors,
+            list_smb_shares,
+            list_wsl_distros,
             fs_operation,
+            path_is_file,
+            open_in_terminal,
+            show_item_properties,
             start_index,
             index_status,
             search_files,

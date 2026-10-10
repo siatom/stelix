@@ -8,6 +8,12 @@ export interface QuickLocation {
   path: string
 }
 
+/** 最近一个有活动的 24 小时窗口内双击打开过文件的目录统计 */
+export interface RecentDirectory extends QuickLocation {
+  count: number
+  lastOpened: number
+}
+
 /** 目录树节点 */
 export interface TreeNodeData {
   name: string
@@ -32,6 +38,15 @@ export interface TabGroup {
 export const FAVORITES_KEY = 'file-povit.favorites'
 export const TABGROUPS_KEY = 'file-povit.tabgroups'
 export const FAVORITES_CHANGED_EVENT = 'file-povit:favorites-changed'
+export const RECENT_DIRECTORIES_KEY = 'file-povit.recent-directories'
+export const RECENT_DIRECTORIES_CHANGED_EVENT = 'file-povit:recent-directories-changed'
+const RECENT_WINDOW_MS = 24 * 60 * 60 * 1000
+const RECENT_EVENT_LIMIT = 10000
+
+interface FileOpenEvent {
+  path: string
+  openedAt: number
+}
 
 /** 系统路径不可用时的兜底常用位置 */
 const FALLBACK_LOCATIONS: QuickLocation[] = [
@@ -103,6 +118,68 @@ export function addFavorite(path: string): boolean {
   const label = basename(path) || path
   saveFavorites([...items, { label, icon: 'star', path }])
   return true
+}
+
+/** 记录一次通过双击成功打开文件的行为，供最近高频目录排序。 */
+export function recordOpenedFileDirectory(path: string): void {
+  const now = Date.now()
+  let events: FileOpenEvent[] = []
+  try {
+    const parsed: unknown = JSON.parse(localStorage.getItem(RECENT_DIRECTORIES_KEY) || '[]')
+    if (Array.isArray(parsed)) {
+      events = parsed.filter(
+        (event): event is FileOpenEvent =>
+          !!event &&
+          typeof event === 'object' &&
+          typeof (event as FileOpenEvent).path === 'string' &&
+          typeof (event as FileOpenEvent).openedAt === 'number',
+      )
+    }
+    events.push({ path, openedAt: now })
+    if (events.length > RECENT_EVENT_LIMIT) events = events.slice(-RECENT_EVENT_LIMIT)
+    localStorage.setItem(RECENT_DIRECTORIES_KEY, JSON.stringify(events))
+    window.dispatchEvent(new Event(RECENT_DIRECTORIES_CHANGED_EVENT))
+  } catch {
+    /* 忽略本地记录失败，不影响文件打开 */
+  }
+}
+
+/** 返回滚动 24 小时内按打开次数排序的目录；无记录时回退到更早的最近活动窗口。 */
+export function loadRecentDirectories(limit = 8): RecentDirectory[] {
+  try {
+    const parsed: unknown = JSON.parse(localStorage.getItem(RECENT_DIRECTORIES_KEY) || '[]')
+    if (!Array.isArray(parsed)) return []
+    const events = (parsed as unknown[]).filter(
+      (event): event is FileOpenEvent =>
+        !!event &&
+        typeof event === 'object' &&
+        typeof (event as FileOpenEvent).path === 'string' &&
+        typeof (event as FileOpenEvent).openedAt === 'number',
+    )
+    if (!events.length) return []
+
+    const now = Date.now()
+    const hasRecentActivity = events.some((event) => event.openedAt > now - RECENT_WINDOW_MS)
+    const anchor = hasRecentActivity ? now : Math.max(...events.map((event) => event.openedAt))
+    const cutoff = anchor - RECENT_WINDOW_MS
+    const counts = new Map<string, RecentDirectory>()
+    for (const { path, openedAt } of events) {
+      if (openedAt <= cutoff || openedAt > anchor) continue
+      const key = path.replace(/\//g, '\\').replace(/\\+$/, '').toLowerCase()
+      const item = counts.get(key)
+      if (item) {
+        item.count += 1
+        item.lastOpened = Math.max(item.lastOpened, openedAt)
+      } else {
+        counts.set(key, { path, label: basename(path) || path, icon: 'folder', count: 1, lastOpened: openedAt })
+      }
+    }
+    return [...counts.values()]
+      .sort((a, b) => b.count - a.count || b.lastOpened - a.lastOpened)
+      .slice(0, limit)
+  } catch {
+    return []
+  }
 }
 
 export function loadTabGroups(): TabGroup[] {
