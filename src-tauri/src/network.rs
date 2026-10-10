@@ -54,17 +54,25 @@ pub fn list_remote(request: RemoteRequest) -> Result<Vec<String>, String> {
         quote_config(url.as_str()),
         quote_config(&format!("{}:{}", request.username, request.password))
     );
-    let mut child = Command::new("curl.exe")
-        .args([
-            "--config",
-            "-",
-            "--silent",
-            "--show-error",
-            "--fail",
-            "--list-only",
-            "--max-time",
-            "20",
-        ])
+    let mut command = Command::new("curl.exe");
+    command.args([
+        "--config",
+        "-",
+        "--silent",
+        "--show-error",
+        "--fail",
+        "--list-only",
+        "--max-time",
+        "20",
+    ]);
+    // CREATE_NO_WINDOW：GUI 进程启动控制台程序时若不指定，会弹出短暂的控制台窗口。
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    let mut child = command
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

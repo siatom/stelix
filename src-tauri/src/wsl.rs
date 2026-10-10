@@ -2,8 +2,12 @@
 
 #[cfg(windows)]
 pub fn list_distros() -> Result<Vec<String>, String> {
+    use std::os::windows::process::CommandExt;
+    // CREATE_NO_WINDOW：GUI 进程启动控制台程序时若不指定，会弹出短暂的控制台窗口。
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
     let output = match std::process::Command::new("wsl.exe")
         .args(["--list", "--quiet"])
+        .creation_flags(CREATE_NO_WINDOW)
         .output()
     {
         Ok(output) => output,
