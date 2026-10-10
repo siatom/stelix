@@ -1,31 +1,15 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
   <defs>
-    <linearGradient id="bg" x1="100" y1="80" x2="920" y2="960" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#102746"/>
-      <stop offset="1" stop-color="#071321"/>
+    <linearGradient id="bg" x1="150" y1="110" x2="880" y2="920" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#EDF1FF"/>
     </linearGradient>
-    <linearGradient id="folder" x1="242" y1="316" x2="784" y2="730" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#70F6FF"/>
-      <stop offset=".52" stop-color="#28C8F4"/>
-      <stop offset="1" stop-color="#5288FF"/>
+    <linearGradient id="folder" x1="236" y1="312" x2="788" y2="712" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#5B78FF"/>
+      <stop offset="1" stop-color="#4055E8"/>
     </linearGradient>
-    <linearGradient id="shine" x1="310" y1="390" x2="685" y2="655" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#E4FFFF"/>
-      <stop offset="1" stop-color="#A1D8FF"/>
-    </linearGradient>
-    <filter id="glow" x="130" y="180" width="780" height="690" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse">
-      <feGaussianBlur stdDeviation="24"/>
-    </filter>
   </defs>
   <rect width="1024" height="1024" rx="224" fill="url(#bg)"/>
-  <circle cx="512" cy="512" r="350" fill="none" stroke="#2A6383" stroke-opacity=".25" stroke-width="2"/>
-  <circle cx="512" cy="512" r="298" fill="none" stroke="#55DDF6" stroke-opacity=".13" stroke-width="2" stroke-dasharray="5 16"/>
-  <path d="M258 378c0-30 24-54 54-54h151l63 62h186c30 0 54 24 54 54v215c0 30-24 54-54 54H312c-30 0-54-24-54-54V378Z" fill="#24C9F2" opacity=".38" filter="url(#glow)"/>
-  <path d="M258 378c0-30 24-54 54-54h151l63 62h186c30 0 54 24 54 54v215c0 30-24 54-54 54H312c-30 0-54-24-54-54V378Z" fill="url(#folder)"/>
-  <path d="M258 445h508v210c0 30-24 54-54 54H312c-30 0-54-24-54-54V445Z" fill="#0B1B31" fill-opacity=".76"/>
-  <path d="M258 445h508" stroke="#C7FBFF" stroke-opacity=".72" stroke-width="8"/>
-  <path d="M364 552h85m0 0 42-42m-42 42 42 42m42-42h128" fill="none" stroke="url(#shine)" stroke-linecap="round" stroke-linejoin="round" stroke-width="22"/>
-  <circle cx="364" cy="552" r="15" fill="#E7FFFF"/>
-  <circle cx="661" cy="552" r="15" fill="#73F3FF"/>
-  <path d="M712 318v-38m0 0h-38m38 0h38M312 744v28m0 0h-28m28 0h28" fill="none" stroke="#71E9FB" stroke-linecap="round" stroke-width="8" opacity=".84"/>
+  <path d="M292 312h140l62 74h238c31 0 56 25 56 56v214c0 31-25 56-56 56H292c-31 0-56-25-56-56V368c0-31 25-56 56-56Z" fill="url(#folder)"/>
+  <path d="M512 453c26 70 26 70 96 96-70 26-70 26-96 96-26-70-26-70-96-96 70-26 70-26 96-96Z" fill="#FFFFFF"/>
 </svg>
