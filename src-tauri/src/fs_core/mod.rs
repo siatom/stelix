@@ -246,7 +246,11 @@ pub fn execute(op: &FsOp) -> FsOpResult {
                     continue;
                 }
                 // 目标是已存在目录时，把源移入该目录并自动改名；否则按原样改名。
-                let dest = if tp.is_dir() { unique_dest(tp, sp) } else { tp.to_path_buf() };
+                let dest = if tp.is_dir() {
+                    unique_dest(tp, sp)
+                } else {
+                    tp.to_path_buf()
+                };
                 if let Some(parent) = dest.parent() {
                     if !parent.as_os_str().is_empty() && !parent.exists() {
                         if let Err(e) = fs::create_dir_all(parent) {
@@ -287,7 +291,9 @@ pub fn execute(op: &FsOp) -> FsOpResult {
                 }
                 // 防止把目录移动/复制到它自身的子目录（会造成递归或数据丢失）。
                 if sp.is_dir() && is_subpath(tdir, sp) {
-                    errors.push(format!("已拒绝把目录放入其自身子目录：{src} -> {target_dir}"));
+                    errors.push(format!(
+                        "已拒绝把目录放入其自身子目录：{src} -> {target_dir}"
+                    ));
                     continue;
                 }
                 if let Err(e) = fs::create_dir_all(tdir) {

@@ -191,9 +191,7 @@ fn local_midnight(d: NaiveDate) -> i64 {
 pub fn matches(entry: &FileEntry, query: &SearchQuery) -> bool {
     // 路径范围
     if let Some(scope) = &query.scope {
-        let scope = scope
-            .trim_end_matches(['\\', '/'])
-            .to_lowercase();
+        let scope = scope.trim_end_matches(['\\', '/']).to_lowercase();
         if !scope.is_empty() && !entry.path.to_lowercase().starts_with(&scope) {
             return false;
         }
@@ -329,7 +327,10 @@ mod tests {
 
     #[test]
     fn parse_size_decimal() {
-        assert_eq!(parse_size("1.5gb"), Some((1.5 * 1024.0 * 1024.0 * 1024.0) as u64));
+        assert_eq!(
+            parse_size("1.5gb"),
+            Some((1.5 * 1024.0 * 1024.0 * 1024.0) as u64)
+        );
         assert_eq!(parse_size("500b"), Some(500));
         assert_eq!(parse_size("nonsense"), None);
     }
@@ -365,7 +366,10 @@ mod tests {
     #[test]
     fn matches_multi_keyword_and() {
         let q = parse_query("annual report");
-        assert!(matches(&entry("Annual-Report.pdf", false, 1, Some("pdf")), &q));
+        assert!(matches(
+            &entry("Annual-Report.pdf", false, 1, Some("pdf")),
+            &q
+        ));
         assert!(!matches(&entry("Annual.pdf", false, 1, Some("pdf")), &q));
     }
 

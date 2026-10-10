@@ -12,8 +12,8 @@ use std::time::Duration;
 
 use crate::fs_core::{path_id, to_entry};
 use crate::index_engine::{IndexSource, WalkDirSource};
-use crate::types::FileEntry;
 use crate::persistence::IndexJournal;
+use crate::types::FileEntry;
 use dashmap::DashMap;
 use parking_lot::Mutex;
 use std::time::Instant;
@@ -354,7 +354,8 @@ pub(super) fn resume_journals(
             continue;
         };
         let (journal_id, first_usn, next_usn) = query_journal(&volume)?;
-        if journal_id != saved.journal_id || saved.next_usn < first_usn || saved.next_usn > next_usn {
+        if journal_id != saved.journal_id || saved.next_usn < first_usn || saved.next_usn > next_usn
+        {
             return None;
         }
         let cursor = replay_journal(root, &volume, saved.next_usn, next_usn, journal_id, entries)?;

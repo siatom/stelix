@@ -368,7 +368,11 @@ fn same_roots(left: &[String], right: &[String]) -> bool {
 }
 
 #[cfg(windows)]
-fn persist_index(roots: &[String], entries: &DashMap<String, FileEntry>, journals: &[IndexJournal]) {
+fn persist_index(
+    roots: &[String],
+    entries: &DashMap<String, FileEntry>,
+    journals: &[IndexJournal],
+) {
     let cache = IndexCache {
         roots: roots.to_vec(),
         entries: entries.iter().map(|entry| entry.value().clone()).collect(),

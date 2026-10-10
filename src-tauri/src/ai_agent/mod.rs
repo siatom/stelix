@@ -259,7 +259,11 @@ async fn chat_llm(
             .unwrap_or_default();
         if tool_calls.is_empty() {
             return Ok(AiReply {
-                text: if content.is_empty() { last_text } else { content },
+                text: if content.is_empty() {
+                    last_text
+                } else {
+                    content
+                },
                 tool_calls: Vec::new(),
                 pending_confirm: None,
             });
@@ -389,11 +393,7 @@ pub fn execute_tool(
             Ok(ToolOutcome::Search(search_with_fallback(index, &query)))
         }
         "list_dir" => {
-            let path = call
-                .args
-                .get("path")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
+            let path = call.args.get("path").and_then(|v| v.as_str()).unwrap_or("");
             if path.trim().is_empty() {
                 return Err("list_dir 缺少 path".into());
             }
@@ -607,7 +607,10 @@ fn offline_reply(messages: &[AiMessage], context: &AiContext, index: &IndexStore
     }
 
     // 3) 最大的 N 个
-    if contains_any(&lower, &["最大", "largest", "biggest", "前几大", "占用最大"]) {
+    if contains_any(
+        &lower,
+        &["最大", "largest", "biggest", "前几大", "占用最大"],
+    ) {
         let n = extract_number(&lower).unwrap_or(10).clamp(1, 100);
         return largest_reply(context, index, n);
     }
@@ -621,8 +624,17 @@ fn offline_reply(messages: &[AiMessage], context: &AiContext, index: &IndexStore
     if contains_any(
         &lower,
         &[
-            "最近修改", "最近更改", "最近更新", "modified", "recent", "天前", "天内", "本周",
-            "today", "今天", "最新",
+            "最近修改",
+            "最近更改",
+            "最近更新",
+            "modified",
+            "recent",
+            "天前",
+            "天内",
+            "本周",
+            "today",
+            "今天",
+            "最新",
         ],
     ) {
         let days = extract_number(&lower).unwrap_or(7).clamp(1, 3650) as i64;
@@ -641,8 +653,14 @@ fn try_write_ops(
     index: &IndexStore,
 ) -> Option<AiReply> {
     // ---- 新建目录 ----
-    if contains_any(lower, &["新建文件夹", "新建目录", "创建文件夹", "创建目录", "mkdir"]) {
-        if let Some(rest) = strip_any(input, &["新建文件夹", "新建目录", "创建文件夹", "创建目录", "mkdir"]) {
+    if contains_any(
+        lower,
+        &["新建文件夹", "新建目录", "创建文件夹", "创建目录", "mkdir"],
+    ) {
+        if let Some(rest) = strip_any(
+            input,
+            &["新建文件夹", "新建目录", "创建文件夹", "创建目录", "mkdir"],
+        ) {
             let name = clean_token(rest);
             if !name.is_empty() {
                 let path = resolve_path(&name, context);
@@ -664,7 +682,8 @@ fn try_write_ops(
 
     // ---- 重命名（中文：把 X 重命名为 Y / 英文：rename X to Y）----
     if contains_any(lower, &["重命名为", "改名为", "重命名成"]) {
-        if let Some((left, right)) = split_on(input, &["重命名为", "改名为", "重命名成"]) {
+        if let Some((left, right)) = split_on(input, &["重命名为", "改名为", "重命名成"])
+        {
             let src = clean_token(strip_prefix_words(left));
             let new_name = clean_token(right);
             if !src.is_empty() && !new_name.is_empty() {
@@ -738,14 +757,21 @@ fn try_write_ops(
     }
 
     // ---- 删除 ----
-    if contains_any(lower, &["删除", "删掉", "移除", "delete", "remove", "trash"]) {
+    if contains_any(
+        lower,
+        &["删除", "删掉", "移除", "delete", "remove", "trash"],
+    ) {
         // 先尝试「删除 X」
-        let mut target = strip_any(input, &["删除", "删掉", "移除", "delete", "remove", "trash"])
-            .map(clean_token)
-            .unwrap_or_default();
+        let mut target = strip_any(
+            input,
+            &["删除", "删掉", "移除", "delete", "remove", "trash"],
+        )
+        .map(clean_token)
+        .unwrap_or_default();
         // 再尝试「把 X 删除」
         if target.is_empty() {
-            if let Some((left, _)) = split_on(input, &["删除", "删掉", "移除", "delete", "remove"]) {
+            if let Some((left, _)) = split_on(input, &["删除", "删掉", "移除", "delete", "remove"])
+            {
                 target = clean_token(strip_prefix_words(left));
             }
         }
@@ -767,11 +793,7 @@ fn try_write_ops(
                 });
             }
             let paths: Vec<String> = files.iter().map(|f| f.path.clone()).collect();
-            let desc = format!(
-                "删除最大的 {} 个文件：\n{}",
-                paths.len(),
-                paths.join("\n")
-            );
+            let desc = format!("删除最大的 {} 个文件：\n{}", paths.len(), paths.join("\n"));
             return Some(confirm_reply(
                 desc,
                 FsOp {
@@ -1021,7 +1043,11 @@ fn keyword_reply(context: &AiContext, index: &IndexStore, input: &str) -> AiRepl
         }
     } else {
         AiReply {
-            text: format!("与「{input}」匹配的 {} 项：\n{}", files.len(), list_entries(&files)),
+            text: format!(
+                "与「{input}」匹配的 {} 项：\n{}",
+                files.len(),
+                list_entries(&files)
+            ),
             ..Default::default()
         }
     }
@@ -1066,7 +1092,11 @@ fn search_with_fallback(index: &IndexStore, query: &SearchQuery) -> Vec<SearchHi
             SearchHit { entry: e, score }
         })
         .collect();
-    hits.sort_by(|a, b| b.score.cmp(&a.score).then_with(|| b.entry.size.cmp(&a.entry.size)));
+    hits.sort_by(|a, b| {
+        b.score
+            .cmp(&a.score)
+            .then_with(|| b.entry.size.cmp(&a.entry.size))
+    });
     let limit = if query.limit == 0 { 500 } else { query.limit };
     hits.truncate(limit);
     hits
@@ -1220,7 +1250,13 @@ fn clean_token(s: &str) -> String {
             c == '"' || c == '\'' || c == '“' || c == '”' || c == '‘' || c == '’'
         })
         .trim_end_matches(|c: char| {
-            c == '。' || c == '.' || c == '，' || c == ',' || c == '!' || c == '！' || c == '？'
+            c == '。'
+                || c == '.'
+                || c == '，'
+                || c == ','
+                || c == '!'
+                || c == '！'
+                || c == '？'
                 || c == '?'
         })
         .trim()
@@ -1239,10 +1275,7 @@ fn split_sources(s: &str) -> Vec<String> {
         .filter(|p| !p.is_empty())
         .collect();
     if parts.len() == 1 && parts[0].contains(' ') {
-        parts = parts[0]
-            .split_whitespace()
-            .map(|p| p.to_string())
-            .collect();
+        parts = parts[0].split_whitespace().map(|p| p.to_string()).collect();
     }
     parts
 }
@@ -1258,10 +1291,7 @@ fn resolve_path(target: &str, context: &AiContext) -> String {
         return t;
     }
     match context.active_path.as_deref() {
-        Some(base) if !base.is_empty() => Path::new(base)
-            .join(&t)
-            .to_string_lossy()
-            .to_string(),
+        Some(base) if !base.is_empty() => Path::new(base).join(&t).to_string_lossy().to_string(),
         _ => t,
     }
 }
@@ -1270,10 +1300,15 @@ fn resolve_path(target: &str, context: &AiContext) -> String {
 fn detect_exts(lower: &str) -> Option<Vec<String>> {
     const IMAGE: [&str; 7] = ["png", "jpg", "jpeg", "gif", "bmp", "webp", "svg"];
     const VIDEO: [&str; 5] = ["mp4", "mkv", "avi", "mov", "wmv"];
-    const DOC: [&str; 9] = ["pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "txt", "md"];
+    const DOC: [&str; 9] = [
+        "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "txt", "md",
+    ];
     const AUDIO: [&str; 4] = ["mp3", "wav", "flac", "m4a"];
 
-    if contains_any(lower, &["图片", "照片", "image", "photo", "picture", "截图"]) {
+    if contains_any(
+        lower,
+        &["图片", "照片", "image", "photo", "picture", "截图"],
+    ) {
         return Some(to_vec(&IMAGE));
     }
     if contains_any(lower, &["视频", "影片", "video", "movie"]) {
@@ -1335,10 +1370,8 @@ mod tests {
     }
 
     fn setup_dir(tag: &str) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!(
-            "file_povit_test_{tag}_{}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("file_povit_test_{tag}_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
@@ -1370,7 +1403,11 @@ mod tests {
         std::fs::write(dir.join("small.txt"), b"a").unwrap();
         std::fs::write(dir.join("big.bin"), vec![0u8; 8192]).unwrap();
         let index = IndexStore::new();
-        let reply = offline_reply(&user("最大的 2 个文件"), &ctx(&dir.to_string_lossy()), &index);
+        let reply = offline_reply(
+            &user("最大的 2 个文件"),
+            &ctx(&dir.to_string_lossy()),
+            &index,
+        );
         assert!(reply.text.contains("big.bin"), "text={}", reply.text);
         assert!(reply.pending_confirm.is_none());
         let _ = std::fs::remove_dir_all(&dir);
@@ -1382,7 +1419,11 @@ mod tests {
         std::fs::write(dir.join("a.pdf"), b"x").unwrap();
         std::fs::write(dir.join("b.txt"), b"y").unwrap();
         let index = IndexStore::new();
-        let reply = offline_reply(&user("找出 .pdf 文件"), &ctx(&dir.to_string_lossy()), &index);
+        let reply = offline_reply(
+            &user("找出 .pdf 文件"),
+            &ctx(&dir.to_string_lossy()),
+            &index,
+        );
         assert!(reply.text.contains("a.pdf"), "text={}", reply.text);
         assert!(!reply.text.contains("b.txt"), "text={}", reply.text);
         let _ = std::fs::remove_dir_all(&dir);
