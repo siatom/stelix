@@ -43,6 +43,7 @@ thiserror = "2"
 chrono = { version = "0.4", features = ["serde"] }
 dirs = "6"
 uuid = { version = "1", features = ["v4", "serde"] }
+keyring = { version = "3.6.3", default-features = false, features = ["windows-native"] }
 
 # Windows 原生能力（驱动器信息 / MFT 预留）
 windows-sys = { version = "0.59", features = [

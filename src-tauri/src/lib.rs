@@ -5,6 +5,7 @@
 
 mod ai_agent;
 mod app_core;
+mod credentials;
 mod fs_core;
 mod index_engine;
 mod network;
@@ -66,6 +67,29 @@ async fn list_wsl_distros() -> Result<Vec<String>, String> {
     tauri::async_runtime::spawn_blocking(wsl::list_distros)
         .await
         .map_err(|error| format!("WSL 枚举任务失败: {error}"))?
+}
+
+#[tauri::command]
+async fn save_remote_password(host_id: String, password: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        credentials::save_remote_password(&host_id, &password)
+    })
+    .await
+    .map_err(|error| format!("密码保存任务失败: {error}"))?
+}
+
+#[tauri::command]
+async fn get_remote_password(host_id: String) -> Result<Option<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || credentials::get_remote_password(&host_id))
+        .await
+        .map_err(|error| format!("密码读取任务失败: {error}"))?
+}
+
+#[tauri::command]
+async fn delete_remote_password(host_id: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || credentials::delete_remote_password(&host_id))
+        .await
+        .map_err(|error| format!("密码删除任务失败: {error}"))?
 }
 
 #[tauri::command]
@@ -366,6 +390,9 @@ pub fn run() {
             discover_smb_neighbors,
             list_smb_shares,
             list_wsl_distros,
+            save_remote_password,
+            get_remote_password,
+            delete_remote_password,
             fs_operation,
             path_is_file,
             open_in_terminal,

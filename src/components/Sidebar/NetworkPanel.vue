@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { ref } from 'vue'
 import { api } from '../../api'
 import { usePaneStore } from '../../stores/pane'
 import TreeNode from './TreeNode.vue'
@@ -52,7 +52,7 @@ const serverErrors = ref<Record<string, string>>({})
 const scanLoading = ref(false)
 const scanError = ref('')
 const hosts = ref(readHosts())
-const sections = ref({ smb: true, remote: true, cloud: true })
+const sections = ref({ smb: false, remote: false, cloud: false })
 const smbDraft = ref('')
 const showSmbForm = ref(false)
 const showHostForm = ref(false)
@@ -61,6 +61,7 @@ const label = ref('')
 const host = ref('')
 const port = ref(22)
 const username = ref('')
+const draftPassword = ref('')
 const expandedHosts = ref<Record<string, boolean>>({})
 const hostEntries = ref<Record<string, string[]>>({})
 const passwords = ref<Record<string, string>>({})
@@ -82,6 +83,45 @@ async function scanNeighbors() {
   }
 }
 
+function toggleSmb() {
+  sections.value.smb = !sections.value.smb
+  if (sections.value.smb) void scanNeighbors()
+}
+
+function openSmbForm() {
+  const wasCollapsed = !sections.value.smb
+  sections.value.smb = true
+  showSmbForm.value = true
+  error.value = ''
+  if (wasCollapsed) void scanNeighbors()
+}
+
+function closeSmbForm() {
+  showSmbForm.value = false
+  smbDraft.value = ''
+  error.value = ''
+}
+
+function openHostForm() {
+  sections.value.remote = true
+  showHostForm.value = true
+  error.value = ''
+}
+
+function closeHostForm() {
+  showHostForm.value = false
+  label.value = ''
+  host.value = ''
+  username.value = ''
+  draftPassword.value = ''
+  error.value = ''
+}
+
+function refreshSmb() {
+  sections.value.smb = true
+  void scanNeighbors()
+}
+
 async function loadShares(server: string) {
   serverLoading.value[server] = true
   serverErrors.value[server] = ''
@@ -99,8 +139,6 @@ function toggleServer(server: string) {
   if (expandedServers.value[server] && !serverShares.value[server]) void loadShares(server)
 }
 
-onMounted(() => { void scanNeighbors() })
-
 function saveShare() {
   const path = smbDraft.value.trim().replace(/\//g, '\\').replace(/\\+$/, '')
   if (!/^\\\\[^\\]+\\[^\\]+(?:\\.*)?$/.test(path)) {
@@ -112,7 +150,7 @@ function saveShare() {
     localStorage.setItem(SHARES_KEY, JSON.stringify(shares.value))
   }
   smbDraft.value = ''
-  showSmbForm.value = false
+  closeSmbForm()
   error.value = ''
   void pane.navigate(path)
 }
@@ -122,26 +160,43 @@ function removeShare(path: string) {
   localStorage.setItem(SHARES_KEY, JSON.stringify(shares.value))
 }
 
-function saveHost() {
+async function saveHost() {
   const address = host.value.trim()
   if (!address || !/^[a-zA-Z0-9.-]+$/.test(address) || !Number.isInteger(port.value) || port.value < 1 || port.value > 65535) {
     error.value = '请填写有效的主机地址和端口'
     return
   }
+  const id = crypto.randomUUID()
+  if (draftPassword.value) {
+    try {
+      await api.saveRemotePassword(id, draftPassword.value)
+    } catch (cause) {
+      error.value = String(cause)
+      return
+    }
+  }
   const item: RemoteHost = {
-    id: crypto.randomUUID(), protocol: protocol.value, label: label.value.trim() || address,
+    id, protocol: protocol.value, label: label.value.trim() || address,
     host: address, port: port.value, username: username.value.trim(),
   }
   hosts.value.push(item)
   localStorage.setItem(HOSTS_KEY, JSON.stringify(hosts.value))
+  if (draftPassword.value) passwords.value[item.id] = draftPassword.value
   showHostForm.value = false
   label.value = ''
   host.value = ''
   username.value = ''
+  draftPassword.value = ''
   error.value = ''
 }
 
-function removeHost(id: string) {
+async function removeHost(id: string) {
+  try {
+    await api.deleteRemotePassword(id)
+  } catch (cause) {
+    hostErrors.value[id] = String(cause)
+    return
+  }
   hosts.value = hosts.value.filter((item) => item.id !== id)
   localStorage.setItem(HOSTS_KEY, JSON.stringify(hosts.value))
   delete passwords.value[id]
@@ -152,6 +207,11 @@ async function loadHost(item: RemoteHost) {
   hostLoading.value[item.id] = true
   hostErrors.value[item.id] = ''
   try {
+    if (passwords.value[item.id] === undefined) {
+      passwords.value[item.id] = (await api.getRemotePassword(item.id)) || ''
+    }
+    const password = passwords.value[item.id] || ''
+    if (password) await api.saveRemotePassword(item.id, password)
     hostEntries.value[item.id] = await api.listRemote({ ...item, password: passwords.value[item.id] || '', path: '/' })
   } catch (cause) {
     hostErrors.value[item.id] = String(cause)
@@ -170,18 +230,14 @@ function toggleHost(item: RemoteHost) {
   <div class="network-tree">
     <section>
       <div class="tree-row category">
-        <button class="row-main" @click="sections.smb = !sections.smb">
+        <button class="row-main" @click="toggleSmb">
           <span class="twist" :class="{ open: sections.smb }"><Icon name="chevron-right" :size="11" /></span>
           <Icon class="category-icon" :name="sections.smb ? 'folder-open' : 'folder'" :size="14" /><span>局域网 · SMB</span>
         </button>
-        <button class="action" title="刷新网上邻居" aria-label="刷新网上邻居" :disabled="scanLoading" @click="scanNeighbors"><Icon name="refresh" :size="13" /></button>
-        <button class="action" title="添加共享" aria-label="添加 SMB 共享" @click="sections.smb = true; showSmbForm = !showSmbForm"><Icon name="plus" :size="13" /></button>
+        <button class="action" title="刷新网上邻居" aria-label="刷新网上邻居" :disabled="scanLoading" @click="refreshSmb"><Icon name="refresh" :size="13" /></button>
+        <button class="action" title="添加共享" aria-label="添加 SMB 共享" @click="openSmbForm"><Icon name="plus" :size="13" /></button>
       </div>
       <div v-if="sections.smb">
-        <form v-if="showSmbForm" class="form" @submit.prevent="saveShare">
-          <input v-model="smbDraft" placeholder="\\服务器\共享名" aria-label="SMB 共享路径" />
-          <button type="submit">添加</button>
-        </form>
         <p v-if="scanLoading" class="state">正在扫描网上邻居…</p>
         <p v-else-if="scanError" class="state error">{{ scanError }}</p>
         <div v-for="neighbor in neighbors" :key="neighbor.server">
@@ -215,17 +271,9 @@ function toggleHost(item: RemoteHost) {
           <span class="twist" :class="{ open: sections.remote }"><Icon name="chevron-right" :size="11" /></span>
           <Icon class="category-icon" :name="sections.remote ? 'folder-open' : 'folder'" :size="14" /><span>FTP / SFTP</span>
         </button>
-        <button class="action" title="添加主机" aria-label="添加 FTP 或 SFTP 主机" @click="sections.remote = true; showHostForm = !showHostForm"><Icon name="plus" :size="13" /></button>
+        <button class="action" title="添加主机" aria-label="添加 FTP 或 SFTP 主机" @click="openHostForm"><Icon name="plus" :size="13" /></button>
       </div>
       <div v-if="sections.remote">
-        <form v-if="showHostForm" class="form" @submit.prevent="saveHost">
-          <select v-model="protocol" aria-label="协议" @change="port = protocol === 'sftp' ? 22 : 21"><option value="sftp">SFTP</option><option value="ftp">FTP</option></select>
-          <input v-model="label" placeholder="名称（可选）" aria-label="主机名称" />
-          <input v-model="host" placeholder="主机地址" aria-label="主机地址" required />
-          <input v-model.number="port" type="number" min="1" max="65535" placeholder="端口" aria-label="端口" required />
-          <input v-model="username" placeholder="用户名" aria-label="用户名" />
-          <button type="submit">保存主机</button>
-        </form>
         <p v-if="!hosts.length" class="state">暂无主机</p>
         <div v-for="item in hosts" :key="item.id">
           <div class="tree-row host-row">
@@ -237,7 +285,7 @@ function toggleHost(item: RemoteHost) {
           </div>
           <div v-if="expandedHosts[item.id]">
             <div class="credentials">
-              <input v-model="passwords[item.id]" type="password" autocomplete="off" placeholder="密码（当前会话）" :aria-label="`${item.label} 密码`" @keyup.enter="loadHost(item)" />
+              <input v-model="passwords[item.id]" type="password" autocomplete="off" placeholder="密码（保存在系统凭据库）" :aria-label="`${item.label} 密码`" @keyup.enter="loadHost(item)" />
               <button title="连接或刷新" @click="loadHost(item)"><Icon name="refresh" :size="13" /></button>
             </div>
             <p v-if="hostLoading[item.id]" class="state nested">读取中…</p>
@@ -262,7 +310,44 @@ function toggleHost(item: RemoteHost) {
       </div>
       <p v-if="sections.cloud" class="state">暂无云存储连接</p>
     </section>
-    <p v-if="error" class="state error">{{ error }}</p>
+    <Teleport to="body">
+      <div v-if="showSmbForm" class="dialog-backdrop" tabindex="-1" @keydown.esc.prevent.stop>
+        <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="smb-dialog-title">
+          <h2 id="smb-dialog-title">添加 SMB 共享</h2>
+          <form class="dialog-form" @submit.prevent="saveShare">
+            <label>共享路径<input v-model="smbDraft" autofocus placeholder="\\服务器\共享名" aria-label="SMB 共享路径" /></label>
+            <p v-if="error" class="dialog-error">{{ error }}</p>
+            <div class="dialog-actions">
+              <button type="button" class="secondary" @click="closeSmbForm">取消</button>
+              <button type="submit" class="primary">添加</button>
+            </div>
+          </form>
+        </section>
+      </div>
+
+      <div v-if="showHostForm" class="dialog-backdrop" tabindex="-1" @keydown.esc.prevent.stop>
+        <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="host-dialog-title">
+          <h2 id="host-dialog-title">添加 FTP / SFTP 主机</h2>
+          <form class="dialog-form" @submit.prevent="saveHost">
+            <label>协议
+              <select v-model="protocol" aria-label="协议" @change="port = protocol === 'sftp' ? 22 : 21">
+                <option value="sftp">SFTP</option><option value="ftp">FTP</option>
+              </select>
+            </label>
+            <label>名称（可选）<input v-model="label" placeholder="主机名称" /></label>
+            <label>主机地址<input v-model="host" placeholder="主机地址" required /></label>
+            <label>端口<input v-model.number="port" type="number" min="1" max="65535" required /></label>
+            <label>用户名<input v-model="username" placeholder="用户名" /></label>
+            <label>密码<input v-model="draftPassword" type="password" autocomplete="new-password" placeholder="密码（保存在系统凭据库）" /></label>
+            <p v-if="error" class="dialog-error">{{ error }}</p>
+            <div class="dialog-actions">
+              <button type="button" class="secondary" @click="closeHostForm">取消</button>
+              <button type="submit" class="primary">保存主机</button>
+            </div>
+          </form>
+        </section>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -287,9 +372,17 @@ function toggleHost(item: RemoteHost) {
 .state.nested { margin-left: 42px; }
 .state.manual-label { margin-top: 6px; }
 .state.error { color: var(--danger); }
-.form { display: flex; flex-direction: column; gap: 5px; padding: 6px 6px 6px 22px; }
-.form input, .form select, .credentials input { min-width: 0; width: 100%; padding: 5px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-panel); color: var(--fg); font-size: 1rem; }
-.form button { align-self: flex-start; padding: 4px 8px; border-radius: var(--radius); background: var(--bg-active); font-size: 0.9167rem; }
+.dialog-backdrop { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 20px; background: rgb(0 0 0 / 45%); }
+.dialog { width: min(420px, 100%); max-height: min(85vh, 720px); overflow: auto; padding: 18px; border: 1px solid var(--border-strong); border-radius: 10px; background: var(--bg-panel); box-shadow: var(--shadow-lg); }
+.dialog h2 { margin: 0 0 16px; color: var(--fg); font-size: 1.1667rem; font-weight: 600; }
+.dialog-form { display: flex; flex-direction: column; gap: 12px; }
+.dialog-form label { display: flex; flex-direction: column; gap: 5px; color: var(--fg-muted); font-size: 0.9167rem; }
+.dialog-form input, .dialog-form select, .credentials input { min-width: 0; width: 100%; padding: 7px 8px; border: 1px solid var(--border-strong); border-radius: var(--radius); background: var(--bg-input); color: var(--fg); font: inherit; font-size: 1rem; }
+.dialog-error { margin: 0; color: var(--danger); font-size: 0.9167rem; overflow-wrap: anywhere; }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+.dialog-actions button { padding: 6px 12px; border: 1px solid var(--border); border-radius: var(--radius); font-size: 0.9167rem; }
+.dialog-actions .secondary { color: var(--fg); background: var(--bg-hover); }
+.dialog-actions .primary { border-color: var(--accent); color: var(--accent-fg); background: var(--accent); }
 .credentials { display: flex; align-items: center; gap: 4px; padding: 4px 6px 4px 30px; }
 .credentials button { display: flex; align-items: center; justify-content: center; flex: none; width: 22px; height: 22px; color: var(--fg-muted); }
 </style>
