@@ -321,7 +321,7 @@ onBeforeUnmount(() => {
           <button class="wsl-row" :title="`Linux（${wslDistros.length} 个 WSL 实例）`" @click="wslExpanded = !wslExpanded">
             <span class="wsl-twist" :class="{ open: wslExpanded }"><Icon name="chevron-right" :size="11" /></span>
             <span class="wsl-icon"><Icon name="linux" :size="14" :stroke-width="1.4" /></span>
-            <span class="wsl-name">Linux</span>
+            <span class="wsl-name">Linux（WSL）</span>
           </button>
           <TreeNode
             v-for="distro in wslExpanded ? wslDistros : []"
@@ -362,7 +362,8 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 2px 4px 6px;
+  margin-left: -6px;
+  padding: 2px 4px 6px 0;
   border-bottom: 1px solid var(--border);
   margin-bottom: 4px;
 }
