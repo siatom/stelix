@@ -24,6 +24,15 @@ const scanning = computed(() => ui.scanning || (status.value?.scanning ?? false)
 const total = computed(() => status.value?.total ?? ui.indexTotal)
 const scanned = computed(() => status.value?.scanned ?? ui.scanned)
 
+// 「添加当前目录」按钮上只展示末级目录名，完整路径放到 title
+const currentDirPath = computed(() => pane.activeTab?.path ?? '')
+const currentDirName = computed(() => {
+  const p = currentDirPath.value.replace(/[\\/]+$/, '')
+  if (!p) return ''
+  const parts = p.split(/[\\/]/)
+  return parts[parts.length - 1] || p
+})
+
 async function refreshStatus() {
   try {
     const s = await api.indexStatus()
@@ -126,9 +135,9 @@ onUnmounted(() => {
 <template>
   <div class="settings-panel">
     <div class="settings-scroll">
-      <section class="sec">
-        <h4 class="sec-head">索引状态</h4>
-        <div class="stat-grid">
+      <section class="card">
+        <header class="card-head">索引状态</header>
+        <div class="stat-row">
           <div class="stat">
             <span class="k">条目数</span>
             <span class="v">{{ total.toLocaleString() }}</span>
@@ -144,64 +153,79 @@ onUnmounted(() => {
         </div>
       </section>
 
-      <section class="sec">
-        <h4 class="sec-head">索引根目录</h4>
-
-        <div class="root-list">
+      <section class="card">
+        <header class="card-head">索引根目录</header>
+        <div class="card-body">
           <div v-if="!ui.indexRoots.length" class="state">尚未配置索引根目录</div>
-          <div v-for="root in ui.indexRoots" :key="root" class="root-item" :title="root">
-            <span class="root-path">{{ root }}</span>
-            <button class="del" title="移除该根目录" :disabled="busy" @click="removeRoot(root)">
-              <Icon name="x" :size="13" />
-            </button>
+          <div v-else class="root-list">
+            <div v-for="root in ui.indexRoots" :key="root" class="root-item" :title="root">
+              <Icon name="folder" :size="13" class="root-ico" />
+              <span class="root-path">{{ root }}</span>
+              <button class="del" title="移除该根目录" :disabled="busy" @click="removeRoot(root)">
+                <Icon name="x" :size="13" />
+              </button>
+            </div>
           </div>
-        </div>
 
-        <div class="add-row">
-          <input
-            v-model="newRoot"
-            class="root-input"
-            placeholder="输入要索引的目录，如 D:\\Projects"
-            @keydown.enter="addRoot"
-          />
-          <button class="add" :disabled="busy" @click="addRoot">添加</button>
+          <div class="add-row">
+            <input
+              v-model="newRoot"
+              class="root-input"
+              placeholder="输入要索引的目录"
+              @keydown.enter="addRoot"
+            />
+            <button class="add" :disabled="busy" @click="addRoot">添加</button>
+          </div>
+
+          <button
+            class="add-current"
+            :disabled="busy"
+            :title="currentDirPath || '当前目录不可用'"
+            @click="addCurrent"
+          >
+            <Icon name="plus" :size="13" />
+            <span>添加当前目录</span>
+            <span v-if="currentDirName" class="ac-path">{{ currentDirName }}</span>
+          </button>
         </div>
-        <button class="add-current" :disabled="busy" @click="addCurrent">
-          添加当前目录：{{ pane.activeTab?.path || '—' }}
-        </button>
       </section>
 
-      <section class="sec">
-        <h4 class="sec-head">视图</h4>
-        <label class="toggle">
-          <input
-            type="checkbox"
-            :checked="ui.hideProtected"
-            @change="ui.setHideProtected(($event.target as HTMLInputElement).checked)"
-          />
-          <span class="toggle-text">隐藏受保护的操作系统文件</span>
-        </label>
-        <label class="toggle">
-          <input
-            type="checkbox"
-            :checked="ui.hideFileExtensions"
-            @change="ui.setHideFileExtensions(($event.target as HTMLInputElement).checked)"
-          />
-          <span class="toggle-text">隐藏文件扩展名</span>
-        </label>
+      <section class="card">
+        <header class="card-head">视图</header>
+        <div class="card-body tight">
+          <label class="row">
+            <span class="row-label">隐藏受保护的操作系统文件</span>
+            <input
+              type="checkbox"
+              :checked="ui.hideProtected"
+              @change="ui.setHideProtected(($event.target as HTMLInputElement).checked)"
+            />
+          </label>
+          <label class="row">
+            <span class="row-label">隐藏文件扩展名</span>
+            <input
+              type="checkbox"
+              :checked="ui.hideFileExtensions"
+              @change="ui.setHideFileExtensions(($event.target as HTMLInputElement).checked)"
+            />
+          </label>
+        </div>
       </section>
 
-      <section class="sec">
-        <h4 class="sec-head">启动</h4>
-        <label class="toggle">
-          <input
-            type="checkbox"
-            :checked="autostart"
-            :disabled="autostartBusy"
-            @change="toggleAutostart(($event.target as HTMLInputElement).checked)"
-          />
-          <span class="toggle-text">开机自启动（启动后静默在托盘）</span>
-        </label>
+      <section class="card">
+        <header class="card-head">启动</header>
+        <div class="card-body tight">
+          <label class="row">
+            <span class="row-label">开机自启动</span>
+            <input
+              type="checkbox"
+              :checked="autostart"
+              :disabled="autostartBusy"
+              @change="toggleAutostart(($event.target as HTMLInputElement).checked)"
+            />
+          </label>
+          <p class="row-hint">启动后静默驻留系统托盘</p>
+        </div>
       </section>
 
       <div v-if="error" class="error">操作失败：{{ error }}</div>
@@ -224,69 +248,107 @@ onUnmounted(() => {
   overflow: auto;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
 }
-.sec {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+
+/* ---- 分组卡片 ---- */
+.card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
 }
-.sec-head {
-  margin: 0;
+.card-head {
+  padding: 7px 11px;
   font-size: 11px;
   font-weight: 600;
   color: var(--fg-muted);
-  letter-spacing: 0.04em;
+  border-bottom: 1px solid var(--border);
 }
-.stat-grid {
+.card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+}
+.card-body.tight {
+  gap: 2px;
+  padding: 6px;
+}
+
+/* ---- 索引状态：三列指标 + 竖分隔线 ---- */
+.stat-row {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 4px;
+  grid-template-columns: repeat(3, 1fr);
+  padding: 9px 4px;
 }
 .stat {
   display: flex;
-  justify-content: space-between;
-  padding: 4px 6px;
-  background: var(--bg-elevated);
-  border-radius: var(--radius);
-  font-size: 11px;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  padding: 0 8px;
+  border-left: 1px solid var(--border);
+}
+.stat:first-child {
+  border-left: 0;
 }
 .stat .k {
+  font-size: 10px;
   color: var(--fg-dim);
+  white-space: nowrap;
 }
 .stat .v {
-  color: var(--fg);
+  font-size: 11px;
+  font-weight: 600;
   font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .stat .v.busy {
   color: var(--warn);
 }
+
+/* ---- 索引根目录 ---- */
 .root-list {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 2px;
 }
 .root-item {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 3px 6px;
-  background: var(--bg-elevated);
-  border-radius: var(--radius);
+  gap: 7px;
+  padding: 5px 7px;
+  border-radius: var(--radius-sm);
+}
+.root-item:hover {
+  background: var(--bg-hover);
+}
+.root-ico {
+  color: var(--ico-folder);
 }
 .root-path {
   flex: 1;
+  min-width: 0;
   font-size: 11px;
   font-family: var(--mono);
+  color: var(--fg);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .del {
   flex: none;
-  width: 16px;
-  height: 16px;
-  border-radius: var(--radius);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--radius-sm);
   color: var(--fg-dim);
 }
 .del:hover:not(:disabled) {
@@ -295,7 +357,7 @@ onUnmounted(() => {
 }
 .add-row {
   display: flex;
-  gap: 4px;
+  gap: 6px;
 }
 .root-input {
   flex: 1;
@@ -304,8 +366,8 @@ onUnmounted(() => {
 }
 .add {
   flex: none;
-  padding: 0 10px;
-  border-radius: var(--radius);
+  padding: 0 12px;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--border-strong);
   color: var(--fg);
   font-size: 12px;
@@ -315,19 +377,34 @@ onUnmounted(() => {
   border-color: var(--accent);
 }
 .add-current {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   width: 100%;
-  padding: 4px 6px;
-  border-radius: var(--radius);
-  border: 1px dashed var(--border-strong);
+  height: 28px;
+  padding: 0 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
   color: var(--fg-muted);
   font-size: 11px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 .add-current:hover:not(:disabled) {
   background: var(--bg-hover);
   color: var(--fg);
+  border-color: var(--border-strong);
+}
+.add-current span:first-of-type {
+  flex: none;
+}
+.ac-path {
+  margin-left: auto;
+  min-width: 0;
+  max-width: 55%;
+  font-family: var(--mono);
+  color: var(--fg-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .add:disabled,
 .add-current:disabled,
@@ -336,32 +413,42 @@ onUnmounted(() => {
   cursor: default;
 }
 .state {
+  padding: 2px;
   font-size: 11px;
   color: var(--fg-dim);
 }
-.toggle {
+
+/* ---- 开关行 ---- */
+.row {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 4px 6px;
-  background: var(--bg-elevated);
-  border-radius: var(--radius);
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 8px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
 }
-.toggle:hover {
+.row:hover {
   background: var(--bg-hover);
 }
-.toggle input {
+.row-label {
+  font-size: 11px;
+  color: var(--fg);
+}
+.row input {
   flex: none;
   margin: 0;
   accent-color: var(--accent);
 }
-.toggle-text {
-  font-size: 11px;
-  color: var(--fg);
+.row-hint {
+  margin: 0;
+  padding: 0 8px 4px;
+  font-size: 10px;
+  color: var(--fg-dim);
 }
+
 .error {
-  padding: 4px 6px;
+  padding: 6px 10px;
   border-radius: var(--radius);
   background: var(--danger-soft);
   color: var(--danger);
