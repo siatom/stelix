@@ -202,6 +202,12 @@ fn setup_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // single-instance 必须最先注册：在其余插件与 setup 之前拦截第二个实例，
+        // 并让回调在「已运行的那个实例」里执行（Windows 上它会先交接前台权，
+        // 使 set_focus 生效）。重复启动时把隐藏于托盘的窗口重新唤到前台。
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            show_main_window(app);
+        }))
         .plugin(tauri_plugin_opener::init())
         // 开机自启动：注册时带上 `--autostart` 参数，供下方 setup 判断启动来源。
         .plugin(tauri_plugin_autostart::init(
