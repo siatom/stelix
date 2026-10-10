@@ -61,6 +61,15 @@ const items: { key: PanelKey; icon: IconName; title: string }[] = [
     >
       <Icon :name="ui.theme === 'system' ? 'monitor' : ui.theme === 'dark' ? 'sun' : 'moon'" :size="19" />
     </button>
+    <button
+      type="button"
+      class="activity-btn"
+      title="收起侧边栏"
+      aria-label="收起侧边栏"
+      @click="ui.toggleSidebar()"
+    >
+      <Icon name="panel-left" :size="19" />
+    </button>
   </nav>
 </template>
 
