@@ -196,11 +196,31 @@ onUnmounted(() => {
           <label class="row">
             <span class="row-label">界面字体大小</span>
             <select
-              class="font-size-select"
+              class="setting-select"
               :value="ui.fontSize"
               @change="ui.setFontSize(Number(($event.target as HTMLSelectElement).value))"
             >
               <option v-for="size in [11, 12, 13, 14, 15, 16]" :key="size" :value="size">{{ size }}px</option>
+            </select>
+          </label>
+          <label class="row">
+            <span class="row-label">侧边栏行高</span>
+            <select
+              class="setting-select"
+              :value="ui.sidebarRowHeight"
+              @change="ui.setSidebarRowHeight(Number(($event.target as HTMLSelectElement).value))"
+            >
+              <option v-for="size in [20, 22, 24, 26, 28, 30, 32]" :key="size" :value="size">{{ size }}px</option>
+            </select>
+          </label>
+          <label class="row">
+            <span class="row-label">文件列表行高</span>
+            <select
+              class="setting-select"
+              :value="ui.fileRowHeight"
+              @change="ui.setFileRowHeight(Number(($event.target as HTMLSelectElement).value))"
+            >
+              <option v-for="size in [22, 24, 26, 28, 30, 32, 34, 36, 40]" :key="size" :value="size">{{ size }}px</option>
             </select>
           </label>
           <label class="row">
@@ -450,7 +470,7 @@ onUnmounted(() => {
   margin: 0;
   accent-color: var(--accent);
 }
-.font-size-select {
+.setting-select {
   flex: none;
   padding: 3px 6px;
   border: 1px solid var(--border-strong);

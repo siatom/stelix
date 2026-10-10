@@ -24,7 +24,6 @@ const emit = defineEmits<{
 const paneStore = usePaneStore()
 const ui = useUiStore()
 
-const ROW_H = 26
 const ICON_CAP = 600
 const DRAG_TYPE = 'application/x-file-povit-items'
 const DRAG_FALLBACK_TYPE = 'text/plain'
@@ -39,13 +38,25 @@ const rows = computed(() =>
 const iconRows = computed(() => rows.value.slice(0, ICON_CAP))
 
 const scrollRef = ref<HTMLElement | null>(null)
+// 行高由设置面板控制（ui.fileRowHeight）：把它读进 computed 让虚拟滚动器在变更时重建。
 const virtualizer = useVirtualizer(
-  computed(() => ({
-    count: rows.value.length,
-    getScrollElement: () => scrollRef.value,
-    estimateSize: () => ROW_H,
-    overscan: 12,
-  })),
+  computed(() => {
+    const rowH = ui.fileRowHeight
+    return {
+      count: rows.value.length,
+      getScrollElement: () => scrollRef.value,
+      estimateSize: () => rowH,
+      overscan: 12,
+    }
+  }),
+)
+
+// 行高变更后强制重新测量，刷新已缓存的行尺寸。
+watch(
+  () => ui.fileRowHeight,
+  () => {
+    void nextTick(() => virtualizer.value.measure())
+  },
 )
 
 let anchor = -1
@@ -716,7 +727,7 @@ function onDrop(ev: DragEvent) {
   display: grid;
   grid-template-columns: 22px 1fr 90px 140px 90px;
   align-items: center;
-  height: 26px;
+  height: var(--file-row-h);
   padding-left: 8px;
   flex: none;
   font-size: 1rem;

@@ -86,7 +86,7 @@ const childPad = (d: number) => `${d * 12 + 22}px`
   display: flex;
   align-items: center;
   gap: 4px;
-  height: 22px;
+  height: var(--sidebar-row-h);
   padding-right: 6px;
   border-radius: var(--radius);
   cursor: pointer;

@@ -61,7 +61,7 @@ async function toggle() {
 </template>
 
 <style scoped>
-.row { display: flex; align-items: center; gap: 4px; width: 100%; height: 22px; padding-right: 6px; border-radius: var(--radius); text-align: left; color: var(--fg-folder); font-size: 1rem; }
+.row { display: flex; align-items: center; gap: 4px; width: 100%; height: var(--sidebar-row-h); padding-right: 6px; border-radius: var(--radius); text-align: left; color: var(--fg-folder); font-size: 1rem; }
 .row:hover { background: var(--bg-hover); }
 .twist { display: flex; align-items: center; justify-content: center; width: 12px; flex: none; color: var(--fg-dim); transition: transform .12s ease; }
 .twist.open { transform: rotate(90deg); }

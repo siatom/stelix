@@ -10,6 +10,9 @@
   /* 中间窗格专用的栏高：顶部（工具栏+路径栏同行）与底部标签栏，比全局更紧凑 */
   --pane-bar-h: 32px;
   --search-bar-h: 50px;
+  /* 列表行高偏好：由设置面板调节（侧边栏列表/树、文件列表），仅尺寸不随主题变 */
+  --sidebar-row-h: 24px;
+  --file-row-h: 26px;
 
   /* Shape and motion */
   --radius-sm: 8px;

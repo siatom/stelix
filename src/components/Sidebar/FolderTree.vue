@@ -410,7 +410,7 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 4px;
   width: 100%;
-  height: 22px;
+  height: var(--sidebar-row-h);
   padding: 0 6px;
   border-radius: var(--radius);
   text-align: left;
@@ -437,7 +437,7 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 6px;
-  height: 24px;
+  height: var(--sidebar-row-h);
   padding: 0 6px;
   border-radius: var(--radius);
   cursor: pointer;

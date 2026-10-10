@@ -15,6 +15,16 @@ const LS_AI_VISIBLE = 'file-povit.aiVisible'
 const LS_SIDEBAR_COLLAPSED = 'file-povit.sidebarCollapsed'
 const LS_ACTIVE_PANEL = 'file-povit.activePanel'
 const LS_FONT_SIZE = 'file-povit.fontSize'
+const LS_SIDEBAR_ROW_H = 'file-povit.sidebarRowHeight'
+const LS_FILE_ROW_H = 'file-povit.fileRowHeight'
+
+// 行高可选范围与默认值（px）。默认值与 tokens.css 的 --sidebar-row-h / --file-row-h 保持一致。
+const SIDEBAR_ROW_MIN = 20
+const SIDEBAR_ROW_MAX = 32
+const SIDEBAR_ROW_DEF = 24
+const FILE_ROW_MIN = 22
+const FILE_ROW_MAX = 40
+const FILE_ROW_DEF = 26
 
 function readFontSize(): number {
   try {
@@ -22,6 +32,15 @@ function readFontSize(): number {
     return Number.isInteger(saved) && saved >= 11 && saved <= 16 ? saved : 12
   } catch {
     return 12
+  }
+}
+
+function readRowHeight(key: string, min: number, max: number, def: number): number {
+  try {
+    const saved = Number(localStorage.getItem(key))
+    return Number.isInteger(saved) && saved >= min && saved <= max ? saved : def
+  } catch {
+    return def
   }
 }
 
@@ -64,6 +83,12 @@ function applyFontSize(size: number) {
   document.documentElement.style.setProperty('--ui-font-size', `${size}px`)
 }
 
+function applyRowHeights(sidebar: number, file: number) {
+  const style = document.documentElement.style
+  style.setProperty('--sidebar-row-h', `${sidebar}px`)
+  style.setProperty('--file-row-h', `${file}px`)
+}
+
 /**
  * UI 全局状态 —— 由 **WS-C (feat/ui-shell)** 实现。
  * ⚠️ App.vue（Foundation 拥有）依赖以下字段名，WS-C 不得改名：
@@ -74,6 +99,8 @@ export const useUiStore = defineStore('ui', () => {
   const aiVisible = ref(readBool(LS_AI_VISIBLE, false))
   const theme = ref<ThemeMode>(readTheme())
   const fontSize = ref(readFontSize())
+  const sidebarRowHeight = ref(readRowHeight(LS_SIDEBAR_ROW_H, SIDEBAR_ROW_MIN, SIDEBAR_ROW_MAX, SIDEBAR_ROW_DEF))
+  const fileRowHeight = ref(readRowHeight(LS_FILE_ROW_H, FILE_ROW_MIN, FILE_ROW_MAX, FILE_ROW_DEF))
   const resolvedTheme = computed(() => theme.value === 'system' ? systemTheme() : theme.value)
   const hideProtected = ref(readBool(LS_HIDE_PROTECTED, true))
   const hideFileExtensions = ref(readBool(LS_HIDE_FILE_EXTENSIONS, false))
@@ -84,6 +111,7 @@ export const useUiStore = defineStore('ui', () => {
   // 首次进入时应用已持久化的主题
   applyTheme(theme.value)
   applyFontSize(fontSize.value)
+  applyRowHeights(sidebarRowHeight.value, fileRowHeight.value)
   const systemThemeQuery = window.matchMedia('(prefers-color-scheme: dark)')
   systemThemeQuery.addEventListener('change', () => {
     if (theme.value === 'system') applyTheme('system')
@@ -154,6 +182,28 @@ export const useUiStore = defineStore('ui', () => {
     }
   }
 
+  function setSidebarRowHeight(size: number) {
+    if (!Number.isInteger(size) || size < SIDEBAR_ROW_MIN || size > SIDEBAR_ROW_MAX) return
+    sidebarRowHeight.value = size
+    applyRowHeights(sidebarRowHeight.value, fileRowHeight.value)
+    try {
+      localStorage.setItem(LS_SIDEBAR_ROW_H, String(size))
+    } catch {
+      /* ignore */
+    }
+  }
+
+  function setFileRowHeight(size: number) {
+    if (!Number.isInteger(size) || size < FILE_ROW_MIN || size > FILE_ROW_MAX) return
+    fileRowHeight.value = size
+    applyRowHeights(sidebarRowHeight.value, fileRowHeight.value)
+    try {
+      localStorage.setItem(LS_FILE_ROW_H, String(size))
+    } catch {
+      /* ignore */
+    }
+  }
+
   function setHideProtected(value: boolean) {
     hideProtected.value = value
     try {
@@ -207,6 +257,8 @@ export const useUiStore = defineStore('ui', () => {
     aiVisible,
     theme,
     fontSize,
+    sidebarRowHeight,
+    fileRowHeight,
     resolvedTheme,
     hideProtected,
     hideFileExtensions,
@@ -222,6 +274,8 @@ export const useUiStore = defineStore('ui', () => {
     setTheme,
     toggleTheme,
     setFontSize,
+    setSidebarRowHeight,
+    setFileRowHeight,
     setHideProtected,
     toggleHideProtected,
     setHideFileExtensions,
