@@ -534,17 +534,22 @@ function onDrop(ev: DragEvent) {
       @click.stop
       @contextmenu.prevent
     >
-      <button @click="openEntry(ctx.entry); closeCtx()">打开</button>
-      <button v-if="ctx.entry.isDir" @click="openInNewTab(ctx.entry)">在新标签页打开</button>
+      <button @click="openEntry(ctx.entry); closeCtx()"><Icon :name="ctx.entry.isDir ? 'folder-open' : 'file'" :size="14" />打开</button>
+      <button v-if="ctx.entry.isDir" @click="openInNewTab(ctx.entry)"><Icon name="plus" :size="14" />在新标签页打开</button>
+      <button v-if="ctx.entry.isDir" :disabled="favoritePaths.has(ctx.entry.path)" @click="addEntryFavorite(ctx.entry)"><Icon name="star" :size="14" />{{ favoritePaths.has(ctx.entry.path) ? '已在收藏中' : '添加到收藏' }}</button>
+      <button v-if="ctx.entry.isDir" @click="openInTerminal(ctx.entry)"><Icon name="terminal" :size="14" />在终端打开</button>
       <div class="sep" />
-      <button @click="copyToClipboard('copy')">复制</button>
-      <button @click="copyToClipboard('move')">剪切</button>
-      <button :disabled="!paneStore.clipboard" @click="paste">粘贴到此目录</button>
+      <button @click="copyToClipboard('copy')"><Icon name="copy" :size="14" /><span>复制</span><kbd>Ctrl+C</kbd></button>
+      <button @click="copyToClipboard('move')"><Icon name="arrow-right" :size="14" /><span>剪切</span><kbd>Ctrl+X</kbd></button>
+      <button :disabled="!paneStore.clipboard" @click="paste"><Icon name="folder-open" :size="14" /><span>粘贴到此目录</span><kbd>Ctrl+V</kbd></button>
       <div class="sep" />
-      <button @click="startRename(ctx.entry.path); closeCtx()">重命名</button>
-      <button class="danger" @click="emit('delete', [ctx.entry.path]); closeCtx()">删除</button>
+      <button @click="startRename(ctx.entry.path); closeCtx()"><Icon name="pencil" :size="14" /><span>重命名</span><kbd>F2</kbd></button>
+      <button class="danger" @click="emit('delete', [ctx.entry.path]); closeCtx()"><Icon name="trash" :size="14" /><span>删除</span><kbd>Delete</kbd></button>
       <div class="sep" />
-      <button @click="copyPath">复制路径</button>
+      <button @click="copyFileName"><Icon name="file" :size="14" />复制文件名</button>
+      <button @click="copyPath"><Icon name="file-text" :size="14" />复制路径</button>
+      <div class="sep" />
+      <button @click="showProperties(ctx.entry)"><Icon name="info" :size="14" />属性</button>
     </div>
   </div>
 </template>
@@ -569,7 +574,7 @@ function onDrop(ev: DragEvent) {
   justify-content: center;
   gap: 6px;
   color: var(--fg-dim);
-  font-size: 12px;
+  font-size: 1rem;
   padding: 20px;
   text-align: center;
 }
@@ -628,7 +633,7 @@ function onDrop(ev: DragEvent) {
 .header .col {
   text-align: left;
   padding: 0 6px;
-  font-size: 11px;
+  font-size: 0.9167rem;
   color: var(--fg-muted);
   white-space: nowrap;
   overflow: hidden;
@@ -660,7 +665,7 @@ function onDrop(ev: DragEvent) {
   height: 26px;
   padding-left: 8px;
   flex: none;
-  font-size: 12.5px;
+  font-size: 1rem;
   background: var(--bg-hover);
   border-bottom: 1px solid var(--border);
 }
@@ -680,7 +685,7 @@ function onDrop(ev: DragEvent) {
   height: 20px;
   padding: 0 4px;
   font: inherit;
-  font-size: 12.5px;
+  font-size: 1rem;
   color: var(--fg);
   background: var(--bg-input);
   border: 1px solid var(--accent);
@@ -696,7 +701,7 @@ function onDrop(ev: DragEvent) {
   grid-template-columns: 22px 1fr 90px 140px 90px;
   align-items: center;
   padding-left: 8px;
-  font-size: 12.5px;
+  font-size: 1rem;
   color: var(--fg);
   cursor: default;
   white-space: nowrap;
@@ -724,7 +729,7 @@ function onDrop(ev: DragEvent) {
 .row .type {
   padding: 0 6px;
   color: var(--fg-muted);
-  font-size: 11.5px;
+  font-size: 0.9583rem;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -779,7 +784,7 @@ function onDrop(ev: DragEvent) {
   background: color-mix(in srgb, currentColor 19%, var(--bg-panel));
 }
 .icon-name {
-  font-size: 11.5px;
+  font-size: 1rem;
   color: var(--fg);
   max-width: 100%;
   overflow: hidden;

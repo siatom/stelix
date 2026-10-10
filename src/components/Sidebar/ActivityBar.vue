@@ -98,7 +98,7 @@ const items: { key: PanelKey; icon: IconName; title: string }[] = [
   display: flex;
   align-items: center;
   color: var(--fg);
-  font-size: 22px;
+  font-size: 1.8333rem;
   font-weight: 700;
   white-space: nowrap;
   background: var(--bg-panel);
@@ -124,7 +124,7 @@ const items: { key: PanelKey; icon: IconName; title: string }[] = [
   border-radius: 4px;
   background: var(--bg-active);
   color: var(--fg-muted);
-  font-size: 9px;
+  font-size: 0.75rem;
   font-weight: 600;
   line-height: 1;
   letter-spacing: 0.04em;

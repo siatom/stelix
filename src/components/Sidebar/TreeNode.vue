@@ -121,14 +121,14 @@ const childPad = (d: number) => `${d * 12 + 22}px`
   flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-size: 12px;
+  font-size: 1rem;
   color: var(--fg-folder);
 }
 .state {
   height: 20px;
   display: flex;
   align-items: center;
-  font-size: 11px;
+  font-size: 0.9167rem;
   color: var(--fg-dim);
 }
 .state.err {

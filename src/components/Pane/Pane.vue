@@ -111,7 +111,7 @@ async function confirmDelete() {
   align-items: center;
   justify-content: center;
   color: var(--fg-dim);
-  font-size: 12px;
+  font-size: 1rem;
 }
 .pane-topbar {
   display: flex;
@@ -134,7 +134,7 @@ async function confirmDelete() {
   align-items: center;
   padding: 0 12px;
   color: var(--fg-muted);
-  font-size: 12px;
+  font-size: 1rem;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -159,7 +159,7 @@ async function confirmDelete() {
   background: var(--danger-soft);
   border: 1px solid var(--danger);
   border-radius: var(--radius);
-  font-size: 12px;
+  font-size: 1rem;
   color: var(--fg);
 }
 .error-bar span {
@@ -193,13 +193,13 @@ async function confirmDelete() {
 }
 .dialog h3 {
   margin: 0;
-  font-size: 13px;
+  font-size: 1.0833rem;
   font-weight: 600;
   color: var(--fg);
 }
 .warn-text {
   margin: 0;
-  font-size: 12px;
+  font-size: 1rem;
   color: var(--fg-muted);
 }
 .del-list {
@@ -207,12 +207,12 @@ async function confirmDelete() {
   padding-left: 18px;
   max-height: 140px;
   overflow: auto;
-  font-size: 12px;
+  font-size: 1rem;
   color: var(--fg);
 }
 .more {
   margin: 0;
-  font-size: 11px;
+  font-size: 0.9167rem;
   color: var(--fg-dim);
 }
 .actions {

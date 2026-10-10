@@ -67,7 +67,7 @@ const isActivePane = computed(() => paneStore.activePaneId === props.paneId)
   display: flex;
   align-items: center;
   padding: 0 8px;
-  font-size: 12px;
+  font-size: 1rem;
   color: var(--fg-muted);
   overflow: hidden;
 }

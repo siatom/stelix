@@ -131,7 +131,7 @@ onMounted(() => {
   border-radius: var(--radius);
   border: 1px dashed var(--border-strong);
   color: var(--fg-muted);
-  font-size: 12px;
+  font-size: 1rem;
 }
 .save-btn:hover {
   background: var(--bg-hover);
@@ -159,7 +159,7 @@ onMounted(() => {
   min-width: 0;
 }
 .tg-name {
-  font-size: 12px;
+  font-size: 1rem;
   font-weight: 600;
   color: var(--fg);
 }
@@ -172,7 +172,7 @@ onMounted(() => {
 .tg-pane {
   display: flex;
   gap: 4px;
-  font-size: 11px;
+  font-size: 0.9167rem;
   color: var(--fg-muted);
   white-space: nowrap;
   overflow: hidden;
@@ -187,7 +187,7 @@ onMounted(() => {
 }
 .tg-time {
   margin-top: 4px;
-  font-size: 10px;
+  font-size: 0.8333rem;
   color: var(--fg-dim);
 }
 .tg-actions {
@@ -199,7 +199,7 @@ onMounted(() => {
 .act {
   padding: 2px 8px;
   border-radius: var(--radius);
-  font-size: 11px;
+  font-size: 0.9167rem;
   border: 1px solid var(--border);
   color: var(--fg-muted);
 }
@@ -213,7 +213,7 @@ onMounted(() => {
 }
 .state {
   padding: 4px 6px;
-  font-size: 11px;
+  font-size: 0.9167rem;
   color: var(--fg-dim);
 }
 </style>

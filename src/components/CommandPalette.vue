@@ -211,7 +211,7 @@ onUnmounted(() => {
   border-bottom: 1px solid var(--border);
   border-radius: 0;
   padding: 10px 12px;
-  font-size: 14px;
+  font-size: 1.1667rem;
   background: var(--bg-input);
 }
 .palette-input:focus {
@@ -236,10 +236,10 @@ onUnmounted(() => {
   background: var(--bg-selected);
 }
 .cmd-label {
-  font-size: 13px;
+  font-size: 1.0833rem;
 }
 .cmd-hint {
-  font-size: 11px;
+  font-size: 0.9167rem;
   color: var(--fg-dim);
   font-family: var(--mono);
   white-space: nowrap;
@@ -250,7 +250,7 @@ onUnmounted(() => {
 .palette-empty {
   padding: 14px;
   text-align: center;
-  font-size: 12px;
+  font-size: 1rem;
   color: var(--fg-dim);
 }
 </style>

@@ -1,4 +1,6 @@
 :root {
+  --ui-font-size: 12px;
+  font-size: var(--ui-font-size);
   /* Layout */
   --activity-bar-w: 52px;
   --sidebar-w: 264px;

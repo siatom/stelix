@@ -194,6 +194,16 @@ onUnmounted(() => {
         <header class="card-head">视图</header>
         <div class="card-body tight">
           <label class="row">
+            <span class="row-label">界面字体大小</span>
+            <select
+              class="font-size-select"
+              :value="ui.fontSize"
+              @change="ui.setFontSize(Number(($event.target as HTMLSelectElement).value))"
+            >
+              <option v-for="size in [11, 12, 13, 14, 15, 16]" :key="size" :value="size">{{ size }}px</option>
+            </select>
+          </label>
+          <label class="row">
             <span class="row-label">隐藏受保护的操作系统文件</span>
             <input
               type="checkbox"
@@ -260,7 +270,7 @@ onUnmounted(() => {
 }
 .card-head {
   padding: 7px 11px;
-  font-size: 11px;
+  font-size: 0.9167rem;
   font-weight: 600;
   color: var(--fg-muted);
   border-bottom: 1px solid var(--border);
@@ -294,12 +304,12 @@ onUnmounted(() => {
   border-left: 0;
 }
 .stat .k {
-  font-size: 10px;
+  font-size: 0.8333rem;
   color: var(--fg-dim);
   white-space: nowrap;
 }
 .stat .v {
-  font-size: 11px;
+  font-size: 0.9167rem;
   font-weight: 600;
   font-family: var(--mono);
   font-variant-numeric: tabular-nums;
@@ -334,7 +344,7 @@ onUnmounted(() => {
 .root-path {
   flex: 1;
   min-width: 0;
-  font-size: 11px;
+  font-size: 0.9167rem;
   font-family: var(--mono);
   color: var(--fg);
   white-space: nowrap;
@@ -362,7 +372,7 @@ onUnmounted(() => {
 .root-input {
   flex: 1;
   min-width: 0;
-  font-size: 11px;
+  font-size: 0.9167rem;
 }
 .add {
   flex: none;
@@ -370,7 +380,7 @@ onUnmounted(() => {
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-strong);
   color: var(--fg);
-  font-size: 12px;
+  font-size: 1rem;
 }
 .add:hover:not(:disabled) {
   background: var(--bg-hover);
@@ -386,7 +396,7 @@ onUnmounted(() => {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   color: var(--fg-muted);
-  font-size: 11px;
+  font-size: 0.9167rem;
 }
 .add-current:hover:not(:disabled) {
   background: var(--bg-hover);
@@ -414,7 +424,7 @@ onUnmounted(() => {
 }
 .state {
   padding: 2px;
-  font-size: 11px;
+  font-size: 0.9167rem;
   color: var(--fg-dim);
 }
 
@@ -432,7 +442,7 @@ onUnmounted(() => {
   background: var(--bg-hover);
 }
 .row-label {
-  font-size: 11px;
+  font-size: 0.9167rem;
   color: var(--fg);
 }
 .row input {
@@ -440,10 +450,20 @@ onUnmounted(() => {
   margin: 0;
   accent-color: var(--accent);
 }
+.font-size-select {
+  flex: none;
+  padding: 3px 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+}
 .row-hint {
   margin: 0;
   padding: 0 8px 4px;
-  font-size: 10px;
+  font-size: 0.8333rem;
   color: var(--fg-dim);
 }
 
@@ -452,7 +472,7 @@ onUnmounted(() => {
   border-radius: var(--radius);
   background: var(--danger-soft);
   color: var(--danger);
-  font-size: 11px;
+  font-size: 0.9167rem;
   word-break: break-all;
 }
 .build-info {
@@ -462,7 +482,7 @@ onUnmounted(() => {
   border-top: 1px solid var(--border);
   color: var(--fg-dim);
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: 0.8333rem;
   text-align: center;
 }
 </style>

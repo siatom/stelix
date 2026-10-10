@@ -74,7 +74,7 @@ const modes: { key: ViewMode; icon: IconName; title: string }[] = [
   height: 22px;
   border-radius: var(--radius);
   color: var(--fg-muted);
-  font-size: 13px;
+  font-size: 1.0833rem;
   display: flex;
   align-items: center;
   justify-content: center;

@@ -56,7 +56,7 @@ const current = computed(() => panels[ui.activePanel])
   display: flex;
   align-items: center;
   padding: 0 10px;
-  font-size: 14px;
+  font-size: 1.1667rem;
   font-weight: 700;
   color: var(--fg);
   border-bottom: 1px solid transparent;

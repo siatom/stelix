@@ -203,7 +203,7 @@ const OP_LABEL: Record<string, string> = {
   gap: 4px;
   padding: 0 10px;
   border-bottom: 1px solid var(--border);
-  font-size: 12px;
+  font-size: 1rem;
   color: var(--fg-muted);
 }
 .title {
@@ -243,7 +243,7 @@ const OP_LABEL: Record<string, string> = {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 12px;
+  font-size: 1rem;
   color: var(--fg-muted);
 }
 .settings .row span {
@@ -254,7 +254,7 @@ const OP_LABEL: Record<string, string> = {
   flex: 1;
   min-width: 0;
   height: 22px;
-  font-size: 12px;
+  font-size: 1rem;
 }
 .settings .row input.cb {
   flex: none;
@@ -300,7 +300,7 @@ const OP_LABEL: Record<string, string> = {
 }
 .empty-title {
   margin: 0 0 4px;
-  font-size: 12px;
+  font-size: 1rem;
   color: var(--fg-dim);
 }
 .example {
@@ -308,7 +308,7 @@ const OP_LABEL: Record<string, string> = {
   padding: 6px 10px;
   border: 1px dashed var(--border-strong);
   border-radius: var(--radius);
-  font-size: 12px;
+  font-size: 1rem;
   color: var(--fg-muted);
 }
 .example:hover {
@@ -329,7 +329,7 @@ const OP_LABEL: Record<string, string> = {
   padding: 7px 10px;
   border-radius: var(--radius-lg);
   background: var(--bg-elevated);
-  font-size: 12.5px;
+  font-size: 1.0417rem;
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;
@@ -345,12 +345,12 @@ const OP_LABEL: Record<string, string> = {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   font-family: var(--mono);
-  font-size: 11.5px;
+  font-size: 0.9583rem;
   white-space: pre;
   overflow-x: auto;
 }
 .typing {
-  font-size: 12px;
+  font-size: 1rem;
   color: var(--fg-dim);
   padding-left: 4px;
 }
@@ -370,13 +370,13 @@ const OP_LABEL: Record<string, string> = {
   display: flex;
   align-items: center;
   gap: 5px;
-  font-size: 12.5px;
+  font-size: 1.0417rem;
   color: var(--warn);
 }
 .confirm-detail {
   margin: 0;
   padding-left: 16px;
-  font-size: 12px;
+  font-size: 1rem;
   color: var(--fg);
   word-break: break-all;
 }
@@ -399,7 +399,7 @@ const OP_LABEL: Record<string, string> = {
 }
 .err {
   margin: 0;
-  font-size: 12px;
+  font-size: 1rem;
   color: var(--danger);
 }
 
@@ -417,7 +417,7 @@ const OP_LABEL: Record<string, string> = {
   min-width: 0;
   resize: none;
   font-family: inherit;
-  font-size: 12.5px;
+  font-size: 1.0417rem;
   color: var(--fg);
   background: var(--bg-input);
   border: 1px solid var(--border);
@@ -437,7 +437,7 @@ const OP_LABEL: Record<string, string> = {
   border-radius: var(--radius);
   background: var(--accent);
   color: var(--accent-fg);
-  font-size: 12.5px;
+  font-size: 1.0417rem;
 }
 .send:disabled {
   opacity: 0.45;

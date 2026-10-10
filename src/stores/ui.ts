@@ -14,6 +14,16 @@ const LS_HIDE_FILE_EXTENSIONS = 'file-povit.hideFileExtensions'
 const LS_AI_VISIBLE = 'file-povit.aiVisible'
 const LS_SIDEBAR_COLLAPSED = 'file-povit.sidebarCollapsed'
 const LS_ACTIVE_PANEL = 'file-povit.activePanel'
+const LS_FONT_SIZE = 'file-povit.fontSize'
+
+function readFontSize(): number {
+  try {
+    const saved = Number(localStorage.getItem(LS_FONT_SIZE))
+    return Number.isInteger(saved) && saved >= 11 && saved <= 16 ? saved : 12
+  } catch {
+    return 12
+  }
+}
 
 function readBool(key: string, fallback: boolean): boolean {
   try {
@@ -50,6 +60,10 @@ function applyTheme(mode: ThemeMode) {
   document.documentElement.setAttribute('data-theme', mode === 'system' ? systemTheme() : mode)
 }
 
+function applyFontSize(size: number) {
+  document.documentElement.style.setProperty('--ui-font-size', `${size}px`)
+}
+
 /**
  * UI 全局状态 —— 由 **WS-C (feat/ui-shell)** 实现。
  * ⚠️ App.vue（Foundation 拥有）依赖以下字段名，WS-C 不得改名：
@@ -59,6 +73,7 @@ export const useUiStore = defineStore('ui', () => {
   const sidebarCollapsed = ref(readBool(LS_SIDEBAR_COLLAPSED, false))
   const aiVisible = ref(readBool(LS_AI_VISIBLE, false))
   const theme = ref<ThemeMode>(readTheme())
+  const fontSize = ref(readFontSize())
   const resolvedTheme = computed(() => theme.value === 'system' ? systemTheme() : theme.value)
   const hideProtected = ref(readBool(LS_HIDE_PROTECTED, true))
   const hideFileExtensions = ref(readBool(LS_HIDE_FILE_EXTENSIONS, false))
@@ -68,6 +83,7 @@ export const useUiStore = defineStore('ui', () => {
 
   // 首次进入时应用已持久化的主题
   applyTheme(theme.value)
+  applyFontSize(fontSize.value)
   const systemThemeQuery = window.matchMedia('(prefers-color-scheme: dark)')
   systemThemeQuery.addEventListener('change', () => {
     if (theme.value === 'system') applyTheme('system')
@@ -127,6 +143,17 @@ export const useUiStore = defineStore('ui', () => {
     setTheme(theme.value === 'system' ? 'light' : theme.value === 'light' ? 'dark' : 'system')
   }
 
+  function setFontSize(size: number) {
+    if (!Number.isInteger(size) || size < 11 || size > 16) return
+    fontSize.value = size
+    applyFontSize(size)
+    try {
+      localStorage.setItem(LS_FONT_SIZE, String(size))
+    } catch {
+      /* ignore */
+    }
+  }
+
   function setHideProtected(value: boolean) {
     hideProtected.value = value
     try {
@@ -179,6 +206,7 @@ export const useUiStore = defineStore('ui', () => {
     sidebarCollapsed,
     aiVisible,
     theme,
+    fontSize,
     resolvedTheme,
     hideProtected,
     hideFileExtensions,
@@ -193,6 +221,7 @@ export const useUiStore = defineStore('ui', () => {
     toggleAi,
     setTheme,
     toggleTheme,
+    setFontSize,
     setHideProtected,
     toggleHideProtected,
     setHideFileExtensions,
