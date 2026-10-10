@@ -6,8 +6,15 @@ import { openPath } from '@tauri-apps/plugin-opener'
 import type { FileEntry, TabState } from '../../types'
 import { usePaneStore } from '../../stores/pane'
 import { useUiStore } from '../../stores/ui'
+import { api } from '../../api'
 import { basename, dirname, fileIcon, fileKind, formatSize, formatTime, joinPath, typeLabel } from './utils'
 import Icon from '../icons/Icon.vue'
+import {
+  addFavorite,
+  FAVORITES_CHANGED_EVENT,
+  loadFavorites,
+  recordOpenedFileDirectory,
+} from '../Sidebar/shared'
 
 const props = defineProps<{ paneId: string; tab: TabState }>()
 const emit = defineEmits<{
@@ -85,13 +92,14 @@ function clearSelection() {
 
 // ---- 打开 ----
 
-async function openEntry(entry: FileEntry) {
+async function openEntry(entry: FileEntry, countForFrequentDirectories = false) {
   if (entry.isDir) {
     await paneStore.navigateTo(props.paneId, entry.path)
     return
   }
   try {
     await openPath(entry.path)
+    if (countForFrequentDirectories) recordOpenedFileDirectory(dirname(entry.path))
   } catch (e) {
     ui.statusText = `无法打开：${String(e)}`
   }
@@ -99,7 +107,7 @@ async function openEntry(entry: FileEntry) {
 
 async function onDblClick(entry: FileEntry) {
   lastItemClick = null
-  await openEntry(entry)
+  await openEntry(entry, true)
 }
 
 // ---- 行内编辑（重命名 / 新建文件夹） ----
@@ -186,12 +194,35 @@ interface CtxState {
   entry: FileEntry
 }
 const ctx = ref<CtxState | null>(null)
+const favoritePaths = ref(new Set(loadFavorites().map((item) => item.path)))
+
+function syncFavorites() {
+  favoritePaths.value = new Set(loadFavorites().map((item) => item.path))
+}
+
+function addEntryFavorite(entry: FileEntry) {
+  if (!entry.isDir) return
+  const added = addFavorite(entry.path)
+  syncFavorites()
+  ui.setStatusText(added ? '已加入收藏' : '该目录已在收藏中')
+  closeCtx()
+}
+
+async function openInTerminal(entry: FileEntry) {
+  if (!entry.isDir) return
+  try {
+    await api.openInTerminal(entry.path)
+  } catch (error) {
+    ui.setStatusText(`无法打开终端：${String(error)}`)
+  }
+  closeCtx()
+}
 
 function openCtx(ev: MouseEvent, entry: FileEntry) {
   ev.preventDefault()
   if (!props.tab.selected.includes(entry.path)) props.tab.selected = [entry.path]
   const menuW = 176
-  const menuH = 244
+  const menuH = 300
   const x = Math.min(ev.clientX, window.innerWidth - menuW - 4)
   const y = Math.min(ev.clientY, window.innerHeight - menuH - 4)
   ctx.value = { x, y, entry }
@@ -222,6 +253,27 @@ async function copyPath() {
     ui.statusText = '路径已复制'
   } catch {
     ui.statusText = `路径：${c.entry.path}`
+  }
+  closeCtx()
+}
+
+async function copyFileName() {
+  const c = ctx.value
+  if (!c) return
+  try {
+    await navigator.clipboard.writeText(c.entry.name)
+    ui.statusText = '文件名已复制'
+  } catch {
+    ui.statusText = `文件名：${c.entry.name}`
+  }
+  closeCtx()
+}
+
+async function showProperties(entry: FileEntry) {
+  try {
+    await api.showItemProperties(entry.path)
+  } catch (error) {
+    ui.setStatusText(`无法打开属性：${String(error)}`)
   }
   closeCtx()
 }
@@ -290,12 +342,14 @@ onMounted(() => {
   document.addEventListener('click', onDocClick)
   document.addEventListener('keydown', onKey)
   window.addEventListener('keydown', onGlobalKey)
+  window.addEventListener(FAVORITES_CHANGED_EVENT, syncFavorites)
 })
 
 onBeforeUnmount(() => {
   document.removeEventListener('click', onDocClick)
   document.removeEventListener('keydown', onKey)
   window.removeEventListener('keydown', onGlobalKey)
+  window.removeEventListener(FAVORITES_CHANGED_EVENT, syncFavorites)
 })
 
 // ---- 外部定位（搜索结果 / AI） ----
@@ -797,7 +851,7 @@ function onDrop(ev: DragEvent) {
 .cap-hint {
   margin: 12px 0 4px;
   text-align: center;
-  font-size: 11px;
+  font-size: 0.9167rem;
   color: var(--fg-dim);
 }
 
@@ -815,11 +869,28 @@ function onDrop(ev: DragEvent) {
   flex-direction: column;
 }
 .ctx-menu button {
+  display: flex;
+  align-items: center;
+  gap: 9px;
   text-align: left;
-  padding: 5px 10px;
+  padding: 5px 8px;
   border-radius: var(--radius);
-  font-size: 12.5px;
+  font-size: 1.0417rem;
   color: var(--fg);
+}
+.ctx-menu button :deep(svg) {
+  flex: none;
+  color: var(--fg-muted);
+}
+.ctx-menu button kbd {
+  margin-left: auto;
+  padding-left: 16px;
+  color: var(--fg-dim);
+  font: inherit;
+  font-size: 0.9167rem;
+}
+.ctx-menu button.danger :deep(svg) {
+  color: var(--danger);
 }
 .ctx-menu button:hover:not(:disabled) {
   background: var(--bg-hover);
