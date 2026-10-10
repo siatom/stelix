@@ -11,6 +11,7 @@ pub struct SmbNeighbor {
 #[cfg(windows)]
 fn shell_neighbors() -> Vec<String> {
     use std::process::{Command, Stdio};
+    use std::os::windows::process::CommandExt;
     use std::time::{Duration, Instant};
 
     // 资源管理器“网络”包含 WSD/SSDP 发现的设备；只接受其中带 UNC 路径的电脑。
@@ -23,6 +24,7 @@ if($null -ne $folder){ foreach($item in $folder.Items()){ if($item.Path -match '
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
+        .creation_flags(0x08000000) // CREATE_NO_WINDOW
         .spawn()
     else {
         return Vec::new();
