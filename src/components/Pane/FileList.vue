@@ -26,9 +26,9 @@ const paneStore = usePaneStore()
 const ui = useUiStore()
 
 const ICON_CAP = 600
-const DRAG_TYPE = 'application/x-file-povit-items'
+const DRAG_TYPE = 'application/x-stelix-items'
 const DRAG_FALLBACK_TYPE = 'text/plain'
-const DRAG_PREFIX = 'file-povit:'
+const DRAG_PREFIX = 'stelix:'
 
 const viewMode = computed(() => paneStore.panes.find((p) => p.id === props.paneId)?.viewMode ?? 'details')
 // 先取 store 的过滤+排序结果，再按「隐藏受保护的操作系统文件」剔除（Explorer 语义：hidden && system）

@@ -12,8 +12,8 @@ import { dirname } from '../components/Pane/utils'
  */
 
 let tabSeq = 0
-const PANE_PATHS_KEY = 'file-povit.panePaths'
-const PANE_LAYOUT_KEY = 'file-povit.paneLayout'
+const PANE_PATHS_KEY = 'stelix.panePaths'
+const PANE_LAYOUT_KEY = 'stelix.paneLayout'
 
 interface SavedPaneLayout {
   activePaneId?: 'left' | 'right'

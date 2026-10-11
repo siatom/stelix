@@ -8,15 +8,15 @@ export type PanelKey = 'files' | 'recent' | 'search'
 export type ThemeMode = 'system' | 'dark' | 'light'
 
 // ---- 本地偏好持久化（localStorage）----
-const LS_THEME = 'file-povit.theme'
-const LS_HIDE_PROTECTED = 'file-povit.hideProtected'
-const LS_HIDE_FILE_EXTENSIONS = 'file-povit.hideFileExtensions'
-const LS_AI_VISIBLE = 'file-povit.aiVisible'
-const LS_SIDEBAR_COLLAPSED = 'file-povit.sidebarCollapsed'
-const LS_ACTIVE_PANEL = 'file-povit.activePanel'
-const LS_FONT_SIZE = 'file-povit.fontSize'
-const LS_SIDEBAR_ROW_H = 'file-povit.sidebarRowHeight'
-const LS_FILE_ROW_H = 'file-povit.fileRowHeight'
+const LS_THEME = 'stelix.theme'
+const LS_HIDE_PROTECTED = 'stelix.hideProtected'
+const LS_HIDE_FILE_EXTENSIONS = 'stelix.hideFileExtensions'
+const LS_AI_VISIBLE = 'stelix.aiVisible'
+const LS_SIDEBAR_COLLAPSED = 'stelix.sidebarCollapsed'
+const LS_ACTIVE_PANEL = 'stelix.activePanel'
+const LS_FONT_SIZE = 'stelix.fontSize'
+const LS_SIDEBAR_ROW_H = 'stelix.sidebarRowHeight'
+const LS_FILE_ROW_H = 'stelix.fileRowHeight'
 
 // 行高可选范围与默认值（px）。默认值与 tokens.css 的 --sidebar-row-h / --file-row-h 保持一致。
 const SIDEBAR_ROW_MIN = 20

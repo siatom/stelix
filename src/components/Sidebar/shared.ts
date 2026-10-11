@@ -35,11 +35,11 @@ export interface TabGroup {
   createdAt: number
 }
 
-export const FAVORITES_KEY = 'file-povit.favorites'
-export const TABGROUPS_KEY = 'file-povit.tabgroups'
-export const FAVORITES_CHANGED_EVENT = 'file-povit:favorites-changed'
-export const RECENT_DIRECTORIES_KEY = 'file-povit.recent-directories'
-export const RECENT_DIRECTORIES_CHANGED_EVENT = 'file-povit:recent-directories-changed'
+export const FAVORITES_KEY = 'stelix.favorites'
+export const TABGROUPS_KEY = 'stelix.tabgroups'
+export const FAVORITES_CHANGED_EVENT = 'stelix:favorites-changed'
+export const RECENT_DIRECTORIES_KEY = 'stelix.recent-directories'
+export const RECENT_DIRECTORIES_CHANGED_EVENT = 'stelix:recent-directories-changed'
 const RECENT_WINDOW_MS = 24 * 60 * 60 * 1000
 const RECENT_EVENT_LIMIT = 10000
 

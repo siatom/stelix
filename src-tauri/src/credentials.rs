@@ -3,7 +3,7 @@
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
 
-const SERVICE: &str = "file-povit.remote-host";
+const SERVICE: &str = "stelix.remote-host";
 static CREDENTIALS_LOCK: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
 
 fn entry(host_id: &str) -> Result<keyring::Entry, String> {

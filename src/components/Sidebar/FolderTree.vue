@@ -21,7 +21,7 @@ import Icon from '../icons/Icon.vue'
 const pane = usePaneStore()
 const ui = useUiStore()
 
-const SECTION_KEY = 'file-povit.navSections'
+const SECTION_KEY = 'stelix.navSections'
 type SectionKey = 'system' | 'favorites' | 'recent' | 'computer' | 'network'
 function readSections(): Record<SectionKey, boolean> {
   const defaults = { system: true, favorites: true, recent: true, computer: true, network: true }

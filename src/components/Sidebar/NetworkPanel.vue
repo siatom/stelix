@@ -20,8 +20,8 @@ interface SmbNeighbor {
   shares: string[]
 }
 
-const SHARES_KEY = 'file-povit.smbShares'
-const HOSTS_KEY = 'file-povit.remoteHosts'
+const SHARES_KEY = 'stelix.smbShares'
+const HOSTS_KEY = 'stelix.remoteHosts'
 
 function readShares(): string[] {
   try {

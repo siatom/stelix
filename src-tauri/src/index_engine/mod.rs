@@ -461,7 +461,7 @@ mod tests {
 
     #[test]
     fn walk_dir_source_collects_files_and_dirs() {
-        let base = std::env::temp_dir().join(format!("file-povit-idx-test-{}", std::process::id()));
+        let base = std::env::temp_dir().join(format!("stelix-idx-test-{}", std::process::id()));
         let sub = base.join("sub");
         fs::create_dir_all(&sub).unwrap();
         fs::write(base.join("a.txt"), b"hello").unwrap();
@@ -486,7 +486,7 @@ mod tests {
     #[test]
     fn end_to_end_index_and_search() {
         let base = std::env::temp_dir().join(format!(
-            "file-povit-e2e-{}-{}",
+            "stelix-e2e-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)

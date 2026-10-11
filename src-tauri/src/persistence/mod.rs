@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 fn config_dir() -> PathBuf {
     dirs::config_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join("file-povit")
+        .join("stelix")
 }
 
 fn ai_config_path() -> PathBuf {
@@ -18,7 +18,7 @@ fn ai_config_path() -> PathBuf {
 fn index_cache_path() -> PathBuf {
     dirs::data_local_dir()
         .unwrap_or_else(|| config_dir())
-        .join("file-povit")
+        .join("stelix")
         .join("index-cache.json")
 }
 
