@@ -106,7 +106,7 @@ fn system_prompt(context: &AiContext) -> String {
         context.selected.join("、")
     };
     format!(
-        "你是 File Povit 的文件管理器智能助手，运行在 Windows 上。\n\
+        "你是 Stelix File Manager（星索）的文件管理器智能助手，运行在 Windows 上。\n\
          当前活动目录：{active}\n\
          当前选中项：{selected}\n\
          可用工具：\n\

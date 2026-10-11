@@ -1,13 +1,13 @@
 [package]
-name = "file-povit"
+name = "stelix-file-manager"
 version = "0.1.0"
-description = "File Povit - 智能文件管理器"
-authors = ["file-povit"]
+description = "Stelix File Manager 星索"
+authors = ["Stelix"]
 edition = "2021"
 
 [lib]
 # Windows 上 lib 与 bin 同名会冲突，故加 _lib 后缀
-name = "file_povit_lib"
+name = "stelix_file_manager_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

@@ -1,5 +1,5 @@
 /**
- * File Povit 自绘图标集
+ * Stelix 星索自绘图标集
  *
  * 设计约定（保证视觉统一）：
  * - 统一 24x24 viewBox，纯描边（stroke），不填充

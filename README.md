@@ -1,6 +1,6 @@
-# File Povit
+# Stelix File Manager 星索
 
-![File Povit 标志](public/app-icon.svg)
+![Stelix File Manager 星索标志](public/app-icon.svg)
 
 基于 Tauri 2、Vue 3 和 TypeScript 构建的桌面文件管理器。
 

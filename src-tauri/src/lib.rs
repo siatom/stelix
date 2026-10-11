@@ -1,4 +1,4 @@
-//! File Povit 后端入口。
+//! Stelix File Manager（星索）后端入口。
 //!
 //! ⚠️ 本文件（含 command 注册表）由 Phase 0 拥有并冻结。
 //! 各 workstream 只实现自己模块目录下的逻辑，**不要修改 command 签名**。
@@ -339,7 +339,7 @@ fn setup_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
     let menu = Menu::with_items(app, &[&show_item, &quit_item])?;
 
     let mut builder = TrayIconBuilder::with_id("main-tray")
-        .tooltip("File Povit")
+        .tooltip("Stelix File Manager 星索")
         .menu(&menu)
         // 菜单只在右键弹出，左键留给「切换窗口」
         .show_menu_on_left_click(false)

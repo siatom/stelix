@@ -17,10 +17,10 @@ const items: { key: PanelKey; icon: IconName; title: string }[] = [
 
 <template>
   <nav class="activity-bar" aria-label="主工具栏">
-    <div class="brand" :class="{ collapsed: ui.sidebarCollapsed }" aria-label="File Pivot">
+    <div class="brand" :class="{ collapsed: ui.sidebarCollapsed }" aria-label="Stelix 星索">
       <img v-if="ui.sidebarCollapsed" class="brand-logo" src="/app-icon.svg" alt="" />
       <span v-else class="brand-title">
-        File Pivot
+        Stelix 星索
         <span v-if="isDev" class="dev-badge">dev</span>
       </span>
     </div>
