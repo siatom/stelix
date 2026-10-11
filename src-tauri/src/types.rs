@@ -116,6 +116,8 @@ pub enum FsOpKind {
     Delete,
     Rename,
     Mkdir,
+    /// 新建空文件
+    CreateFile,
 }
 
 /// 一次文件操作请求
@@ -123,10 +125,11 @@ pub enum FsOpKind {
 #[serde(rename_all = "camelCase")]
 pub struct FsOp {
     pub op: FsOpKind,
-    /// 源路径；Mkdir 时为空
+    /// 源路径；Mkdir / CreateFile 时为空
     #[serde(default)]
     pub sources: Vec<String>,
-    /// 目标路径：Move/Copy 为目标目录，Rename 为新名（含路径），Mkdir 为新目录路径
+    /// 目标路径：Move/Copy 为目标目录，Rename 为新名（含路径），
+    /// Mkdir 为新目录路径，CreateFile 为新文件的完整路径
     #[serde(default)]
     pub target: Option<String>,
 }

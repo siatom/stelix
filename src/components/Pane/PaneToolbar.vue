@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 窗格内嵌工具栏：导航 / 视图
+// 窗格内嵌工具栏：导航 / 新建 / 视图
 import { computed } from 'vue'
 import type { ViewMode } from '../../types'
 import { usePaneStore } from '../../stores/pane'
@@ -7,10 +7,18 @@ import Icon from '../icons/Icon.vue'
 import type { IconName } from '../icons/paths'
 
 const props = defineProps<{ paneId: string }>()
+const emit = defineEmits<{ (e: 'create', kind: 'mkdir' | 'createFile'): void }>()
 
 const paneStore = usePaneStore()
 
 const pane = computed(() => paneStore.panes.find((p) => p.id === props.paneId))
+const activeTab = computed(() => {
+  const p = pane.value
+  if (!p) return undefined
+  return p.tabs.find((t) => t.id === p.activeTabId) ?? p.tabs[0]
+})
+// 搜索结果标签页没有「目录」语义，禁用新建入口。
+const canCreate = computed(() => !!activeTab.value && activeTab.value.kind !== 'search')
 
 const modes: { key: ViewMode; icon: IconName; title: string }[] = [
   { key: 'details', icon: 'view-details', title: '详细' },
@@ -33,6 +41,15 @@ const modes: { key: ViewMode; icon: IconName; title: string }[] = [
       </button>
       <button title="刷新" @click="paneStore.refresh(paneId)">
         <Icon name="refresh" />
+      </button>
+    </div>
+
+    <div class="group">
+      <button title="新建文件夹" :disabled="!canCreate" @click="emit('create', 'mkdir')">
+        <Icon name="folder-plus" />
+      </button>
+      <button title="新建文件" :disabled="!canCreate" @click="emit('create', 'createFile')">
+        <Icon name="file-plus" />
       </button>
     </div>
 

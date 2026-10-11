@@ -57,7 +57,7 @@ export interface IndexProgress {
   done: boolean
 }
 
-export type FsOpKind = 'copy' | 'move' | 'delete' | 'rename' | 'mkdir'
+export type FsOpKind = 'copy' | 'move' | 'delete' | 'rename' | 'mkdir' | 'createFile'
 
 export interface FsOp {
   op: FsOpKind
