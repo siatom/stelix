@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 左侧图标导航栏：文件导航 / 最近&工作区 / 设置 + AI 助手开关
+// 左侧图标导航栏：文件导航 / 最近&工作区 + AI 助手开关
 import { useUiStore } from '../../stores/ui'
 import type { PanelKey } from '../../stores/ui'
 import Icon from '../icons/Icon.vue'
@@ -12,7 +12,6 @@ const items: { key: PanelKey; icon: IconName; title: string }[] = [
   { key: 'files', icon: 'folder', title: '文件导航' },
   { key: 'recent', icon: 'clock', title: '最近 / 标签页组' },
   { key: 'search', icon: 'search', title: '搜索' },
-  { key: 'settings', icon: 'settings', title: '设置' },
 ]
 </script>
 
@@ -36,6 +35,17 @@ const items: { key: PanelKey; icon: IconName; title: string }[] = [
       @click="ui.setPanel(it.key)"
     >
       <Icon :name="it.icon" :size="19" />
+    </button>
+
+    <button
+      type="button"
+      class="activity-btn"
+      :class="{ active: ui.settingsOpen }"
+      title="设置"
+      aria-label="设置"
+      @click="ui.openSettings()"
+    >
+      <Icon name="settings" :size="19" />
     </button>
 
     <div class="spacer" />
