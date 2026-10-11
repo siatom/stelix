@@ -66,6 +66,9 @@ export const api = {
   /** 预演（dry-run）：统计将命中的文件，不产生任何副作用。 */
   taskPreview: (action: TaskAction) => invoke<TaskPreview>('task_preview', { action }),
 
+  /** 全量设置需要监听的目录集合（幂等；后端只接受本地盘符目录）。 */
+  watchDirsSet: (paths: string[]) => invoke<void>('watch_dirs_set', { paths }),
+
   autostartGet: () => invoke<boolean>('autostart_get'),
   autostartSet: (enabled: boolean) => invoke<void>('autostart_set', { enabled }),
 }
@@ -79,4 +82,7 @@ export const events = {
   onFsProgress: (cb: (p: string) => void) => listen('fs:progress', (e) => cb(e.payload as string)),
   /** 定时任务状态变化（新增 / 运行 / 启用状态改变）。 */
   onTaskUpdated: (cb: (id: string) => void) => listen('task:updated', (e) => cb(e.payload as string)),
+  /** 目录内容变更（后端 250ms 防抖后上报受影响的目录列表）。 */
+  onFsChanged: (cb: (p: { dirs: string[] }) => void) =>
+    listen('fs:changed', (e) => cb(e.payload as { dirs: string[] })),
 }
