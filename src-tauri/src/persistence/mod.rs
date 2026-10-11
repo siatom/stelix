@@ -1,16 +1,57 @@
 //! Configuration and index persistence.
 
 use std::path::PathBuf;
+use std::sync::OnceLock;
 
 use crate::types::{AiConfig, FileEntry};
 use dashmap::DashMap;
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use serde::{Deserialize, Serialize};
 
-fn config_dir() -> PathBuf {
+/// 应用数据 / 配置根目录，由 [`init_dirs`] 在启动时按 bundle identifier 固定。
+///
+/// 取值遵循 Tauri 约定：`%LOCALAPPDATA%\{identifier}`（本地数据，与 WebView2
+/// 用户目录同处）与 `%APPDATA%\{identifier}`（漫游配置）。
+///
+/// ⚠️ 刻意**不**使用 `%LOCALAPPDATA%\{productName}`：那是 NSIS 的安装目录
+/// （`installer.nsi` 里 `$INSTDIR = $LOCALAPPDATA\${PRODUCTNAME}`）。两者同名会让
+/// 用户数据落进安装目录，造成「卸载残留、清装/升级丢数据、改名后数据分叉」。
+static LOCAL_DATA_DIR: OnceLock<PathBuf> = OnceLock::new();
+static CONFIG_DIR: OnceLock<PathBuf> = OnceLock::new();
+
+/// 用 bundle identifier 初始化数据 / 配置目录。
+///
+/// 必须在 `AppState::new()`（会读取 AI 配置）之前调用一次；幂等，重复调用只保留首次结果。
+/// identifier 不同（如 dev 版 `com.stelix.desktop.dev`）→ 数据目录天然隔离。
+pub fn init_dirs(identifier: &str) {
+    let _ = LOCAL_DATA_DIR.set(
+        dirs::data_local_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join(identifier),
+    );
+    let _ = CONFIG_DIR.set(
+        dirs::config_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join(identifier),
+    );
+}
+
+/// 兜底数据目录：仅在 [`init_dirs`] 未被调用时使用（如单元测试）。
+fn fallback_local_data_dir() -> PathBuf {
+    dirs::data_local_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("stelix")
+}
+
+/// 兜底配置目录：仅在 [`init_dirs`] 未被调用时使用（如单元测试）。
+fn fallback_config_dir() -> PathBuf {
     dirs::config_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join("stelix")
+}
+
+fn config_dir() -> PathBuf {
+    CONFIG_DIR.get().cloned().unwrap_or_else(fallback_config_dir)
 }
 
 fn ai_config_path() -> PathBuf {
@@ -18,9 +59,10 @@ fn ai_config_path() -> PathBuf {
 }
 
 fn index_cache_path() -> PathBuf {
-    dirs::data_local_dir()
-        .unwrap_or_else(|| config_dir())
-        .join("stelix")
+    LOCAL_DATA_DIR
+        .get()
+        .cloned()
+        .unwrap_or_else(fallback_local_data_dir)
         .join("index-cache.sqlite3")
 }
 

@@ -371,6 +371,12 @@ fn setup_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let context = tauri::generate_context!();
+    // 数据 / 配置目录按 bundle identifier 派生（如 `%LOCALAPPDATA%\com.stelix.desktop`），
+    // 与 NSIS 安装目录（`%LOCALAPPDATA%\Stelix`）区分开。必须在 `AppState::new()`
+    // （会读取 AI 配置）之前初始化；dev 版 identifier 不同 → 数据天然隔离。
+    persistence::init_dirs(&context.config().identifier);
+
     tauri::Builder::default()
         // single-instance 必须最先注册：在其余插件与 setup 之前拦截第二个实例，
         // 并让回调在「已运行的那个实例」里执行（Windows 上它会先交接前台权，
@@ -446,6 +452,6 @@ pub fn run() {
             autostart_get,
             autostart_set,
         ])
-        .run(tauri::generate_context!())
+        .run(context)
         .expect("error while running tauri application");
 }
