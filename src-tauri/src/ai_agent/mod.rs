@@ -26,7 +26,7 @@ use crate::persistence;
 use crate::state::AppState;
 use crate::types::{
     AiConfig, AiContext, AiMessage, AiReply, AiToolCall, FileEntry, FsOp, FsOpKind, SearchHit,
-    SearchQuery, ToolOutcome,
+    SearchQuery, TaskAction, TaskDraft, TaskFilters, TaskPlanReply, TaskSchedule, ToolOutcome,
 };
 
 pub struct AiService {
@@ -1349,6 +1349,510 @@ fn to_vec(a: &[&str]) -> Vec<String> {
     a.iter().map(|s| s.to_string()).collect()
 }
 
+// ================================================================ 定时任务规划
+
+impl AiService {
+    /// 把自然语言需求规划为一条定时任务草稿。
+    ///
+    /// - 已启用且配置了 api_key → 走 LLM（要求只输出 JSON 规格）；
+    /// - 否则 / 调用失败 → 离线规则解析兜底。
+    ///
+    /// 注意：规划只在**创建时**发生；运行时由 `schedule` 模块按规格确定性执行。
+    pub async fn plan_task(&self, prompt: String, context: AiContext) -> TaskPlanReply {
+        let cfg = self.config();
+        if cfg.enabled && !cfg.api_key.trim().is_empty() {
+            match plan_task_llm(&cfg, &prompt, &context).await {
+                Ok(reply) => return reply,
+                Err(e) => {
+                    let mut reply = offline_plan_task(&prompt, &context);
+                    reply.text = format!("⚠️ LLM 调用失败，已回退到离线解析：{e}\n\n{}", reply.text);
+                    return reply;
+                }
+            }
+        }
+        offline_plan_task(&prompt, &context)
+    }
+}
+
+/// 调 LLM 生成任务规格（要求只输出 JSON 对象）。
+async fn plan_task_llm(
+    cfg: &AiConfig,
+    prompt: &str,
+    context: &AiContext,
+) -> Result<TaskPlanReply, String> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(60))
+        .build()
+        .map_err(|e| format!("初始化 HTTP 客户端失败：{e}"))?;
+    let url = format!("{}/chat/completions", cfg.base_url.trim_end_matches('/'));
+    let active = context
+        .active_path
+        .clone()
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "（未知）".to_string());
+    let system = format!(
+        "你是 Stelix File Manager（星索）的定时任务规划助手，运行在 Windows 上。\n\
+         当前活动目录：{active}\n\
+         把用户的中文需求转换为一条**文件清理/整理**定时任务的 JSON 规格。\n\
+         只输出一个 JSON 对象，不要输出解释或 Markdown 代码围栏。JSON 结构：\n\
+         {{\n\
+           \"name\": \"简短中文任务名\",\n\
+           \"schedule\": {{\"kind\":\"interval|daily|weekly|monthly\",\"intervalMinutes\":null,\"hour\":null,\"minute\":null,\"weekday\":null,\"dayOfMonth\":null}},\n\
+           \"action\": {{\"kind\":\"delete|move\",\"root\":\"绝对路径\",\"recursive\":true,\"moveTarget\":null,\"filters\":{{\"extensions\":[],\"nameContains\":null,\"minAgeDays\":null,\"minSizeBytes\":null,\"maxSizeBytes\":null}}}}\n\
+         }}\n\
+         约定：\n\
+         1. interval 填 intervalMinutes（每 N 分钟）；daily/weekly/monthly 填 hour/minute；weekly 另填 weekday（0=周日…6=周六）；monthly 另填 dayOfMonth（1-28）。\n\
+         2. action.kind 默认 delete（清理）；若用户说「移动到 / 归档到」则用 move 并填 moveTarget。\n\
+         3. filters.extensions 用不带点的小写扩展名；不限制则空数组。\n\
+         4. 未指定目录时使用「当前活动目录」。\n\
+         5. 必须至少给出一个筛选条件（extensions / nameContains / minAgeDays / minSizeBytes / maxSizeBytes），否则会被系统拒绝。"
+    );
+    let body = json!({
+        "model": cfg.model,
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": prompt}
+        ],
+        "stream": false
+    });
+    let resp = client
+        .post(&url)
+        .bearer_auth(cfg.api_key.trim())
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("请求 LLM 失败：{e}"))?;
+    let status = resp.status();
+    if !status.is_success() {
+        let text = resp.text().await.unwrap_or_default();
+        let snippet: String = text.chars().take(500).collect();
+        return Err(format!("LLM 返回错误 {status}：{snippet}"));
+    }
+    let data: Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("解析 LLM 响应失败：{e}"))?;
+    let content = data
+        .get("choices")
+        .and_then(|c| c.get(0))
+        .and_then(|c| c.get("message"))
+        .and_then(|m| m.get("content"))
+        .and_then(|c| c.as_str())
+        .unwrap_or("")
+        .to_string();
+    match extract_draft(&content) {
+        Some(draft) => Ok(TaskPlanReply {
+            text: format!("已生成任务草稿「{}」，请确认或调整后保存。", draft.name),
+            draft: Some(draft),
+        }),
+        None => Ok(TaskPlanReply {
+            text: format!(
+                "未能从模型输出中解析出任务规格，请手动填写，或换个说法重试。\n\n模型原始输出：\n{content}"
+            ),
+            draft: None,
+        }),
+    }
+}
+
+/// 从模型输出里截取第一个 JSON 对象并解析为任务草稿。
+fn extract_draft(content: &str) -> Option<TaskDraft> {
+    let start = content.find('{')?;
+    let end = content.rfind('}')?;
+    if end <= start {
+        return None;
+    }
+    let draft: TaskDraft = serde_json::from_str(&content[start..=end]).ok()?;
+    if draft.action.root.trim().is_empty() || draft.schedule.kind.trim().is_empty() {
+        return None;
+    }
+    Some(draft)
+}
+
+// ---------------------------------------------------------------- 离线：定时任务规划
+
+fn offline_plan_task(prompt: &str, context: &AiContext) -> TaskPlanReply {
+    let input = prompt.trim();
+    if input.is_empty() {
+        return TaskPlanReply {
+            text: "请描述你的定时任务，例如：\n\
+                   · 每天 9:00 清理下载文件夹里超过 30 天的 .tmp 文件\n\
+                   · 每周一 8:30 把下载目录里的安装包移动到 D:\\归档"
+                .to_string(),
+            draft: None,
+        };
+    }
+    let lower = input.to_lowercase();
+    let Some(schedule) = parse_schedule(&lower) else {
+        return TaskPlanReply {
+            text: "未能识别触发时间，请说明频率，例如「每天 9:00」「每 6 小时」「每周一 8:30」「每月 1 日 3:00」。"
+                .to_string(),
+            draft: None,
+        };
+    };
+
+    let move_keys = ["移动到", "移到", "归档到", "移入", "挪到"];
+    let (kind, move_target) = if contains_any(&lower, &move_keys) {
+        let target = strip_any(input, &move_keys)
+            .map(clean_token)
+            .filter(|s| !s.is_empty())
+            .map(|s| resolve_path(&s, context));
+        ("move", target)
+    } else {
+        ("delete", None)
+    };
+
+    let extensions = detect_task_exts(&lower);
+    let min_age_days = extract_days(&lower);
+    if extensions.is_empty() && min_age_days.is_none() {
+        return TaskPlanReply {
+            text: "请补充筛选条件（扩展名，或「超过 N 天」），例如：清理 D:\\下载 里超过 30 天的 .tmp 文件。"
+                .to_string(),
+            draft: None,
+        };
+    }
+
+    let root = extract_task_root(input, context);
+    let draft = TaskDraft {
+        name: build_task_name(&schedule, kind, &extensions, min_age_days),
+        schedule,
+        action: TaskAction {
+            kind: kind.to_string(),
+            root,
+            recursive: true,
+            move_target,
+            filters: TaskFilters {
+                extensions,
+                name_contains: None,
+                min_age_days,
+                min_size_bytes: None,
+                max_size_bytes: None,
+            },
+        },
+    };
+    TaskPlanReply {
+        text: "已根据描述生成任务草稿（离线解析），请确认或调整后保存。".to_string(),
+        draft: Some(draft),
+    }
+}
+
+/// 解析触发频率（简单预设）。
+fn parse_schedule(lower: &str) -> Option<TaskSchedule> {
+    if contains_any(lower, &["每", "每隔"]) {
+        if let Some(idx) = lower.find("分钟") {
+            if let Some(n) = trailing_number(&lower[..idx]) {
+                return Some(TaskSchedule {
+                    kind: "interval".into(),
+                    interval_minutes: Some(n.max(1)),
+                    ..Default::default()
+                });
+            }
+        }
+        if let Some(idx) = lower.find("小时") {
+            let n = trailing_number(&lower[..idx]).unwrap_or(1).max(1);
+            return Some(TaskSchedule {
+                kind: "interval".into(),
+                interval_minutes: Some(n * 60),
+                ..Default::default()
+            });
+        }
+    }
+    let (hour, minute) = extract_clock(lower);
+    if contains_any(lower, &["每天", "每日", "每晚", "daily", "every day"]) {
+        return Some(TaskSchedule {
+            kind: "daily".into(),
+            hour: Some(hour),
+            minute: Some(minute),
+            ..Default::default()
+        });
+    }
+    if let Some(weekday) = extract_weekday(lower) {
+        return Some(TaskSchedule {
+            kind: "weekly".into(),
+            hour: Some(hour),
+            minute: Some(minute),
+            weekday: Some(weekday),
+            ..Default::default()
+        });
+    }
+    if let Some(day) = extract_month_day(lower) {
+        return Some(TaskSchedule {
+            kind: "monthly".into(),
+            hour: Some(hour),
+            minute: Some(minute),
+            day_of_month: Some(day),
+            ..Default::default()
+        });
+    }
+    None
+}
+
+/// 从文本里取时间（HH:MM 优先，其次「N 点 / N 时」），缺省 0:00。
+fn extract_clock(s: &str) -> (u8, u8) {
+    let bytes = s.as_bytes();
+    for i in 0..bytes.len() {
+        if bytes[i] != b':' {
+            continue;
+        }
+        let mut start = i;
+        while start > 0 && bytes[start - 1].is_ascii_digit() {
+            start -= 1;
+        }
+        let mut end = i + 1;
+        while end < bytes.len() && bytes[end].is_ascii_digit() {
+            end += 1;
+        }
+        if let (Ok(hour), Ok(minute)) = (s[start..i].parse::<u8>(), s[i + 1..end].parse::<u8>()) {
+            if hour < 24 && minute < 60 {
+                return (hour, minute);
+            }
+        }
+    }
+    for unit in ["点", "时"] {
+        if let Some(idx) = s.find(unit) {
+            if let Some(hour) = trailing_number(&s[..idx]) {
+                if hour < 24 {
+                    let after = &s[idx + unit.len()..];
+                    let minute = leading_number(after).unwrap_or(0).min(59);
+                    return (hour as u8, minute as u8);
+                }
+            }
+        }
+    }
+    (0, 0)
+}
+
+fn extract_weekday(lower: &str) -> Option<u8> {
+    for prefix in ["周", "星期"] {
+        if let Some(idx) = lower.find(prefix) {
+            if let Some(ch) = lower[idx + prefix.len()..].chars().next() {
+                if let Some(day) = cn_weekday(ch) {
+                    return Some(day);
+                }
+            }
+        }
+    }
+    None
+}
+
+fn cn_weekday(ch: char) -> Option<u8> {
+    match ch {
+        '一' => Some(1),
+        '二' => Some(2),
+        '三' => Some(3),
+        '四' => Some(4),
+        '五' => Some(5),
+        '六' => Some(6),
+        '日' | '天' => Some(0),
+        _ => None,
+    }
+}
+
+fn extract_month_day(lower: &str) -> Option<u8> {
+    if !contains_any(lower, &["每月", "每个月"]) {
+        return None;
+    }
+    for unit in ["号", "日"] {
+        if let Some(idx) = lower.find(unit) {
+            if let Some(n) = trailing_number(&lower[..idx]) {
+                if (1..=28).contains(&n) {
+                    return Some(n as u8);
+                }
+            }
+        }
+    }
+    Some(1)
+}
+
+/// 识别「超过 N 天 / N 天前」中的天数（跳过「每天」这类无数字的「天」）。
+fn extract_days(lower: &str) -> Option<u32> {
+    let mut offset = 0usize;
+    while let Some(rel) = lower[offset..].find('天') {
+        let abs = offset + rel;
+        if let Some(n) = trailing_number(&lower[..abs]) {
+            return Some(n.min(3650) as u32);
+        }
+        offset = abs + '天'.len_utf8();
+    }
+    None
+}
+
+fn detect_task_exts(lower: &str) -> Vec<String> {
+    let mut exts: Vec<String> = Vec::new();
+    if contains_any(lower, &["临时", "tmp", "temp"]) {
+        exts.push("tmp".into());
+    }
+    if contains_any(lower, &["日志", "log"]) {
+        exts.push("log".into());
+    }
+    if contains_any(lower, &["缓存", "cache"]) {
+        exts.push("cache".into());
+    }
+    if contains_any(lower, &["安装包", "安装程序"]) {
+        exts.push("exe".into());
+        exts.push("msi".into());
+    }
+    if let Some(more) = detect_exts(lower) {
+        exts.extend(more);
+    }
+    exts.sort();
+    exts.dedup();
+    exts
+}
+
+/// 定位任务根目录：引号路径 > 盘符路径 > 当前活动目录。
+fn extract_task_root(input: &str, context: &AiContext) -> String {
+    for (open, close) in [('"', '"'), ('“', '”'), ('‘', '’')] {
+        if let Some(start) = input.find(open) {
+            let after = start + open.len_utf8();
+            if let Some(rel_end) = input[after..].find(close) {
+                let candidate = &input[after..after + rel_end];
+                if Path::new(candidate).is_absolute() {
+                    return candidate.to_string();
+                }
+            }
+        }
+    }
+    if let Some(found) = find_windows_path(input) {
+        return found;
+    }
+    context
+        .active_path
+        .clone()
+        .filter(|s| !s.is_empty())
+        .unwrap_or_default()
+}
+
+fn find_windows_path(s: &str) -> Option<String> {
+    let bytes = s.as_bytes();
+    for i in 0..bytes.len().saturating_sub(2) {
+        if bytes[i].is_ascii_alphabetic()
+            && bytes[i + 1] == b':'
+            && (bytes[i + 2] == b'\\' || bytes[i + 2] == b'/')
+        {
+            let rest = &s[i..];
+            let end = path_end(rest);
+            let candidate = rest[..end].trim();
+            if candidate.len() > 3 {
+                return Some(candidate.replace('/', "\\"));
+            }
+        }
+    }
+    None
+}
+
+/// 判断 Windows 路径在文本中的结束位置：遇中文标点即停；
+/// 遇空白时，若其后紧跟中日韩文字也视为结束（避免把中文句子并进路径）。
+fn path_end(s: &str) -> usize {
+    for (idx, ch) in s.char_indices() {
+        if matches!(
+            ch,
+            '，' | '。' | '、' | '；' | ';' | ',' | '"' | '”' | '“' | '\n'
+        ) {
+            return idx;
+        }
+        if ch.is_whitespace() {
+            let after = idx + ch.len_utf8();
+            match s[after..].chars().next() {
+                Some(next) if !is_cjk(next) => {}
+                _ => return idx,
+            }
+        }
+    }
+    s.len()
+}
+
+fn is_cjk(ch: char) -> bool {
+    matches!(ch, '\u{3000}'..='\u{303F}' | '\u{4E00}'..='\u{9FFF}' | '\u{FF00}'..='\u{FFEF}')
+}
+
+fn build_task_name(
+    schedule: &TaskSchedule,
+    kind: &str,
+    exts: &[String],
+    days: Option<u32>,
+) -> String {
+    let verb = if kind == "move" { "归档" } else { "清理" };
+    let mut parts: Vec<String> = Vec::new();
+    if !exts.is_empty() {
+        let list = exts
+            .iter()
+            .map(|e| format!(".{e}"))
+            .collect::<Vec<_>>()
+            .join("/");
+        parts.push(format!("{list} 文件"));
+    }
+    if let Some(d) = days {
+        parts.push(format!("超过 {d} 天"));
+    }
+    let what = if parts.is_empty() {
+        "文件".to_string()
+    } else {
+        parts.join("、")
+    };
+    let when = match schedule.kind.as_str() {
+        "interval" => format!("每 {} 分钟", schedule.interval_minutes.unwrap_or(0)),
+        "daily" => format!(
+            "每天 {:02}:{:02}",
+            schedule.hour.unwrap_or(0),
+            schedule.minute.unwrap_or(0)
+        ),
+        "weekly" => format!(
+            "每周{} {:02}:{:02}",
+            weekday_cn(schedule.weekday.unwrap_or(0)),
+            schedule.hour.unwrap_or(0),
+            schedule.minute.unwrap_or(0)
+        ),
+        "monthly" => format!(
+            "每月 {} 日 {:02}:{:02}",
+            schedule.day_of_month.unwrap_or(1),
+            schedule.hour.unwrap_or(0),
+            schedule.minute.unwrap_or(0)
+        ),
+        _ => String::new(),
+    };
+    format!("{when} {verb}{what}").trim().to_string()
+}
+
+fn weekday_cn(day: u8) -> &'static str {
+    match day {
+        1 => "一",
+        2 => "二",
+        3 => "三",
+        4 => "四",
+        5 => "五",
+        6 => "六",
+        _ => "日",
+    }
+}
+
+/// 取字符串末尾的整数（跳过末尾非数字，如「每 6 」→ 6）。
+fn trailing_number(s: &str) -> Option<u64> {
+    let digits: String = s
+        .chars()
+        .rev()
+        .skip_while(|c| !c.is_ascii_digit())
+        .take_while(|c| c.is_ascii_digit())
+        .collect();
+    if digits.is_empty() {
+        return None;
+    }
+    digits.chars().rev().collect::<String>().parse().ok()
+}
+
+/// 取字符串开头的整数（跳过前导非数字，如「30 天」→ 30）。
+fn leading_number(s: &str) -> Option<u64> {
+    let digits: String = s
+        .chars()
+        .skip_while(|c| !c.is_ascii_digit())
+        .take_while(|c| c.is_ascii_digit())
+        .collect();
+    if digits.is_empty() {
+        None
+    } else {
+        digits.parse().ok()
+    }
+}
+
 // ================================================================ 测试
 
 #[cfg(test)]
@@ -1524,5 +2028,52 @@ mod tests {
             args: json!({"paths": ["C:\\tmp\\a.txt"]}),
         };
         assert!(execute_tool(&call, false, &index).is_err());
+    }
+
+    #[test]
+    fn parse_schedule_daily_with_clock() {
+        let s = parse_schedule("每天 9:00 清理").unwrap();
+        assert_eq!(s.kind, "daily");
+        assert_eq!(s.hour, Some(9));
+        assert_eq!(s.minute, Some(0));
+    }
+
+    #[test]
+    fn parse_schedule_interval_hours() {
+        let s = parse_schedule("每 6 小时清理一次").unwrap();
+        assert_eq!(s.kind, "interval");
+        assert_eq!(s.interval_minutes, Some(360));
+    }
+
+    #[test]
+    fn parse_schedule_weekly() {
+        let s = parse_schedule("每周一 8:30 归档").unwrap();
+        assert_eq!(s.kind, "weekly");
+        assert_eq!(s.weekday, Some(1));
+        assert_eq!(s.hour, Some(8));
+        assert_eq!(s.minute, Some(30));
+    }
+
+    #[test]
+    fn extract_days_skips_meitian() {
+        assert_eq!(extract_days("每天清理超过 30 天的文件"), Some(30));
+        assert_eq!(extract_days("每天清理文件"), None);
+    }
+
+    #[test]
+    fn offline_plan_task_builds_draft() {
+        let reply = offline_plan_task("每天 9:00 清理 D:\\下载 里超过 30 天的 .tmp 文件", &ctx("C:\\"));
+        let draft = reply.draft.expect("应生成草稿");
+        assert_eq!(draft.schedule.kind, "daily");
+        assert_eq!(draft.action.kind, "delete");
+        assert_eq!(draft.action.root, "D:\\下载");
+        assert_eq!(draft.action.filters.extensions, vec!["tmp".to_string()]);
+        assert_eq!(draft.action.filters.min_age_days, Some(30));
+    }
+
+    #[test]
+    fn offline_plan_task_requires_filter() {
+        let reply = offline_plan_task("每天清理文件", &ctx("C:\\"));
+        assert!(reply.draft.is_none());
     }
 }

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 左侧图标导航栏：文件导航 / 最近&工作区 + AI 助手开关
+// 左侧图标导航栏：文件导航 / 定时任务 + AI 助手开关
 import { useUiStore } from '../../stores/ui'
 import type { PanelKey } from '../../stores/ui'
 import Icon from '../icons/Icon.vue'
@@ -10,7 +10,7 @@ const isDev = import.meta.env.DEV
 
 const items: { key: PanelKey; icon: IconName; title: string }[] = [
   { key: 'files', icon: 'folder', title: '文件导航' },
-  { key: 'recent', icon: 'clock', title: '最近 / 标签页组' },
+  { key: 'tasks', icon: 'clock', title: '定时任务' },
   { key: 'search', icon: 'search', title: '搜索' },
 ]
 </script>

@@ -230,3 +230,137 @@ impl Default for AiConfig {
         }
     }
 }
+
+// ---------------------------------------------------------------- 定时任务
+//
+// 设计：**确定性规格**。AI 只在创建时把自然语言解析成下面的结构化规格，
+// 运行时由后端按规格确定性执行（不调用 LLM），并可先 dry-run 预演。
+
+/// 触发规则（简单预设）。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskSchedule {
+    /// "interval"（每 N 分钟）| "daily"（每天 HH:MM）| "weekly"（每周 X HH:MM）
+    /// | "monthly"（每月 X 日 HH:MM）
+    #[serde(default)]
+    pub kind: String,
+    /// interval：间隔分钟数
+    #[serde(default)]
+    pub interval_minutes: Option<u64>,
+    /// daily / weekly / monthly：小时（0-23）
+    #[serde(default)]
+    pub hour: Option<u8>,
+    /// daily / weekly / monthly：分钟（0-59）
+    #[serde(default)]
+    pub minute: Option<u8>,
+    /// weekly：0=周日 … 6=周六
+    #[serde(default)]
+    pub weekday: Option<u8>,
+    /// monthly：1-28
+    #[serde(default)]
+    pub day_of_month: Option<u8>,
+}
+
+/// 文件筛选条件；全部为空表示「不限」。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskFilters {
+    /// 扩展名白名单（小写、不含点）；空 = 不限
+    #[serde(default)]
+    pub extensions: Vec<String>,
+    /// 文件名包含（不区分大小写）；空 = 不限
+    #[serde(default)]
+    pub name_contains: Option<String>,
+    /// 仅处理修改时间早于 N 天的文件
+    #[serde(default)]
+    pub min_age_days: Option<u32>,
+    /// 最小字节数
+    #[serde(default)]
+    pub min_size_bytes: Option<u64>,
+    /// 最大字节数
+    #[serde(default)]
+    pub max_size_bytes: Option<u64>,
+}
+
+/// 任务动作。**只作用于文件，绝不删除目录**。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskAction {
+    /// "delete" | "move"
+    #[serde(default)]
+    pub kind: String,
+    /// 扫描的根目录绝对路径
+    #[serde(default)]
+    pub root: String,
+    /// 是否递归子目录
+    #[serde(default)]
+    pub recursive: bool,
+    /// move 的目标目录
+    #[serde(default)]
+    pub move_target: Option<String>,
+    #[serde(default)]
+    pub filters: TaskFilters,
+}
+
+/// 一条定时任务。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScheduledTask {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub enabled: bool,
+    pub schedule: TaskSchedule,
+    pub action: TaskAction,
+    /// Unix 毫秒
+    #[serde(default)]
+    pub created_at: i64,
+    #[serde(default)]
+    pub last_run: Option<i64>,
+    /// 最近一次运行的中文结果摘要
+    #[serde(default)]
+    pub last_result: Option<String>,
+    /// 下次触发时间（Unix 毫秒）
+    #[serde(default)]
+    pub next_run: Option<i64>,
+    #[serde(default)]
+    pub run_count: u64,
+}
+
+/// AI 规划出的任务草稿（无 id / 运行态字段，保存时由前端补全）。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskDraft {
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub schedule: TaskSchedule,
+    #[serde(default)]
+    pub action: TaskAction,
+}
+
+/// AI 任务规划回复。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskPlanReply {
+    pub text: String,
+    /// 解析成功时给出可填入表单的草稿
+    #[serde(default)]
+    pub draft: Option<TaskDraft>,
+}
+
+/// 预演（dry-run）结果。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskPreview {
+    /// 命中的文件数
+    pub count: usize,
+    /// 命中文件总字节
+    pub total_size: u64,
+    /// 样例路径（最多 20 条）
+    #[serde(default)]
+    pub samples: Vec<String>,
+    /// 命中数超过样例上限
+    #[serde(default)]
+    pub truncated: bool,
+}

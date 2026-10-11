@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 
 /** 左侧栏面板类型 */
-export type PanelKey = 'files' | 'recent' | 'search'
+export type PanelKey = 'files' | 'tasks' | 'search'
 
 /** 主题模式 */
 export type ThemeMode = 'system' | 'dark' | 'light'
@@ -56,7 +56,7 @@ function readBool(key: string, fallback: boolean): boolean {
 function readPanel(): PanelKey {
   try {
     const saved = localStorage.getItem(LS_ACTIVE_PANEL)
-    return saved === 'recent' || saved === 'search' ? saved : 'files'
+    return saved === 'tasks' || saved === 'search' ? saved : 'files'
   } catch {
     return 'files'
   }

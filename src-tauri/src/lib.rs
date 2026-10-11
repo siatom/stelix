@@ -11,6 +11,7 @@ mod fs_core;
 mod index_engine;
 mod network;
 mod persistence;
+mod schedule;
 mod search_engine;
 mod shell_icon;
 mod smb_discovery;
@@ -280,6 +281,51 @@ fn ai_config_set(state: State<'_, AppState>, config: AiConfig) {
     state.ai.set_config(config);
 }
 
+/// 用大模型把自然语言需求规划为一条定时任务草稿（离线时走规则解析兜底）。
+#[tauri::command]
+async fn ai_plan_task(
+    state: State<'_, AppState>,
+    prompt: String,
+    context: AiContext,
+) -> Result<TaskPlanReply, String> {
+    let ai = state.ai.clone();
+    Ok(ai.plan_task(prompt, context).await)
+}
+
+// ---------------------------------------------------------------- 定时任务
+
+#[tauri::command]
+fn task_list(state: State<'_, AppState>) -> Vec<ScheduledTask> {
+    state.tasks.list()
+}
+
+#[tauri::command]
+fn task_save(state: State<'_, AppState>, task: ScheduledTask) -> Result<ScheduledTask, String> {
+    state.tasks.save(task)
+}
+
+#[tauri::command]
+fn task_delete(state: State<'_, AppState>, id: String) -> Result<(), String> {
+    state.tasks.delete(&id)
+}
+
+#[tauri::command]
+fn task_set_enabled(state: State<'_, AppState>, id: String, enabled: bool) -> Result<(), String> {
+    state.tasks.set_enabled(&id, enabled)
+}
+
+/// 立即运行一次任务，返回中文结果摘要。
+#[tauri::command]
+fn task_run_now(state: State<'_, AppState>, id: String) -> Result<String, String> {
+    state.tasks.run_now(&id)
+}
+
+/// 预演（dry-run）：统计将命中的文件，不产生任何副作用。
+#[tauri::command]
+fn task_preview(state: State<'_, AppState>, action: TaskAction) -> TaskPreview {
+    state.tasks.preview(&action)
+}
+
 // ---------------------------------------------------------------- 开机自启动
 
 /// 开机自启动（Windows 走 `HKCU\...\Run` 注册表项，由 tauri-plugin-autostart 管理）。
@@ -415,6 +461,9 @@ pub fn run() {
                 let handle = app.handle().clone();
                 std::thread::spawn(move || index.start_service(handle, roots));
             }
+            // 定时任务调度线程：每 20s 检查一次到期任务，跨平台。
+            let tasks = std::sync::Arc::clone(&app.state::<AppState>().tasks);
+            tasks.start_loop(app.handle().clone());
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -449,6 +498,13 @@ pub fn run() {
             ai_execute_tool,
             ai_config_get,
             ai_config_set,
+            ai_plan_task,
+            task_list,
+            task_save,
+            task_delete,
+            task_set_enabled,
+            task_run_now,
+            task_preview,
             autostart_get,
             autostart_set,
         ])
