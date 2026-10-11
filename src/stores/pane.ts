@@ -2,9 +2,10 @@ import { defineStore } from 'pinia'
 import { computed, ref, watch } from 'vue'
 import { homeDir } from '@tauri-apps/api/path'
 import { api } from '../api'
-import type { FileEntry, FsOp, FsOpResult, PaneState, SearchHit, TabState, ViewMode } from '../types'
+import type { DirListing, FileEntry, FsOp, FsOpResult, PaneState, SearchHit, TabState, ViewMode } from '../types'
 import { useUiStore } from './ui'
 import { dirname } from '../components/Pane/utils'
+import { normalizePath, setWatchSource } from '../shell/dirWatch'
 
 /**
  * 双窗格 / 多标签状态 —— 由 **WS-D (feat/ui-panes)** 实现。
@@ -103,6 +104,26 @@ function makePane(id: string, path: string): PaneState {
   return { id, tabs: [tab], activeTabId: tab.id, viewMode: 'details' }
 }
 
+/** 两次列目录结果是否一致（顺序由后端保证，逐项比较关键字段）。 */
+function sameEntries(a: FileEntry[], b: FileEntry[]): boolean {
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i += 1) {
+    const x = a[i]
+    const y = b[i]
+    if (
+      x.path !== y.path ||
+      x.isDir !== y.isDir ||
+      x.size !== y.size ||
+      x.modified !== y.modified ||
+      x.hidden !== y.hidden ||
+      x.system !== y.system
+    ) {
+      return false
+    }
+  }
+  return true
+}
+
 /** 浏览历史中的一处位置：普通目录只记路径，搜索结果还需带查询词与命中列表以便还原。 */
 interface HistoryItem {
   path: string
@@ -133,6 +154,11 @@ export const usePaneStore = defineStore('pane', () => {
   const histories = ref<Record<string, HistoryEntry>>({})
   /** 外部请求定位到某个条目（搜索结果 / AI 操作后） */
   const revealTarget = ref<{ tabId: string; path: string } | null>(null)
+  /**
+   * 正在行内编辑（重命名 / 新建）的标签 id，由 `FileList` 上报。
+   * 这些标签在收到目录变更时跳过自动刷新，避免打断正在进行的输入。
+   */
+  const editingTabId = ref<string | null>(null)
 
   let initialized = false
   let pathsReady = false
@@ -210,6 +236,17 @@ export const usePaneStore = defineStore('pane', () => {
     { flush: 'sync' },
   )
   watch(() => [activePaneId.value, splitRatio.value, singlePane.value], savePaneLayout, { flush: 'sync' })
+
+  // 把「所有打开的文件标签目录」上报给目录监听注册表（搜索结果标签没有目录语义）。
+  watch(
+    () =>
+      panes.value
+        .flatMap((pane) => pane.tabs)
+        .filter((tab) => tab.kind !== 'search')
+        .map((tab) => tab.path),
+    (paths) => setWatchSource('panes', paths),
+    { flush: 'sync' },
+  )
 
   function snapshot(tab: TabState): HistoryItem {
     return {
@@ -357,6 +394,42 @@ export const usePaneStore = defineStore('pane', () => {
     const tab = activeTabOf(pane)
     if (!tab) return
     await load(tab)
+  }
+
+  /**
+   * 静默重载：仅在内容**确实变化**时替换 entries。
+   *
+   * 与 `load` 的区别：不显示 loading、不清空选中、失败时静默忽略（目录可能刚被删除），
+   * 供「目录变更自动刷新」使用，避免应用内操作与 watcher 事件造成重复刷新与闪烁。
+   */
+  async function reloadQuiet(tab: TabState) {
+    if (tab.loading || tab.kind === 'search') return
+    let listing: DirListing
+    try {
+      listing = await api.listDir(tab.path)
+    } catch {
+      return
+    }
+    if (sameEntries(tab.entries, listing.entries)) return
+    tab.entries = listing.entries
+    // 仅保留仍然存在的选中项，避免选中已删除的条目。
+    const alive = new Set(listing.entries.map((entry) => entry.path))
+    tab.selected = tab.selected.filter((path) => alive.has(path))
+    tab.error = null
+  }
+
+  /** 某目录内容变化时，刷新**所有**打开该目录的标签（跨窗格、含后台标签）。 */
+  async function reloadByPath(dir: string) {
+    const target = normalizePath(dir)
+    const jobs: Promise<void>[] = []
+    for (const pane of panes.value) {
+      for (const tab of pane.tabs) {
+        if (tab.id === editingTabId.value) continue // 正在行内编辑，跳过以免打断输入
+        if (normalizePath(tab.path) !== target) continue
+        jobs.push(reloadQuiet(tab))
+      }
+    }
+    await Promise.all(jobs)
   }
 
   /** 导航到某文件所在目录并选中它（搜索结果 / AI 定位用） */
@@ -670,6 +743,7 @@ export const usePaneStore = defineStore('pane', () => {
     singlePane,
     clipboard,
     revealTarget,
+    editingTabId,
     navigate,
     navigateTo,
     load,
@@ -679,6 +753,7 @@ export const usePaneStore = defineStore('pane', () => {
     canGoBack,
     canGoForward,
     refresh,
+    reloadByPath,
     reveal,
     addTab,
     showSearchResults,

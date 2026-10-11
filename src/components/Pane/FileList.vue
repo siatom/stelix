@@ -144,6 +144,16 @@ interface Editing {
 }
 
 const editing = ref<Editing | null>(null)
+
+// 上报「正在行内编辑」的标签：store 在收到目录变更时会跳过该标签的自动刷新，避免打断输入。
+watch(
+  () => editing.value !== null,
+  (isEditing) => {
+    if (isEditing) paneStore.editingTabId = props.tab.id
+    else if (paneStore.editingTabId === props.tab.id) paneStore.editingTabId = null
+  },
+)
+
 // 根元素 ref：行内输入框在 v-for / v-if 中渲染，用 ref 会被 Vue 收成数组，
 // 故用根 ref + querySelector 定位（同一时刻至多一个行内输入框）。
 const rootRef = ref<HTMLElement | null>(null)

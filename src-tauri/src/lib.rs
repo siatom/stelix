@@ -17,6 +17,7 @@ mod shell_icon;
 mod smb_discovery;
 mod state;
 mod types;
+mod watcher;
 mod wsl;
 
 use tauri::{
@@ -326,6 +327,17 @@ fn task_preview(state: State<'_, AppState>, action: TaskAction) -> TaskPreview {
     state.tasks.preview(&action)
 }
 
+// ---------------------------------------------------------------- 目录变更监听
+
+/// 全量设置需要监听的目录集合（前端每次上报完整集合，幂等）。
+///
+/// 只接受本地盘符目录；网络 / 远程路径在 `watcher::WatchService` 内被过滤。
+/// 变更经 250ms 防抖后以 `fs:changed` 事件上报。
+#[tauri::command]
+fn watch_dirs_set(state: State<'_, AppState>, paths: Vec<String>) {
+    state.watcher.set_dirs(&paths);
+}
+
 // ---------------------------------------------------------------- 开机自启动
 
 /// 开机自启动（Windows 走 `HKCU\...\Run` 注册表项，由 tauri-plugin-autostart 管理）。
@@ -464,6 +476,9 @@ pub fn run() {
             // 定时任务调度线程：每 20s 检查一次到期任务，跨平台。
             let tasks = std::sync::Arc::clone(&app.state::<AppState>().tasks);
             tasks.start_loop(app.handle().clone());
+            // 目录变更监听：把 notify 事件防抖后以 `fs:changed` 上报给前端。
+            let watcher = std::sync::Arc::clone(&app.state::<AppState>().watcher);
+            watcher.start_flush_loop(app.handle().clone());
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -505,6 +520,7 @@ pub fn run() {
             task_set_enabled,
             task_run_now,
             task_preview,
+            watch_dirs_set,
             autostart_get,
             autostart_set,
         ])

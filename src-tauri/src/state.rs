@@ -6,6 +6,7 @@ use crate::ai_agent::AiService;
 use crate::index_engine::IndexStore;
 use crate::schedule::ScheduleService;
 use crate::shell_icon::IconCache;
+use crate::watcher::WatchService;
 
 pub struct AppState {
     /// WS-A 拥有其内部实现
@@ -16,6 +17,8 @@ pub struct AppState {
     pub icons: Arc<IconCache>,
     /// 定时任务服务（规格存储 + 后台调度，见 schedule/mod.rs）
     pub tasks: Arc<ScheduleService>,
+    /// 目录变更监听（notify watcher + 防抖上报，见 watcher/mod.rs）
+    pub watcher: Arc<WatchService>,
 }
 
 impl AppState {
@@ -25,6 +28,7 @@ impl AppState {
             ai: Arc::new(AiService::new()),
             icons: Arc::new(IconCache::new()),
             tasks: Arc::new(ScheduleService::new()),
+            watcher: Arc::new(WatchService::new()),
         }
     }
 }

@@ -1,9 +1,11 @@
 <script setup lang="ts">
 // 目录树节点（自引用递归组件）—— 懒加载子目录
-import { ref } from 'vue'
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { api } from '../../api'
 import { useUiStore } from '../../stores/ui'
+import type { FileEntry } from '../../types'
 import type { TreeNodeData } from './shared'
+import { clearWatchSource, FS_CHANGED_EVENT, normalizePath, setWatchSource } from '../../shell/dirWatch'
 import Icon from '../icons/Icon.vue'
 import { folderIcon } from '../Pane/utils'
 
@@ -18,23 +20,26 @@ const loading = ref(false)
 const error = ref<string | null>(null)
 const children = ref<TreeNodeData[]>([])
 
-async function toggle() {
-  if (expanded.value) {
-    expanded.value = false
-    return
-  }
-  expanded.value = true
-  if (loaded.value) return
-  loading.value = true
-  error.value = null
-  try {
-    const listing = await api.listDir(props.node.path)
-    children.value = listing.entries
+/** 本节点在监听注册表里的来源 id（展开时上报自己的路径）。 */
+const WATCH_SOURCE = `tree:${props.node.path}`
+
+function toNodes(entries: FileEntry[]): TreeNodeData[] {
+  return (
+    entries
       .filter((e) => e.isDir)
       // 「隐藏受保护的操作系统文件」（hidden && system）时同样过滤子树目录
       .filter((e) => !(ui.hideProtected && e.hidden && e.system))
       .sort((a, b) => a.name.localeCompare(b.name))
       .map((e) => ({ name: e.name, path: e.path }))
+  )
+}
+
+async function loadChildren(showLoading: boolean) {
+  if (showLoading) loading.value = true
+  error.value = null
+  try {
+    const listing = await api.listDir(props.node.path)
+    children.value = toNodes(listing.entries)
     loaded.value = true
   } catch (e) {
     error.value = String(e)
@@ -43,6 +48,37 @@ async function toggle() {
     loading.value = false
   }
 }
+
+async function toggle() {
+  if (expanded.value) {
+    expanded.value = false
+    return
+  }
+  expanded.value = true
+  if (loaded.value) return
+  await loadChildren(true)
+}
+
+// 只有展开的节点才需要后端监听其目录。
+watch(expanded, (open) => {
+  if (open) setWatchSource(WATCH_SOURCE, [props.node.path])
+  else clearWatchSource(WATCH_SOURCE)
+})
+
+/** 该目录内容变化时静默刷新子项（保持展开态；子节点按 path 作 key 会保留各自展开状态）。 */
+function onFsChanged(event: Event) {
+  if (!expanded.value) return
+  const dirs = (event as CustomEvent<string[]>).detail ?? []
+  const self = normalizePath(props.node.path)
+  if (!dirs.some((dir) => normalizePath(dir) === self)) return
+  void loadChildren(false)
+}
+
+onMounted(() => window.addEventListener(FS_CHANGED_EVENT, onFsChanged))
+onBeforeUnmount(() => {
+  window.removeEventListener(FS_CHANGED_EVENT, onFsChanged)
+  clearWatchSource(WATCH_SOURCE)
+})
 
 const pad = (d: number) => `${d * 12 + 6}px`
 const childPad = (d: number) => `${d * 12 + 22}px`

@@ -2,6 +2,9 @@
 // 根布局 —— 由 Phase 0 拥有并冻结。
 // 各 workstream 只实现自己被挂载的组件，不要修改本文件的组件树与挂载点。
 import { useUiStore } from './stores/ui'
+import { usePaneStore } from './stores/pane'
+import { events } from './api'
+import { broadcastFsChanged } from './shell/dirWatch'
 import ActivityBar from './components/Sidebar/ActivityBar.vue'
 import SidebarPanel from './components/Sidebar/SidebarPanel.vue'
 import DualPane from './components/Pane/DualPane.vue'
@@ -12,12 +15,14 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 import { LogicalSize, PhysicalPosition, PhysicalSize } from '@tauri-apps/api/dpi'
 
 const ui = useUiStore()
+const paneStore = usePaneStore()
 const appWindow = getCurrentWindow()
 const isMaximized = ref(false)
 const titlebarMenu = ref<{ x: number; y: number } | null>(null)
 const titlebarActionMode = ref<'move' | 'size' | null>(null)
 const titlebarModeHint = ref('')
 let unlistenResize: (() => void) | undefined
+let unlistenFsChanged: (() => void) | undefined
 let titlebarPointer: { x: number; y: number } | null = null
 let actionPosition: PhysicalPosition | null = null
 let actionSize: PhysicalSize | null = null
@@ -148,6 +153,12 @@ onMounted(async () => {
   window.addEventListener('keydown', onTitlebarActionKeydown)
   window.addEventListener('keydown', onAltF4, true)
   void ui.startIndexStatusWatch()
+  // 目录变更：刷新所有打开该目录的标签（跨窗格 / 后台标签），并广播给左侧目录树。
+  unlistenFsChanged = await events.onFsChanged(({ dirs }) => {
+    if (!dirs?.length) return
+    broadcastFsChanged(dirs)
+    for (const dir of dirs) void paneStore.reloadByPath(dir)
+  })
 })
 
 const SIDEBAR_WIDTH_KEY = 'stelix.sidebarWidth'
@@ -196,6 +207,7 @@ function startResize(ev: MouseEvent, target: 'sidebar') {
 
 onBeforeUnmount(() => {
   unlistenResize?.()
+  unlistenFsChanged?.()
   stopTrackingTitlebarDrag()
   window.removeEventListener('mousedown', dismissTitlebarMenu)
   window.removeEventListener('keydown', onTitlebarActionKeydown)
