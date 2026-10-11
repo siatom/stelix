@@ -5,10 +5,8 @@ import { useUiStore } from './stores/ui'
 import ActivityBar from './components/Sidebar/ActivityBar.vue'
 import SidebarPanel from './components/Sidebar/SidebarPanel.vue'
 import DualPane from './components/Pane/DualPane.vue'
-import AiPanel from './components/AiPanel.vue'
 import CommandPalette from './components/CommandPalette.vue'
 import SettingsDialog from './components/SettingsDialog.vue'
-import Icon from './components/icons/Icon.vue'
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { LogicalSize, PhysicalPosition, PhysicalSize } from '@tauri-apps/api/dpi'
@@ -149,14 +147,12 @@ onMounted(async () => {
   window.addEventListener('mousedown', dismissTitlebarMenu)
   window.addEventListener('keydown', onTitlebarActionKeydown)
   window.addEventListener('keydown', onAltF4, true)
+  void ui.startIndexStatusWatch()
 })
 
 const SIDEBAR_WIDTH_KEY = 'stelix.sidebarWidth'
-const AI_WIDTH_KEY = 'stelix.aiWidth'
 const SIDEBAR_WIDTH_MIN = 180
 const SIDEBAR_WIDTH_MAX = 480
-const AI_WIDTH_MIN = 240
-const AI_WIDTH_MAX = 600
 
 function savedWidth(key: string, fallback: number, min: number, max: number): number {
   try {
@@ -169,8 +165,7 @@ function savedWidth(key: string, fallback: number, min: number, max: number): nu
 }
 
 const sidebarWidth = ref(savedWidth(SIDEBAR_WIDTH_KEY, 264, SIDEBAR_WIDTH_MIN, SIDEBAR_WIDTH_MAX))
-const aiWidth = ref(savedWidth(AI_WIDTH_KEY, 360, AI_WIDTH_MIN, AI_WIDTH_MAX))
-const resizing = ref<'sidebar' | 'ai' | null>(null)
+const resizing = ref<'sidebar' | null>(null)
 
 function onResizeMove(ev: MouseEvent) {
   if (resizing.value === 'sidebar') {
@@ -178,15 +173,12 @@ function onResizeMove(ev: MouseEvent) {
       SIDEBAR_WIDTH_MAX,
       Math.max(SIDEBAR_WIDTH_MIN, ev.clientX - 52),
     )
-  } else if (resizing.value === 'ai') {
-    aiWidth.value = Math.min(AI_WIDTH_MAX, Math.max(AI_WIDTH_MIN, window.innerWidth - ev.clientX))
   }
 }
 
 function stopResize() {
   try {
     if (resizing.value === 'sidebar') localStorage.setItem(SIDEBAR_WIDTH_KEY, String(sidebarWidth.value))
-    if (resizing.value === 'ai') localStorage.setItem(AI_WIDTH_KEY, String(aiWidth.value))
   } catch {
     /* 忽略持久化失败 */
   }
@@ -195,7 +187,7 @@ function stopResize() {
   window.removeEventListener('mouseup', stopResize)
 }
 
-function startResize(ev: MouseEvent, target: 'sidebar' | 'ai') {
+function startResize(ev: MouseEvent, target: 'sidebar') {
   ev.preventDefault()
   resizing.value = target
   window.addEventListener('mousemove', onResizeMove)
@@ -217,7 +209,7 @@ onBeforeUnmount(() => {
   <div
     class="app-root"
     :class="{ resizing: resizing !== null }"
-    :style="{ '--sidebar-w': `${sidebarWidth}px`, '--ai-w': `${aiWidth}px` }"
+    :style="{ '--sidebar-w': `${sidebarWidth}px` }"
   >
     <header
       class="app-titlebar"
@@ -276,28 +268,6 @@ onBeforeUnmount(() => {
     <div class="area-main">
       <DualPane />
     </div>
-
-    <AiPanel v-if="ui.aiVisible" class="area-ai" />
-    <div
-      v-if="ui.aiVisible"
-      class="resize-handle ai-resize"
-      role="separator"
-      aria-orientation="vertical"
-      :aria-valuenow="aiWidth"
-      aria-label="调整 AI 助手宽度"
-      title="拖动调整 AI 助手宽度"
-      @mousedown="startResize($event, 'ai')"
-    />
-    <button
-      v-else
-      type="button"
-      class="area-ai ai-rail"
-      title="展开 AI 助手"
-      aria-label="展开 AI 助手"
-      @click="ui.toggleAi()"
-    >
-      <Icon name="bot" :size="16" />
-    </button>
 
     <CommandPalette />
     <SettingsDialog />
@@ -454,30 +424,8 @@ onBeforeUnmount(() => {
 .sidebar-resize {
   left: calc(var(--activity-bar-w) + var(--sidebar-w) - 4px);
 }
-.ai-resize {
-  right: calc(var(--ai-w) - 4px);
-}
 .resizing {
   cursor: col-resize;
   user-select: none;
-}
-/* AI 面板收起时，右侧保留一个窄条作为展开入口 */
-.ai-rail {
-  width: 30px;
-  height: 100%;
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding-top: 8px;
-  background: var(--bg-panel);
-  border: 1px solid var(--border);
-  color: var(--fg-muted);
-  transition:
-    background 0.12s ease,
-    color 0.12s ease;
-}
-.ai-rail:hover {
-  background: var(--bg-hover);
-  color: var(--accent);
 }
 </style>

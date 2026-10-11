@@ -99,17 +99,16 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   display: grid;
   grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
   grid-template-areas:
-    'status view'
+    'roots view'
     'roots startup'
     'error error';
   align-items: start;
   gap: 16px;
   overflow: visible;
 }
-.dialog-body :deep(.settings-scroll > .card:nth-child(1)) { grid-area: status; }
-.dialog-body :deep(.settings-scroll > .card:nth-child(2)) { grid-area: roots; }
-.dialog-body :deep(.settings-scroll > .card:nth-child(3)) { grid-area: view; }
-.dialog-body :deep(.settings-scroll > .card:nth-child(4)) { grid-area: startup; }
+.dialog-body :deep(.settings-scroll > .card:nth-child(1)) { grid-area: roots; }
+.dialog-body :deep(.settings-scroll > .card:nth-child(2)) { grid-area: view; }
+.dialog-body :deep(.settings-scroll > .card:nth-child(3)) { grid-area: startup; }
 .dialog-body :deep(.settings-scroll > .error) { grid-area: error; }
 .dialog-body :deep(.card) {
   border-radius: var(--radius-lg);
@@ -121,16 +120,13 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 .dialog-body :deep(.card-body) {
   padding: 12px;
 }
-.dialog-body :deep(.build-info) {
-  margin-top: 16px;
-}
 @media (max-width: 680px) {
   .settings-backdrop { padding: 12px; }
   .settings-dialog { max-height: 100%; }
   .dialog-body { padding: 14px; }
   .dialog-body :deep(.settings-scroll) {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-areas: 'status' 'roots' 'view' 'startup' 'error';
+    grid-template-areas: 'roots' 'view' 'startup' 'error';
   }
 }
 </style>

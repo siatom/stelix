@@ -15,6 +15,16 @@ const scope = ref<'global' | 'current'>('global')
 const open = ref(false)
 const activeTab = computed(() => paneStore.activeTab)
 
+// 索引状态（统一在此展示：条目数 / 已扫描 / 状态）
+const indexText = computed(() =>
+  ui.scanning
+    ? `${ui.scanned.toLocaleString()} / ${ui.indexTotal.toLocaleString()}`
+    : `索引 ${ui.indexTotal.toLocaleString()} 项`,
+)
+const indexTitle = computed(
+  () => `索引条目 ${ui.indexTotal.toLocaleString()}，已扫描 ${ui.scanned.toLocaleString()}，${ui.scanning ? '扫描中' : '空闲'}`,
+)
+
 watch(
   () => [scope.value, paneStore.activePaneId, activeTab.value?.id],
   ([mode]) => {
@@ -113,13 +123,22 @@ onBeforeUnmount(() => {
       </button>
     </div>
 
+    <footer class="search-status" :title="indexTitle" aria-label="索引状态">
+      <span class="dot" :class="{ scanning: ui.scanning }" />
+      <span class="txt">{{ indexText }}</span>
+      <span class="spacer" />
+      <span class="state" :class="{ busy: ui.scanning }">{{ ui.scanning ? '扫描中' : '空闲' }}</span>
+    </footer>
   </div>
 </template>
 
 <style scoped>
 .search-wrap {
   position: relative;
-  flex: none;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 .search-bar {
   min-height: 60px;
@@ -198,4 +217,57 @@ onBeforeUnmount(() => {
   }
 }
 
+/* ---- 底部索引状态栏（索引状态统一在此展示）---- */
+.search-status {
+  margin-top: auto;
+  flex: none;
+  height: var(--status-bar-h);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-panel);
+  font-size: 0.9167rem;
+  color: var(--fg-muted);
+  overflow: hidden;
+}
+.search-status .spacer {
+  flex: 1;
+}
+.search-status .dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ok);
+}
+.search-status .dot.scanning {
+  background: var(--warn);
+  animation: pulse 1s ease-in-out infinite;
+}
+.search-status .txt {
+  min-width: 0;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.search-status .state {
+  flex: none;
+  color: var(--fg-dim);
+}
+.search-status .state.busy {
+  color: var(--warn);
+}
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}
 </style>

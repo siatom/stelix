@@ -1,8 +1,10 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
+import { api, events } from '../api'
+import type { IndexProgress } from '../types'
 
 /** 左侧栏面板类型 */
-export type PanelKey = 'files' | 'tasks' | 'search'
+export type PanelKey = 'files' | 'tasks' | 'search' | 'ai'
 
 /** 主题模式 */
 export type ThemeMode = 'system' | 'dark' | 'light'
@@ -11,7 +13,6 @@ export type ThemeMode = 'system' | 'dark' | 'light'
 const LS_THEME = 'stelix.theme'
 const LS_HIDE_PROTECTED = 'stelix.hideProtected'
 const LS_HIDE_FILE_EXTENSIONS = 'stelix.hideFileExtensions'
-const LS_AI_VISIBLE = 'stelix.aiVisible'
 const LS_SIDEBAR_COLLAPSED = 'stelix.sidebarCollapsed'
 const LS_ACTIVE_PANEL = 'stelix.activePanel'
 const LS_FONT_SIZE = 'stelix.fontSize'
@@ -26,12 +27,19 @@ const FILE_ROW_MIN = 22
 const FILE_ROW_MAX = 40
 const FILE_ROW_DEF = 26
 
+// 视图设置默认值（「恢复默认」回到这些值）
+const FONT_SIZE_MIN = 11
+const FONT_SIZE_MAX = 16
+const FONT_SIZE_DEF = 12
+const HIDE_PROTECTED_DEF = true
+const HIDE_FILE_EXTENSIONS_DEF = false
+
 function readFontSize(): number {
   try {
     const saved = Number(localStorage.getItem(LS_FONT_SIZE))
-    return Number.isInteger(saved) && saved >= 11 && saved <= 16 ? saved : 12
+    return Number.isInteger(saved) && saved >= FONT_SIZE_MIN && saved <= FONT_SIZE_MAX ? saved : FONT_SIZE_DEF
   } catch {
-    return 12
+    return FONT_SIZE_DEF
   }
 }
 
@@ -56,7 +64,7 @@ function readBool(key: string, fallback: boolean): boolean {
 function readPanel(): PanelKey {
   try {
     const saved = localStorage.getItem(LS_ACTIVE_PANEL)
-    return saved === 'tasks' || saved === 'search' ? saved : 'files'
+    return saved === 'tasks' || saved === 'search' || saved === 'ai' ? saved : 'files'
   } catch {
     return 'files'
   }
@@ -92,18 +100,17 @@ function applyRowHeights(sidebar: number, file: number) {
 /**
  * UI 全局状态 —— 由 **WS-C (feat/ui-shell)** 实现。
  * ⚠️ App.vue（Foundation 拥有）依赖以下字段名，WS-C 不得改名：
- * `sidebarCollapsed` / `aiVisible`
+ * `sidebarCollapsed`
  */
 export const useUiStore = defineStore('ui', () => {
   const sidebarCollapsed = ref(readBool(LS_SIDEBAR_COLLAPSED, false))
-  const aiVisible = ref(readBool(LS_AI_VISIBLE, false))
   const theme = ref<ThemeMode>(readTheme())
   const fontSize = ref(readFontSize())
   const sidebarRowHeight = ref(readRowHeight(LS_SIDEBAR_ROW_H, SIDEBAR_ROW_MIN, SIDEBAR_ROW_MAX, SIDEBAR_ROW_DEF))
   const fileRowHeight = ref(readRowHeight(LS_FILE_ROW_H, FILE_ROW_MIN, FILE_ROW_MAX, FILE_ROW_DEF))
   const resolvedTheme = computed(() => theme.value === 'system' ? systemTheme() : theme.value)
-  const hideProtected = ref(readBool(LS_HIDE_PROTECTED, true))
-  const hideFileExtensions = ref(readBool(LS_HIDE_FILE_EXTENSIONS, false))
+  const hideProtected = ref(readBool(LS_HIDE_PROTECTED, HIDE_PROTECTED_DEF))
+  const hideFileExtensions = ref(readBool(LS_HIDE_FILE_EXTENSIONS, HIDE_FILE_EXTENSIONS_DEF))
   const activePanel = ref<PanelKey>(readPanel())
   const settingsOpen = ref(false)
   const statusText = ref('就绪')
@@ -157,15 +164,6 @@ export const useUiStore = defineStore('ui', () => {
     settingsOpen.value = false
   }
 
-  function toggleAi() {
-    aiVisible.value = !aiVisible.value
-    try {
-      localStorage.setItem(LS_AI_VISIBLE, aiVisible.value ? '1' : '0')
-    } catch {
-      /* ignore */
-    }
-  }
-
   function setTheme(mode: ThemeMode) {
     theme.value = mode
     applyTheme(mode)
@@ -181,7 +179,7 @@ export const useUiStore = defineStore('ui', () => {
   }
 
   function setFontSize(size: number) {
-    if (!Number.isInteger(size) || size < 11 || size > 16) return
+    if (!Number.isInteger(size) || size < FONT_SIZE_MIN || size > FONT_SIZE_MAX) return
     fontSize.value = size
     applyFontSize(size)
     try {
@@ -235,6 +233,26 @@ export const useUiStore = defineStore('ui', () => {
     }
   }
 
+  /** 恢复「视图」相关设置的默认值（不含索引根目录 / 开机自启动等系统级设置） */
+  function resetViewDefaults() {
+    try {
+      localStorage.removeItem(LS_FONT_SIZE)
+      localStorage.removeItem(LS_SIDEBAR_ROW_H)
+      localStorage.removeItem(LS_FILE_ROW_H)
+      localStorage.removeItem(LS_HIDE_PROTECTED)
+      localStorage.removeItem(LS_HIDE_FILE_EXTENSIONS)
+    } catch {
+      /* ignore */
+    }
+    fontSize.value = FONT_SIZE_DEF
+    sidebarRowHeight.value = SIDEBAR_ROW_DEF
+    fileRowHeight.value = FILE_ROW_DEF
+    hideProtected.value = HIDE_PROTECTED_DEF
+    hideFileExtensions.value = HIDE_FILE_EXTENSIONS_DEF
+    applyFontSize(fontSize.value)
+    applyRowHeights(sidebarRowHeight.value, fileRowHeight.value)
+  }
+
   function displayFileName(name: string, isDir: boolean): string {
     if (!hideFileExtensions.value || isDir) return name
     const dot = name.lastIndexOf('.')
@@ -245,25 +263,44 @@ export const useUiStore = defineStore('ui', () => {
     indexRoots.value = [...roots]
   }
 
-  function setScanning(value: boolean) {
-    scanning.value = value
-  }
-
-  function setIndexTotal(total: number) {
-    indexTotal.value = total
-  }
-
-  function setScanned(value: number) {
-    scanned.value = value
-  }
-
   function setStatusText(text: string) {
     statusText.value = text
   }
 
+  // ---- 索引状态：全局订阅（供侧边栏搜索面板的状态栏展示）----
+  let indexWatchStarted = false
+
+  async function refreshIndexStatus() {
+    try {
+      const s = await api.indexStatus()
+      indexTotal.value = s.total
+      scanning.value = s.scanning
+      scanned.value = s.scanned
+      if (!indexRoots.value.length && s.roots.length) indexRoots.value = [...s.roots]
+    } catch {
+      /* 索引状态暂不可用（例如后端未就绪） */
+    }
+  }
+
+  /** 订阅索引进度事件，仅在首次调用时建立监听（幂等）。 */
+  async function startIndexStatusWatch() {
+    if (indexWatchStarted) return
+    indexWatchStarted = true
+    await refreshIndexStatus()
+    await events.onIndexProgress((p) => {
+      const prog = p as IndexProgress
+      scanned.value = prog.scanned
+      if (typeof prog.total === 'number' && prog.total > 0) indexTotal.value = prog.total
+      scanning.value = !prog.done
+    })
+    await events.onIndexDone(() => {
+      scanning.value = false
+      void refreshIndexStatus()
+    })
+  }
+
   return {
     sidebarCollapsed,
-    aiVisible,
     theme,
     fontSize,
     sidebarRowHeight,
@@ -282,7 +319,6 @@ export const useUiStore = defineStore('ui', () => {
     setPanel,
     openSettings,
     closeSettings,
-    toggleAi,
     setTheme,
     toggleTheme,
     setFontSize,
@@ -291,11 +327,11 @@ export const useUiStore = defineStore('ui', () => {
     setHideProtected,
     toggleHideProtected,
     setHideFileExtensions,
+    resetViewDefaults,
     displayFileName,
     setIndexRoots,
-    setScanning,
-    setIndexTotal,
-    setScanned,
     setStatusText,
+    refreshIndexStatus,
+    startIndexStatusWatch,
   }
 })

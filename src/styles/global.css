@@ -109,16 +109,16 @@ button:disabled {
   background: var(--accent-soft);
 }
 
-/* ---- 根布局：左侧图标栏 | 侧栏面板 | 主区 | AI 面板 ---- */
+/* ---- 根布局：左侧图标栏 | 侧栏面板 | 主区 ---- */
 .app-root {
   display: grid;
-  grid-template-columns: auto auto 1fr auto;
+  grid-template-columns: auto auto 1fr;
   column-gap: 2px;
   /* minmax(0, 1fr)：首行不允许被内容撑高（否则文件多时会把状态栏顶出视口） */
   grid-template-rows: 32px minmax(0, 1fr);
   grid-template-areas:
-    'titlebar titlebar titlebar titlebar'
-    'activity sidebar main ai';
+    'titlebar titlebar titlebar'
+    'activity sidebar main';
   height: 100%;
   width: 100%;
   background: var(--bg-app);
@@ -139,7 +139,4 @@ button:disabled {
   min-height: 0;
   display: flex;
   flex-direction: column;
-}
-.area-ai {
-  grid-area: ai;
 }

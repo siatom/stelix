@@ -81,7 +81,7 @@ function buildCommands(locations: QuickLocation[]) {
         if (tab) pane.closeTab(pane.activePaneId, tab.id)
       },
     },
-    { id: 'toggle-ai', label: '切换 AI 助手面板', run: () => ui.toggleAi() },
+    { id: 'toggle-ai', label: '打开 AI 助手面板', run: () => ui.setPanel('ai') },
     { id: 'toggle-sidebar', label: '切换侧边栏', run: () => ui.toggleSidebar() },
     { id: 'focus-search', label: '聚焦全局搜索', hint: '/', run: focusSearch },
     { id: 'reindex', label: '重新建立索引', run: reindex },
