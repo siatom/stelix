@@ -37,6 +37,20 @@ const items: { key: PanelKey; icon: IconName; title: string }[] = [
       <Icon :name="it.icon" :size="19" />
     </button>
 
+    <div class="spacer" />
+
+    <div class="divider" />
+    <button
+      type="button"
+      class="activity-btn"
+      :class="{ active: ui.activePanel === 'ai' && !ui.sidebarCollapsed }"
+      title="AI 助手"
+      aria-label="AI 助手"
+      @click="ui.setPanel('ai')"
+    >
+      <Icon name="bot" :size="19" />
+    </button>
+
     <button
       type="button"
       class="activity-btn"
@@ -46,20 +60,6 @@ const items: { key: PanelKey; icon: IconName; title: string }[] = [
       @click="ui.openSettings()"
     >
       <Icon name="settings" :size="19" />
-    </button>
-
-    <div class="spacer" />
-
-    <div class="divider" />
-    <button
-      type="button"
-      class="activity-btn"
-      :class="{ active: ui.aiVisible }"
-      :title="ui.aiVisible ? '隐藏 AI 助手' : '显示 AI 助手'"
-      aria-label="AI 助手"
-      @click="ui.toggleAi()"
-    >
-      <Icon name="bot" :size="19" />
     </button>
 
     <button

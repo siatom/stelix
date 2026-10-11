@@ -1,11 +1,10 @@
 <script setup lang="ts">
-// 设置面板：索引根目录管理 + 索引统计 + 索引进度事件
-import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { api, events } from '../../api'
+// 设置面板：索引根目录管理 + 视图偏好 + 启动行为
+import { computed, onMounted, ref } from 'vue'
+import { api } from '../../api'
 import { usePaneStore } from '../../stores/pane'
 import { useUiStore } from '../../stores/ui'
 import Icon from '../icons/Icon.vue'
-import type { IndexProgress, IndexStatus } from '../../types'
 
 const pane = usePaneStore()
 const ui = useUiStore()
@@ -15,14 +14,8 @@ const commitId = __COMMIT_ID__
 const newRoot = ref('')
 const busy = ref(false)
 const error = ref<string | null>(null)
-const status = ref<IndexStatus | null>(null)
 const autostart = ref(false)
 const autostartBusy = ref(false)
-let unlisteners: (() => void)[] = []
-
-const scanning = computed(() => ui.scanning || (status.value?.scanning ?? false))
-const total = computed(() => status.value?.total ?? ui.indexTotal)
-const scanned = computed(() => status.value?.scanned ?? ui.scanned)
 
 // 「添加当前目录」按钮上只展示末级目录名，完整路径放到 title
 const currentDirPath = computed(() => pane.activeTab?.path ?? '')
@@ -32,19 +25,6 @@ const currentDirName = computed(() => {
   const parts = p.split(/[\\/]/)
   return parts[parts.length - 1] || p
 })
-
-async function refreshStatus() {
-  try {
-    const s = await api.indexStatus()
-    status.value = s
-    ui.setIndexTotal(s.total)
-    ui.setScanning(s.scanning)
-    ui.setScanned(s.scanned)
-    if (!ui.indexRoots.length && s.roots.length) ui.setIndexRoots(s.roots)
-  } catch (e) {
-    error.value = String(e)
-  }
-}
 
 // 开机自启动：真实状态以后端注册表为准，挂载时读取、切换时写回。
 async function refreshAutostart() {
@@ -77,7 +57,7 @@ async function applyRoots(roots: string[]) {
   try {
     await api.startIndex(roots)
     ui.setStatusText(`已开始索引 ${roots.length} 个根目录`)
-    await refreshStatus()
+    await ui.refreshIndexStatus()
   } catch (e) {
     error.value = String(e)
     ui.setStatusText(`索引启动失败：${String(e)}`)
@@ -103,56 +83,20 @@ function removeRoot(path: string) {
   void applyRoots(ui.indexRoots.filter((r) => r !== path))
 }
 
-function onProgress(p: unknown) {
-  const prog = p as IndexProgress
-  ui.setScanned(prog.scanned)
-  if (typeof prog.total === 'number' && prog.total > 0) ui.setIndexTotal(prog.total)
-  ui.setScanning(!prog.done)
-  const suffix = prog.total ? ` / ${prog.total.toLocaleString()}` : ''
-  ui.setStatusText(`正在索引：${prog.scanned.toLocaleString()}${suffix}`)
+function restoreDefaults() {
+  ui.resetViewDefaults()
+  ui.setStatusText('已恢复默认设置')
 }
 
-function onDone() {
-  ui.setScanning(false)
-  ui.setStatusText('索引完成')
-  void refreshStatus()
-}
-
-onMounted(async () => {
-  await Promise.all([refreshStatus(), refreshAutostart()])
-  unlisteners = [
-    await events.onIndexProgress(onProgress),
-    await events.onIndexDone(onDone),
-  ]
-})
-
-onUnmounted(() => {
-  for (const fn of unlisteners) fn()
-  unlisteners = []
+onMounted(() => {
+  void ui.refreshIndexStatus()
+  void refreshAutostart()
 })
 </script>
 
 <template>
   <div class="settings-panel">
     <div class="settings-scroll">
-      <section class="card">
-        <header class="card-head">索引状态</header>
-        <div class="stat-row">
-          <div class="stat">
-            <span class="k">条目数</span>
-            <span class="v">{{ total.toLocaleString() }}</span>
-          </div>
-          <div class="stat">
-            <span class="k">已扫描</span>
-            <span class="v">{{ scanned.toLocaleString() }}</span>
-          </div>
-          <div class="stat">
-            <span class="k">状态</span>
-            <span class="v" :class="{ busy: scanning }">{{ scanning ? '扫描中…' : '空闲' }}</span>
-          </div>
-        </div>
-      </section>
-
       <section class="card">
         <header class="card-head">索引根目录</header>
         <div class="card-body">
@@ -261,7 +205,13 @@ onUnmounted(() => {
       <div v-if="error" class="error">操作失败：{{ error }}</div>
     </div>
 
-    <div class="build-info">版本 {{ appVersion }} · Commit {{ commitId }}</div>
+    <div class="panel-footer">
+      <button class="restore-btn" type="button" :disabled="busy" @click="restoreDefaults">
+        <Icon name="refresh" :size="13" />
+        <span>恢复默认</span>
+      </button>
+      <div class="build-info">版本 {{ appVersion }} · Commit {{ commitId }}</div>
+    </div>
   </div>
 </template>
 
@@ -304,42 +254,6 @@ onUnmounted(() => {
 .card-body.tight {
   gap: 2px;
   padding: 6px;
-}
-
-/* ---- 索引状态：三列指标 + 竖分隔线 ---- */
-.stat-row {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  padding: 9px 4px;
-}
-.stat {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  min-width: 0;
-  padding: 0 8px;
-  border-left: 1px solid var(--border);
-}
-.stat:first-child {
-  border-left: 0;
-}
-.stat .k {
-  font-size: 0.8333rem;
-  color: var(--fg-dim);
-  white-space: nowrap;
-}
-.stat .v {
-  font-size: 0.9167rem;
-  font-weight: 600;
-  font-family: var(--mono);
-  font-variant-numeric: tabular-nums;
-  color: var(--fg);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.stat .v.busy {
-  color: var(--warn);
 }
 
 /* ---- 索引根目录 ---- */
@@ -495,11 +409,36 @@ onUnmounted(() => {
   font-size: 0.9167rem;
   word-break: break-all;
 }
-.build-info {
+.panel-footer {
   flex: none;
   margin-top: 8px;
   padding-top: 8px;
   border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.restore-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 30px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--fg-muted);
+  font-size: 0.9167rem;
+}
+.restore-btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--fg);
+  border-color: var(--accent);
+}
+.restore-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.build-info {
   color: var(--fg-dim);
   font-family: var(--mono);
   font-size: 0.8333rem;

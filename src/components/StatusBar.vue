@@ -49,12 +49,6 @@ const isActivePane = computed(() => paneStore.activePaneId === props.paneId)
 
     <template v-if="isActivePane">
       <span class="seg status">{{ ui.statusText }}</span>
-      <span class="sep" />
-      <span class="seg index">
-        <span v-if="ui.scanning" class="dot scanning" />
-        <span v-else class="dot" />
-        索引 {{ ui.indexTotal.toLocaleString() }} 项
-      </span>
     </template>
   </footer>
 </template>
@@ -85,36 +79,5 @@ const isActivePane = computed(() => paneStore.activePaneId === props.paneId)
 }
 .status {
   color: var(--fg-muted);
-}
-.index {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-}
-.dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--ok);
-  flex: none;
-}
-.dot.scanning {
-  background: var(--warn);
-  animation: pulse 1s ease-in-out infinite;
-}
-.sep {
-  width: 1px;
-  height: 12px;
-  background: var(--border);
-  flex: none;
-}
-@keyframes pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.25;
-  }
 }
 </style>

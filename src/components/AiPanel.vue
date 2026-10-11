@@ -106,8 +106,8 @@ const OP_LABEL: Record<string, string> = {
       <button class="head-btn" title="清空对话" @click="ai.clear">
         <Icon name="trash" :size="14" />
       </button>
-      <button class="head-btn" title="收起" @click="ui.toggleAi()">
-        <Icon name="chevron-right" :size="14" />
+      <button class="head-btn" title="收起侧边栏" @click="ui.toggleSidebar()">
+        <Icon name="panel-left" :size="14" />
       </button>
     </header>
 
@@ -187,10 +187,10 @@ const OP_LABEL: Record<string, string> = {
 
 <style scoped>
 .ai-panel {
-  width: var(--ai-w);
+  width: 100%;
   height: 100%;
   background: var(--bg-panel);
-  border: 1px solid var(--border);
+  border: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;

@@ -7,6 +7,7 @@ import type { PanelKey } from '../../stores/ui'
 import FolderTree from './FolderTree.vue'
 import TabGroups from './TabGroups.vue'
 import SearchBar from '../SearchBar.vue'
+import AiPanel from '../AiPanel.vue'
 
 const ui = useUiStore()
 
@@ -14,22 +15,32 @@ const titles: Record<PanelKey, string> = {
   files: '文件导航',
   recent: '最近 / 标签页组',
   search: '搜索',
+  ai: 'AI 助手',
 }
 
 const panels: Record<PanelKey, Component> = {
   files: FolderTree,
   recent: TabGroups,
   search: SearchBar,
+  ai: AiPanel,
 }
 
 const title = computed(() => titles[ui.activePanel])
 const current = computed(() => panels[ui.activePanel])
+const showHead = computed(() => ui.activePanel !== 'ai')
 </script>
 
 <template>
   <aside class="sidebar-panel">
-    <header class="sidebar-head">{{ title }}</header>
-    <div class="sidebar-body" :class="{ 'files-panel': ui.activePanel === 'files' }">
+    <header v-if="showHead" class="sidebar-head">{{ title }}</header>
+    <div
+      class="sidebar-body"
+      :class="{
+        'files-panel': ui.activePanel === 'files',
+        'search-panel': ui.activePanel === 'search',
+        'ai-panel-body': ui.activePanel === 'ai',
+      }"
+    >
       <component :is="current" />
     </div>
   </aside>
@@ -61,7 +72,21 @@ const current = computed(() => panels[ui.activePanel])
 }
 .sidebar-body {
   flex: 1;
+  min-height: 0;
   overflow: auto;
   padding: 6px;
+}
+/* 搜索面板：内容自带内边距，底部状态栏需贴边 */
+.sidebar-body.search-panel {
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+/* AI 面板：铺满侧栏，自带头部与输入区内边距 */
+.sidebar-body.ai-panel-body {
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 </style>
