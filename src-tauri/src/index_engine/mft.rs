@@ -4,15 +4,17 @@
 //! volumes where access is denied transparently use the existing walkdir scan.
 
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::ffi::c_void;
+use std::os::windows::ffi::OsStrExt;
 use std::path::Path;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
 use crate::fs_core::{path_id, to_entry};
 use crate::index_engine::{IndexSource, WalkDirSource};
-use crate::persistence::IndexJournal;
+use crate::persistence::{IndexChange, IndexJournal};
 use crate::types::FileEntry;
 use dashmap::DashMap;
 use parking_lot::Mutex;
@@ -27,6 +29,7 @@ const FILE_ATTRIBUTE_SYSTEM: u32 = 0x4;
 const FILE_SHARE_READ: u32 = 1;
 const FILE_SHARE_WRITE: u32 = 2;
 const OPEN_EXISTING: u32 = 3;
+const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
 const GENERIC_READ: u32 = 0x8000_0000;
 const INVALID_HANDLE_VALUE: isize = -1;
 const BUFFER_SIZE: usize = 1024 * 1024;
@@ -56,6 +59,20 @@ struct MftEnumData {
     start_file_reference_number: u64,
     low_usn: i64,
     high_usn: i64,
+}
+
+#[repr(C)]
+struct ByHandleFileInformation {
+    attributes: u32,
+    creation_time: [u32; 2],
+    last_access_time: [u32; 2],
+    last_write_time: [u32; 2],
+    volume_serial_number: u32,
+    file_size_high: u32,
+    file_size_low: u32,
+    number_of_links: u32,
+    file_index_high: u32,
+    file_index_low: u32,
 }
 
 #[link(name = "kernel32")]
@@ -89,6 +106,7 @@ unsafe extern "system" {
         flags: u32,
     ) -> isize;
     fn GetFinalPathNameByHandleW(handle: isize, path: *mut u16, len: u32, flags: u32) -> u32;
+    fn GetFileInformationByHandle(handle: isize, info: *mut ByHandleFileInformation) -> i32;
     fn GetVolumeInformationW(
         root: *const u16,
         name: *mut u16,
@@ -107,20 +125,28 @@ pub(super) fn watch_roots(
     entries: Arc<DashMap<String, FileEntry>>,
     generation: u64,
     current_generation: Arc<AtomicU64>,
+    catalog_dirty: Arc<AtomicBool>,
     checkpoints: Vec<IndexJournal>,
 ) {
     let mut watchers = Vec::new();
     let checkpoints = Arc::new(Mutex::new(checkpoints));
-    let last_saved = Arc::new(Mutex::new(Instant::now()));
+    let persisted_checkpoints = Arc::new(Mutex::new(checkpoints.lock().clone()));
+    let mut roots_by_volume = HashMap::<String, Vec<String>>::new();
     for root in &roots {
+        if let Some(volume) = volume_root(root) {
+            roots_by_volume
+                .entry(volume)
+                .or_default()
+                .push(root.clone());
+        }
+    }
+    for (volume, volume_roots) in roots_by_volume {
         if current_generation.load(Ordering::SeqCst) != generation {
             return;
         }
-        let Some(volume) = volume_root(root) else {
-            continue;
-        };
         let entries = Arc::clone(&entries);
         let current_generation = Arc::clone(&current_generation);
+        let catalog_dirty = Arc::clone(&catalog_dirty);
         let checkpoint = checkpoints
             .lock()
             .iter()
@@ -129,20 +155,20 @@ pub(super) fn watch_roots(
         let start_usn = checkpoint.as_ref().map(|checkpoint| checkpoint.next_usn);
         let journal_id = checkpoint.as_ref().map(|checkpoint| checkpoint.journal_id);
         let checkpoints = Arc::clone(&checkpoints);
-        let last_saved = Arc::clone(&last_saved);
+        let persisted_checkpoints = Arc::clone(&persisted_checkpoints);
         let all_roots = roots.clone();
-        let root = root.clone();
         watchers.push(std::thread::spawn(move || {
             watch_volume(
-                &root,
+                &volume_roots,
                 &volume,
                 &entries,
                 generation,
                 &current_generation,
+                &catalog_dirty,
                 start_usn,
                 journal_id,
                 &checkpoints,
-                &last_saved,
+                &persisted_checkpoints,
                 &all_roots,
             );
         }));
@@ -153,15 +179,16 @@ pub(super) fn watch_roots(
 }
 
 fn watch_volume(
-    root: &str,
+    volume_roots: &[String],
     volume: &str,
     entries: &DashMap<String, FileEntry>,
     generation: u64,
     current_generation: &AtomicU64,
+    catalog_dirty: &AtomicBool,
     start_usn: Option<i64>,
     expected_journal_id: Option<u64>,
     checkpoints: &Mutex<Vec<IndexJournal>>,
-    last_saved: &Mutex<Instant>,
+    persisted_checkpoints: &Mutex<Vec<IndexJournal>>,
     roots: &[String],
 ) {
     let device: Vec<u16> = format!("\\\\.\\{}", &volume[0..2])
@@ -212,6 +239,35 @@ fn watch_volume(
     // Without one, replay the retained journal to cover changes made during a full scan.
     let mut cursor = start_usn.unwrap_or_else(|| read_u64(&journal, 8) as i64);
     let mut buffer = vec![0u8; BUFFER_SIZE];
+    let mut parent_paths = HashMap::new();
+    let mut pending_changes = Vec::new();
+    let mut last_saved = Instant::now();
+    {
+        let mut checkpoints = checkpoints.lock();
+        if !checkpoints
+            .iter()
+            .any(|checkpoint| checkpoint.volume.eq_ignore_ascii_case(volume))
+        {
+            checkpoints.push(IndexJournal {
+                volume: volume.to_string(),
+                journal_id,
+                next_usn: cursor,
+            });
+        }
+    }
+    {
+        let mut persisted = persisted_checkpoints.lock();
+        if !persisted
+            .iter()
+            .any(|checkpoint| checkpoint.volume.eq_ignore_ascii_case(volume))
+        {
+            persisted.push(IndexJournal {
+                volume: volume.to_string(),
+                journal_id,
+                next_usn: cursor,
+            });
+        }
+    }
 
     while current_generation.load(Ordering::SeqCst) == generation {
         let input = ReadUsnJournalData {
@@ -244,7 +300,17 @@ fn watch_volume(
                     break;
                 }
                 if read_u16(&buffer, offset + 4) == 2 {
-                    apply_usn_record(&buffer[offset..offset + length], root, volume, entries);
+                    match apply_usn_record(
+                        &buffer[offset..offset + length],
+                        volume_roots,
+                        volume,
+                        entries,
+                        &mut parent_paths,
+                        Some(catalog_dirty),
+                    ) {
+                        Some(change) => pending_changes.push(change),
+                        None => {}
+                    }
                 }
                 offset += length;
             }
@@ -261,11 +327,22 @@ fn watch_volume(
                 }
             };
             if checkpoint_updated {
-                let mut last_saved = last_saved.lock();
                 if last_saved.elapsed() >= Duration::from_secs(600) {
-                    let snapshot = checkpoints.lock().clone();
-                    super::persist_index(roots, entries, &snapshot);
-                    *last_saved = Instant::now();
+                    let mut persisted = persisted_checkpoints.lock();
+                    let mut snapshot = persisted.clone();
+                    if let Some(saved) = snapshot
+                        .iter_mut()
+                        .find(|checkpoint| checkpoint.volume.eq_ignore_ascii_case(volume))
+                    {
+                        saved.next_usn = cursor;
+                    }
+                    if crate::persistence::apply_index_changes(roots, &pending_changes, &snapshot)
+                        .is_ok()
+                    {
+                        *persisted = snapshot;
+                        pending_changes.clear();
+                        last_saved = Instant::now();
+                    }
                 }
             }
         } else {
@@ -331,6 +408,7 @@ pub(super) fn resume_journals(
     scan_untracked_roots: bool,
 ) -> Option<Vec<IndexJournal>> {
     let mut updated = Vec::new();
+    let mut changes = Vec::new();
     for root in roots {
         let volume = volume_root(root)?;
         if updated
@@ -345,8 +423,10 @@ pub(super) fn resume_journals(
         else {
             if scan_untracked_roots {
                 entries.retain(|path, _| !is_below_root(path, root));
+                changes.push(IndexChange::DeleteTree(root.clone()));
                 WalkDirSource::default().scan(std::slice::from_ref(root), &mut |batch| {
                     for entry in batch {
+                        changes.push(IndexChange::Upsert(entry.clone()));
                         entries.insert(entry.path.clone(), entry);
                     }
                 });
@@ -358,12 +438,21 @@ pub(super) fn resume_journals(
         {
             return None;
         }
-        let cursor = replay_journal(root, &volume, saved.next_usn, next_usn, journal_id, entries)?;
+        let (cursor, mut replayed) =
+            replay_journal(root, &volume, saved.next_usn, next_usn, journal_id, entries)?;
+        changes.append(&mut replayed);
         updated.push(IndexJournal {
             volume,
             journal_id,
             next_usn: cursor,
         });
+    }
+    // During startup restore, persist replayed changes without rewriting the
+    // complete index. A first full scan writes its snapshot after this function.
+    if scan_untracked_roots {
+        // If replay cannot be committed together with its cursors, force a full
+        // scan so the durable checkpoint can never skip unapplied changes.
+        crate::persistence::apply_index_changes(roots, &changes, &updated).ok()?;
     }
     Some(updated)
 }
@@ -419,7 +508,7 @@ fn replay_journal(
     target: i64,
     journal_id: u64,
     entries: &DashMap<String, FileEntry>,
-) -> Option<i64> {
+) -> Option<(i64, Vec<IndexChange>)> {
     let device: Vec<u16> = format!("\\\\.\\{}", &volume[0..2])
         .encode_utf16()
         .chain(Some(0))
@@ -439,6 +528,9 @@ fn replay_journal(
         return None;
     }
     let mut buffer = vec![0u8; BUFFER_SIZE];
+    let mut parent_paths = HashMap::new();
+    let mut changes = Vec::new();
+    let single_root = vec![root.to_string()];
     while cursor < target {
         let input = ReadUsnJournalData {
             start_usn: cursor,
@@ -476,46 +568,79 @@ fn replay_journal(
                 break;
             }
             if read_u16(&buffer, offset + 4) == 2 {
-                apply_usn_record(&buffer[offset..offset + length], root, volume, entries);
+                if let Some(change) = apply_usn_record(
+                    &buffer[offset..offset + length],
+                    &single_root,
+                    volume,
+                    entries,
+                    &mut parent_paths,
+                    None,
+                ) {
+                    changes.push(change);
+                }
             }
             offset += length;
         }
         cursor = next;
     }
     unsafe { CloseHandle(handle) };
-    (cursor >= target).then_some(cursor)
+    (cursor >= target).then_some((cursor, changes))
 }
 
-fn apply_usn_record(record: &[u8], root: &str, volume: &str, entries: &DashMap<String, FileEntry>) {
+fn apply_usn_record(
+    record: &[u8],
+    roots: &[String],
+    volume: &str,
+    entries: &DashMap<String, FileEntry>,
+    parent_paths: &mut HashMap<u64, String>,
+    catalog_dirty: Option<&AtomicBool>,
+) -> Option<IndexChange> {
     let name_len = read_u16(record, 56) as usize;
     let name_offset = read_u16(record, 58) as usize;
     if name_len == 0 || name_offset + name_len > record.len() {
-        return;
+        return None;
     }
     let name = String::from_utf16_lossy(bytemuck_u16(&record[name_offset..name_offset + name_len]));
     let parent = read_u64(record, 16) & 0x0000_ffff_ffff_ffff;
-    let parent_path = match path_for_file_id(volume, parent) {
+    let parent_path = match parent_paths.get(&parent).cloned().or_else(|| {
+        let path = path_for_file_id(volume, parent)?;
+        if parent_paths.len() >= 65_536 {
+            parent_paths.clear();
+        }
+        parent_paths.insert(parent, path.clone());
+        Some(path)
+    }) {
         Some(p) => p,
-        None => return,
+        None => return None,
     };
     let path = format!("{}\\{}", parent_path.trim_end_matches(['\\', '/']), name);
-    if !is_below_root(&path, root) {
-        return;
+    if !roots.iter().any(|root| is_below_root(&path, root)) {
+        return None;
     }
     let reason = read_u32(record, 40);
     if reason & (REASON_FILE_DELETE | REASON_RENAME_OLD_NAME) != 0 {
-        let prefix = format!("{}\\", path.trim_end_matches(['\\', '/'])).to_lowercase();
-        let path_lower = path.to_lowercase();
+        parent_paths.clear();
+        let prefix = format!("{}\\", path.trim_end_matches(['\\', '/']));
         entries.retain(|key, _| {
-            let key_lower = key.to_lowercase();
-            key_lower != path_lower && !key_lower.starts_with(&prefix)
+            !key.eq_ignore_ascii_case(&path)
+                && !key
+                    .get(..prefix.len())
+                    .is_some_and(|head| head.eq_ignore_ascii_case(&prefix))
         });
-        return;
+        if let Some(dirty) = catalog_dirty {
+            dirty.store(true, Ordering::Release);
+        }
+        return Some(IndexChange::DeleteTree(path));
     }
     if let Ok(metadata) = std::fs::symlink_metadata(&path) {
         let entry = to_entry(Path::new(&path), &metadata);
-        entries.insert(path, entry);
+        entries.insert(path, entry.clone());
+        if let Some(dirty) = catalog_dirty {
+            dirty.store(true, Ordering::Release);
+        }
+        return Some(IndexChange::Upsert(entry));
     }
+    None
 }
 
 fn path_for_file_id(volume: &str, file_id: u64) -> Option<String> {
@@ -578,9 +703,19 @@ pub(super) struct MftOrWalkSource;
 
 impl IndexSource for MftOrWalkSource {
     fn scan(&self, roots: &[String], on_batch: &mut dyn FnMut(Vec<FileEntry>)) {
+        let mut volumes = HashMap::<String, Vec<String>>::new();
         for root in roots {
-            if !scan_ntfs_root(root, on_batch) {
+            if let Some(volume) = volume_root(root) {
+                volumes.entry(volume).or_default().push(root.clone());
+            } else {
                 WalkDirSource::default().scan(std::slice::from_ref(root), on_batch);
+            }
+        }
+        for (_, volume_roots) in volumes {
+            if !scan_ntfs_roots(&volume_roots, on_batch) {
+                for root in &volume_roots {
+                    WalkDirSource::default().scan(std::slice::from_ref(root), on_batch);
+                }
             }
         }
     }
@@ -596,7 +731,10 @@ struct Record {
     attributes: u32,
 }
 
-fn scan_ntfs_root(root: &str, on_batch: &mut dyn FnMut(Vec<FileEntry>)) -> bool {
+fn scan_ntfs_roots(roots: &[String], on_batch: &mut dyn FnMut(Vec<FileEntry>)) -> bool {
+    let Some(root) = roots.first() else {
+        return false;
+    };
     let Some(volume) = volume_root(root) else {
         return false;
     };
@@ -644,6 +782,7 @@ fn scan_ntfs_root(root: &str, on_batch: &mut dyn FnMut(Vec<FileEntry>)) -> bool 
     let mut start = 0u64;
     let mut buffer = vec![0u8; BUFFER_SIZE];
     let mut ok = true;
+    let enumeration_started = Instant::now();
     loop {
         let input = MftEnumData {
             start_file_reference_number: start,
@@ -717,47 +856,164 @@ fn scan_ntfs_root(root: &str, on_batch: &mut dyn FnMut(Vec<FileEntry>)) -> bool 
     unsafe {
         CloseHandle(handle);
     }
+    let enumeration_elapsed = enumeration_started.elapsed();
     if !ok || records.is_empty() {
         return false;
     }
 
-    let mut paths = HashMap::new();
+    let path_build_started = Instant::now();
+    let record_count = records.len();
     let mut batch = Vec::with_capacity(2000);
-    for record in records.values() {
-        let Some(path) = resolve_path(record.reference, &records, &mut paths, &volume, 0) else {
-            continue;
-        };
-        if !is_below_root(&path, root) {
-            continue;
-        }
-        let is_dir = record.attributes & FILE_ATTRIBUTE_DIRECTORY != 0;
-        let ext = if is_dir {
-            None
+    let mut root_refs = Vec::new();
+    let mut unresolved_roots = Vec::new();
+    for root in roots {
+        if let Some(reference) = file_reference(root) {
+            root_refs.push((reference, root.trim_end_matches(['\\', '/']).to_string()));
         } else {
-            Path::new(&record.name)
-                .extension()
-                .map(|e| e.to_string_lossy().to_lowercase())
-        };
-        batch.push(FileEntry {
-            id: path_id(&path),
-            name: record.name.clone(),
-            path,
-            is_dir,
-            size: record.size,
-            modified: record.modified,
-            ext,
-            hidden: record.attributes & FILE_ATTRIBUTE_HIDDEN != 0,
-            system: record.attributes & FILE_ATTRIBUTE_SYSTEM != 0,
-        });
-        if batch.len() == 2000 {
-            on_batch(std::mem::take(&mut batch));
-            batch = Vec::with_capacity(2000);
+            unresolved_roots.push(root);
+        }
+    }
+    if !root_refs.is_empty() {
+        // MFT enumeration is volume-wide, but path construction is restricted to
+        // descendants of the configured root instead of resolving every volume path.
+        let mut children: HashMap<u64, Vec<u64>> = HashMap::new();
+        for record in records.values() {
+            children
+                .entry(record.parent)
+                .or_default()
+                .push(record.reference);
+        }
+        let mut visited = HashSet::new();
+        for (root_id, root_path) in root_refs {
+            let mut stack = vec![(root_id, root_path)];
+            while let Some((parent_id, parent_path)) = stack.pop() {
+                let Some(child_ids) = children.remove(&parent_id) else {
+                    continue;
+                };
+                for child_id in child_ids {
+                    if !visited.insert(child_id) {
+                        continue;
+                    }
+                    let Some(record) = records.get(&child_id) else {
+                        continue;
+                    };
+                    let path = format!("{}\\{}", parent_path, record.name);
+                    if record.attributes & FILE_ATTRIBUTE_DIRECTORY != 0 {
+                        stack.push((child_id, path.clone()));
+                    }
+                    append_record(record, path, &mut batch, on_batch);
+                }
+            }
+        }
+        if !unresolved_roots.is_empty() {
+            let mut paths = HashMap::new();
+            for record in records.values() {
+                let Some(path) = resolve_path(record.reference, &records, &mut paths, &volume, 0)
+                else {
+                    continue;
+                };
+                if unresolved_roots
+                    .iter()
+                    .any(|root| is_below_root(&path, root))
+                {
+                    append_record(record, path, &mut batch, on_batch);
+                }
+            }
+        }
+    } else {
+        // Fall back when Windows cannot return the root's file reference.
+        let mut paths = HashMap::new();
+        for record in records.values() {
+            let Some(path) = resolve_path(record.reference, &records, &mut paths, &volume, 0)
+            else {
+                continue;
+            };
+            if roots.iter().any(|root| is_below_root(&path, root)) {
+                append_record(record, path, &mut batch, on_batch);
+            }
         }
     }
     if !batch.is_empty() {
         on_batch(batch);
     }
+    eprintln!(
+        "[index-perf] mft_records={} enumerate_ms={} path_build_ms={}",
+        record_count,
+        enumeration_elapsed.as_millis(),
+        path_build_started.elapsed().as_millis()
+    );
     true
+}
+
+fn append_record(
+    record: &Record,
+    path: String,
+    batch: &mut Vec<FileEntry>,
+    on_batch: &mut dyn FnMut(Vec<FileEntry>),
+) {
+    let is_dir = record.attributes & FILE_ATTRIBUTE_DIRECTORY != 0;
+    let ext = if is_dir {
+        None
+    } else {
+        Path::new(&record.name)
+            .extension()
+            .map(|e| e.to_string_lossy().to_lowercase())
+    };
+    batch.push(FileEntry {
+        id: path_id(&path),
+        name: record.name.clone(),
+        path,
+        is_dir,
+        size: record.size,
+        modified: record.modified,
+        ext,
+        hidden: record.attributes & FILE_ATTRIBUTE_HIDDEN != 0,
+        system: record.attributes & FILE_ATTRIBUTE_SYSTEM != 0,
+    });
+    if batch.len() == 2000 {
+        on_batch(std::mem::take(batch));
+        *batch = Vec::with_capacity(2000);
+    }
+}
+
+fn file_reference(path: &str) -> Option<u64> {
+    let wide: Vec<u16> = Path::new(path)
+        .as_os_str()
+        .encode_wide()
+        .chain(Some(0))
+        .collect();
+    let handle = unsafe {
+        CreateFileW(
+            wide.as_ptr(),
+            0,
+            FILE_SHARE_READ | FILE_SHARE_WRITE,
+            std::ptr::null(),
+            OPEN_EXISTING,
+            FILE_FLAG_BACKUP_SEMANTICS,
+            0,
+        )
+    };
+    if handle == INVALID_HANDLE_VALUE {
+        return None;
+    }
+    let mut info = ByHandleFileInformation {
+        attributes: 0,
+        creation_time: [0; 2],
+        last_access_time: [0; 2],
+        last_write_time: [0; 2],
+        volume_serial_number: 0,
+        file_size_high: 0,
+        file_size_low: 0,
+        number_of_links: 0,
+        file_index_high: 0,
+        file_index_low: 0,
+    };
+    let ok = unsafe { GetFileInformationByHandle(handle, &mut info) } != 0;
+    unsafe { CloseHandle(handle) };
+    ok.then_some(
+        (((info.file_index_high as u64) << 32) | info.file_index_low as u64)
+            & 0x0000_ffff_ffff_ffff,
+    )
 }
 
 fn resolve_path(
@@ -796,13 +1052,15 @@ fn volume_root(root: &str) -> Option<String> {
 }
 
 fn is_below_root(path: &str, root: &str) -> bool {
-    let normalized_path = path.trim_end_matches(['\\', '/']).to_lowercase();
-    let normalized_root = root.trim_end_matches(['\\', '/']).to_lowercase();
-    normalized_path != normalized_root
-        && normalized_path.starts_with(&normalized_root)
-        && normalized_path
+    let path = path.trim_end_matches(['\\', '/']);
+    let root = root.trim_end_matches(['\\', '/']);
+    path.len() > root.len()
+        && path
+            .get(..root.len())
+            .is_some_and(|head| head.eq_ignore_ascii_case(root))
+        && path
             .as_bytes()
-            .get(normalized_root.len())
+            .get(root.len())
             .is_some_and(|c| *c == b'\\' || *c == b'/')
 }
 

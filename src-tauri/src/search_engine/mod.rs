@@ -189,6 +189,31 @@ fn local_midnight(d: NaiveDate) -> i64 {
 
 /// 条目是否满足查询条件（所有条件取 AND；text 内多关键词也取 AND）
 pub fn matches(entry: &FileEntry, query: &SearchQuery) -> bool {
+    let terms: Vec<String> = query
+        .text
+        .split_whitespace()
+        .map(str::to_lowercase)
+        .collect();
+    matches_with_terms(entry, query, &entry.name.to_lowercase(), &terms)
+}
+
+/// Matches a query using a caller-cached lowercase name to avoid allocating it
+/// once for filtering and again for scoring on every search.
+pub fn matches_with_name(entry: &FileEntry, query: &SearchQuery, name_lower: &str) -> bool {
+    let terms: Vec<String> = query
+        .text
+        .split_whitespace()
+        .map(str::to_lowercase)
+        .collect();
+    matches_with_terms(entry, query, name_lower, &terms)
+}
+
+pub fn matches_with_terms(
+    entry: &FileEntry,
+    query: &SearchQuery,
+    name_lower: &str,
+    terms: &[String],
+) -> bool {
     // 路径范围
     if let Some(scope) = &query.scope {
         let scope = scope.trim_end_matches(['\\', '/']).to_lowercase();
@@ -238,9 +263,8 @@ pub fn matches(entry: &FileEntry, query: &SearchQuery) -> bool {
     // 文件名关键词（多关键词 AND；空 text 不过滤）
     let text = query.text.trim();
     if !text.is_empty() {
-        let name = entry.name.to_lowercase();
-        for kw in text.split_whitespace() {
-            if !name.contains(&kw.to_lowercase()) {
+        for kw in terms {
+            if !name_lower.contains(kw) {
                 return false;
             }
         }
@@ -252,14 +276,25 @@ pub fn matches(entry: &FileEntry, query: &SearchQuery) -> bool {
 /// 相关度打分，越大越靠前：
 /// 完全相等 > 主干名相等 > 前缀 > 子串 > 仅条件命中
 pub fn score(entry: &FileEntry, query: &SearchQuery) -> i32 {
+    score_with_name(entry, query, &entry.name.to_lowercase())
+}
+
+pub fn score_with_name(entry: &FileEntry, query: &SearchQuery, name: &str) -> i32 {
+    score_with_normalized_query(entry, query, name, &query.text.trim().to_lowercase())
+}
+
+pub fn score_with_normalized_query(
+    entry: &FileEntry,
+    query: &SearchQuery,
+    name: &str,
+    needle: &str,
+) -> i32 {
     let text = query.text.trim();
     if text.is_empty() {
         return 0;
     }
-    let name = entry.name.to_lowercase();
-    let needle = text.to_lowercase();
 
-    let stem_matches = Path::new(&name)
+    let stem_matches = Path::new(name)
         .file_stem()
         .map(|s| s.to_string_lossy() == needle)
         .unwrap_or(false);

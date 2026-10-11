@@ -17,8 +17,11 @@
 //! 由于所有写索引的动作都发生在 `on_batch` 回调里，替换数据源即可复用
 //! 增量更新、进度节流、状态维护等全部逻辑。
 
-use std::collections::HashSet;
+use std::cmp::Ordering as CmpOrdering;
+use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::path::PathBuf;
+#[cfg(windows)]
+use std::sync::atomic::AtomicBool;
 #[cfg(windows)]
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -31,7 +34,7 @@ use tauri::{AppHandle, Emitter};
 use walkdir::WalkDir;
 
 use crate::app_core::events;
-use crate::persistence::{self, IndexCache, IndexJournal};
+use crate::persistence::{self, IndexJournal};
 use crate::search_engine;
 use crate::types::{FileEntry, IndexProgress, IndexStatus, SearchHit, SearchQuery};
 
@@ -116,15 +119,110 @@ fn build_entries(paths: &[PathBuf]) -> Vec<FileEntry> {
 pub struct IndexStore {
     /// 路径 -> 条目（内部用 Arc 便于 move 进后台线程）
     entries: Arc<DashMap<String, FileEntry>>,
+    search_catalog: Arc<RwLock<SearchCatalog>>,
+    #[cfg(windows)]
+    catalog_dirty: Arc<AtomicBool>,
     status: Arc<RwLock<IndexStatus>>,
     #[cfg(windows)]
     service_generation: Arc<AtomicU64>,
+}
+
+#[derive(Default)]
+struct SearchCatalog {
+    grams: HashMap<String, Vec<u64>>,
+    extensions: HashMap<String, Vec<u64>>,
+    entries: HashMap<u64, SearchEntry>,
+}
+
+struct SearchEntry {
+    path: String,
+    normalized_name: String,
+}
+
+impl SearchCatalog {
+    fn build(entries: &DashMap<String, FileEntry>) -> Self {
+        let mut catalog = Self::default();
+        for item in entries.iter() {
+            let entry = item.value();
+            let id = entry.id;
+            let name = entry.name.to_lowercase();
+            let bytes = name.as_bytes();
+            let mut unique_grams = Vec::with_capacity(bytes.len().saturating_mul(2));
+            for width in [2, 3] {
+                for gram in bytes.windows(width) {
+                    unique_grams.push(String::from_utf8_lossy(gram).into_owned());
+                }
+            }
+            unique_grams.sort_unstable();
+            unique_grams.dedup();
+            for gram in unique_grams {
+                catalog.grams.entry(gram).or_default().push(id);
+            }
+            if let Some(ext) = &entry.ext {
+                catalog
+                    .extensions
+                    .entry(ext.to_lowercase())
+                    .or_default()
+                    .push(id);
+            }
+            catalog.entries.insert(
+                id,
+                SearchEntry {
+                    path: entry.path.clone(),
+                    normalized_name: name,
+                },
+            );
+        }
+        catalog
+    }
+
+    fn candidate_ids(&self, query: &SearchQuery) -> Option<Vec<u64>> {
+        let mut smallest: Option<&Vec<u64>> = None;
+        for term in query.text.split_whitespace() {
+            let term = term.to_lowercase();
+            let width = if term.len() >= 3 {
+                3
+            } else if term.len() == 2 {
+                2
+            } else {
+                0
+            };
+            if width > 0 {
+                for gram in term.as_bytes().windows(width) {
+                    let gram = String::from_utf8_lossy(gram);
+                    let Some(posting) = self.grams.get(gram.as_ref()) else {
+                        return Some(Vec::new());
+                    };
+                    if smallest.map_or(true, |current| posting.len() < current.len()) {
+                        smallest = Some(posting);
+                    }
+                }
+            }
+        }
+        if !query.ext.is_empty() {
+            let mut ext_ids = Vec::new();
+            for ext in &query.ext {
+                if let Some(ids) = self.extensions.get(&ext.to_lowercase()) {
+                    ext_ids.extend_from_slice(ids);
+                }
+            }
+            ext_ids.sort_unstable();
+            ext_ids.dedup();
+            if smallest.map_or(true, |current| ext_ids.len() < current.len()) {
+                return Some(ext_ids.into_iter().collect());
+            }
+        }
+        smallest.map(|ids| ids.iter().copied().collect())
+    }
 }
 
 impl IndexStore {
     pub fn new() -> Self {
         Self {
             entries: Arc::new(DashMap::new()),
+            search_catalog: Arc::new(RwLock::new(SearchCatalog::default())),
+            #[cfg(windows)]
+            catalog_dirty: Arc::new(AtomicBool::new(true)),
             status: Arc::new(RwLock::new(IndexStatus::default())),
             #[cfg(windows)]
             service_generation: Arc::new(AtomicU64::new(0)),
@@ -135,55 +233,57 @@ impl IndexStore {
     /// to a full MFT enumeration.
     pub fn start_service(&self, app: AppHandle, roots: Vec<String>) {
         #[cfg(windows)]
-        if let Some(cache) = persistence::load_index_cache() {
-            if same_roots(&cache.roots, &roots) {
-                self.entries.clear();
-                for entry in cache.entries {
-                    self.entries.insert(entry.path.clone(), entry);
-                }
+        if let Some(journals) = persistence::load_index_cache_into(&roots, &self.entries) {
+            {
+                let mut status = self.status.write();
+                status.roots = roots.clone();
+                status.total = self.entries.len();
+                status.scanned = 0;
+                status.scanning = true;
+            }
+            let _ = app.emit(
+                events::INDEX_PROGRESS,
+                IndexProgress {
+                    scanned: 0,
+                    total: self.entries.len(),
+                    current: String::new(),
+                    done: false,
+                },
+            );
+            let resumed = mft::resume_journals(&roots, &journals, &self.entries, true);
+            if let Some(checkpoints) = resumed {
+                let catalog = SearchCatalog::build(&self.entries);
+                *self.search_catalog.write() = catalog;
+                self.catalog_dirty.store(false, Ordering::Release);
                 {
                     let mut status = self.status.write();
                     status.roots = roots.clone();
                     status.total = self.entries.len();
-                    status.scanned = 0;
-                    status.scanning = true;
+                    status.scanned = self.entries.len();
+                    status.scanning = false;
                 }
-                let _ = app.emit(
-                    events::INDEX_PROGRESS,
-                    IndexProgress {
-                        scanned: 0,
-                        total: self.entries.len(),
-                        current: String::new(),
-                        done: false,
-                    },
-                );
-                let resumed = mft::resume_journals(&roots, &cache.journals, &self.entries, true);
-                if let Some(checkpoints) = resumed {
-                    {
-                        let mut status = self.status.write();
-                        status.roots = roots.clone();
-                        status.total = self.entries.len();
-                        status.scanned = self.entries.len();
-                        status.scanning = false;
-                    }
-                    persist_index(&roots, &self.entries, &checkpoints);
-                    let _ = app.emit(events::INDEX_DONE, self.status());
-                    let generation = self.service_generation.fetch_add(1, Ordering::SeqCst) + 1;
-                    let entries = Arc::clone(&self.entries);
-                    let service_generation = Arc::clone(&self.service_generation);
-                    std::thread::spawn(move || {
-                        mft::watch_roots(
-                            roots,
-                            entries,
-                            generation,
-                            service_generation,
-                            checkpoints,
-                        );
-                    });
-                    return;
-                }
+                let _ = app.emit(events::INDEX_DONE, self.status());
+                let generation = self.service_generation.fetch_add(1, Ordering::SeqCst) + 1;
+                let entries = Arc::clone(&self.entries);
+                let service_generation = Arc::clone(&self.service_generation);
+                let catalog_dirty = Arc::clone(&self.catalog_dirty);
+                std::thread::spawn(move || {
+                    mft::watch_roots(
+                        roots,
+                        entries,
+                        generation,
+                        service_generation,
+                        catalog_dirty,
+                        checkpoints,
+                    );
+                });
+                return;
             }
             self.entries.clear();
+            self.status.write().scanning = false;
+        } else {
+            self.entries.clear();
+            self.status.write().scanning = false;
         }
         self.start_scan(app, roots);
     }
@@ -227,6 +327,11 @@ impl IndexStore {
         let entries = Arc::clone(&self.entries);
         let status = Arc::clone(&self.status);
         #[cfg(windows)]
+        let catalog_dirty = Arc::clone(&self.catalog_dirty);
+        #[cfg(windows)]
+        catalog_dirty.store(true, Ordering::Release);
+        let search_catalog = Arc::clone(&self.search_catalog);
+        #[cfg(windows)]
         let service_generation = Arc::clone(&self.service_generation);
 
         std::thread::spawn(move || {
@@ -254,6 +359,13 @@ impl IndexStore {
                     last_count = done_count;
                 }
             });
+
+            // Build the query catalog once from the completed snapshot. Queries
+            // during a scan use the live entry map so they never miss new files.
+            let catalog = SearchCatalog::build(&entries);
+            *search_catalog.write() = catalog;
+            #[cfg(windows)]
+            catalog_dirty.store(false, Ordering::Release);
 
             #[cfg(windows)]
             {
@@ -283,6 +395,7 @@ impl IndexStore {
                 entries,
                 generation,
                 service_generation,
+                catalog_dirty,
                 checkpoints.unwrap_or_default(),
             );
         });
@@ -311,23 +424,87 @@ impl IndexStore {
 
     /// 检索内存索引：过滤 + 打分 + 排序 + 截断到 `query.limit`。
     pub fn search(&self, query: &SearchQuery) -> Vec<SearchHit> {
-        let mut hits: Vec<SearchHit> = self
-            .entries
-            .iter()
-            .filter_map(|e| {
-                let entry = e.value();
-                if search_engine::matches(entry, query) {
-                    Some(SearchHit {
-                        entry: entry.clone(),
-                        score: search_engine::score(entry, query),
-                    })
-                } else {
-                    None
-                }
-            })
+        let search_started = Instant::now();
+        let limit = if query.limit == 0 {
+            search_engine::DEFAULT_LIMIT
+        } else {
+            query.limit
+        };
+        if limit == 0 {
+            return Vec::new();
+        }
+        let terms: Vec<String> = query
+            .text
+            .split_whitespace()
+            .map(str::to_lowercase)
             .collect();
-
-        // 分数降序；同分按名称不区分大小写升序，保证结果稳定。
+        let normalized_query = query.text.trim().to_lowercase();
+        let mut best = BinaryHeap::with_capacity(limit.saturating_add(1));
+        let scanning = self.status.read().scanning;
+        #[cfg(windows)]
+        if self.catalog_dirty.swap(false, Ordering::AcqRel) && !scanning {
+            let catalog = SearchCatalog::build(&self.entries);
+            *self.search_catalog.write() = catalog;
+        }
+        let catalog = self.search_catalog.read();
+        let candidates = if scanning {
+            None
+        } else {
+            catalog.candidate_ids(query)
+        };
+        let candidate_count = candidates
+            .as_ref()
+            .map_or_else(|| self.entries.len(), Vec::len);
+        let mut consider = |entry: &FileEntry, name_lower: &str| {
+            if !search_engine::matches_with_terms(entry, query, name_lower, &terms) {
+                return;
+            }
+            let hit = SearchHit {
+                score: search_engine::score_with_normalized_query(
+                    entry,
+                    query,
+                    name_lower,
+                    &normalized_query,
+                ),
+                entry: entry.clone(),
+            };
+            let ranked = RankedHit {
+                hit,
+                name_lower: name_lower.to_string(),
+            };
+            if best.len() < limit {
+                best.push(ranked);
+            } else if best.peek().is_some_and(|worst| ranked < *worst) {
+                best.pop();
+                best.push(ranked);
+            }
+        };
+        if let Some(ids) = candidates {
+            for id in ids {
+                let Some(indexed) = catalog.entries.get(&id) else {
+                    continue;
+                };
+                let Some(entry) = self.entries.get(&indexed.path) else {
+                    continue;
+                };
+                consider(entry.value(), &indexed.normalized_name);
+            }
+        } else {
+            for item in self.entries.iter() {
+                let entry = item.value();
+                let name_lower = catalog
+                    .entries
+                    .get(&entry.id)
+                    .map(|entry| entry.normalized_name.as_str());
+                if let Some(name_lower) = name_lower.filter(|_| !scanning) {
+                    consider(entry, name_lower);
+                } else {
+                    let name_lower = entry.name.to_lowercase();
+                    consider(entry, &name_lower);
+                }
+            }
+        }
+        let mut hits: Vec<SearchHit> = best.into_iter().map(|ranked| ranked.hit).collect();
         hits.sort_by(|a, b| {
             b.score.cmp(&a.score).then_with(|| {
                 a.entry
@@ -336,14 +513,14 @@ impl IndexStore {
                     .cmp(&b.entry.name.to_lowercase())
             })
         });
-
-        let limit = if query.limit == 0 {
-            search_engine::DEFAULT_LIMIT
-        } else {
-            query.limit
-        };
-        if hits.len() > limit {
-            hits.truncate(limit);
+        let elapsed = search_started.elapsed();
+        if elapsed.as_millis() >= 25 {
+            eprintln!(
+                "[search-perf] candidates={} results={} elapsed_ms={}",
+                candidate_count,
+                hits.len(),
+                elapsed.as_millis()
+            );
         }
         hits
     }
@@ -354,17 +531,31 @@ impl IndexStore {
     }
 }
 
-#[cfg(windows)]
-fn same_roots(left: &[String], right: &[String]) -> bool {
-    let normalize = |roots: &[String]| {
-        let mut roots: Vec<String> = roots
-            .iter()
-            .map(|root| root.trim_end_matches(['\\', '/']).to_lowercase())
-            .collect();
-        roots.sort();
-        roots
-    };
-    normalize(left) == normalize(right)
+/// BinaryHeap keeps the worst currently selected hit at its root.
+struct RankedHit {
+    hit: SearchHit,
+    name_lower: String,
+}
+
+impl PartialEq for RankedHit {
+    fn eq(&self, other: &Self) -> bool {
+        self.hit.score == other.hit.score && self.name_lower == other.name_lower
+    }
+}
+impl Eq for RankedHit {}
+impl PartialOrd for RankedHit {
+    fn partial_cmp(&self, other: &Self) -> Option<CmpOrdering> {
+        Some(self.cmp(other))
+    }
+}
+impl Ord for RankedHit {
+    fn cmp(&self, other: &Self) -> CmpOrdering {
+        other
+            .hit
+            .score
+            .cmp(&self.hit.score)
+            .then_with(|| self.name_lower.cmp(&other.name_lower))
+    }
 }
 
 #[cfg(windows)]
@@ -373,12 +564,19 @@ fn persist_index(
     entries: &DashMap<String, FileEntry>,
     journals: &[IndexJournal],
 ) {
-    let cache = IndexCache {
-        roots: roots.to_vec(),
-        entries: entries.iter().map(|entry| entry.value().clone()).collect(),
-        journals: journals.to_vec(),
-    };
-    let _ = persistence::save_index_cache(&cache);
+    let started = Instant::now();
+    let count = entries.len();
+    let result = persistence::save_index_cache_stream(
+        roots,
+        entries.iter().map(|entry| entry.value().clone()),
+        journals,
+    );
+    eprintln!(
+        "[index-perf] cache_save entries={} elapsed_ms={} success={}",
+        count,
+        started.elapsed().as_millis(),
+        result.is_ok()
+    );
 }
 
 /// 扫描核心：遍历 roots，分批写入索引，结束后做增量 prune。
@@ -399,6 +597,8 @@ fn scan_core(
     let source: Box<dyn IndexSource> = Box::new(WalkDirSource::default());
     let seen: Mutex<HashSet<u64>> = Mutex::new(HashSet::new());
     let mut count: usize = 0;
+    let scan_started = Instant::now();
+    let mut write_time = std::time::Duration::ZERO;
 
     {
         let mut on_batch = |batch: Vec<FileEntry>| {
@@ -406,13 +606,16 @@ fn scan_core(
             let n = batch.len();
 
             {
+                let write_started = Instant::now();
                 let mut seen = seen.lock();
                 for e in &batch {
                     seen.insert(e.id);
                 }
-            }
-            for e in batch {
-                entries.insert(e.path.clone(), e);
+                drop(seen);
+                for e in batch {
+                    entries.insert(e.path.clone(), e);
+                }
+                write_time += write_started.elapsed();
             }
 
             count += n;
@@ -422,8 +625,16 @@ fn scan_core(
     }
 
     // 增量清理：删除位于 root 之下、但本轮未再出现的旧条目（已删除/改名的文件）
+    let prune_started = Instant::now();
     let seen = seen.into_inner();
     prune_stale(entries, roots, &seen);
+    eprintln!(
+        "[index-perf] entries={} scan_total_ms={} write_ms={} prune_ms={}",
+        count,
+        scan_started.elapsed().as_millis(),
+        write_time.as_millis(),
+        prune_started.elapsed().as_millis()
+    );
 
     count
 }
@@ -432,14 +643,23 @@ fn scan_core(
 fn prune_stale(entries: &DashMap<String, FileEntry>, roots: &[String], seen: &HashSet<u64>) {
     let lowers: Vec<String> = roots
         .iter()
-        .map(|r| r.trim_end_matches(['\\', '/']).to_lowercase())
+        .map(|r| r.trim_end_matches(['\\', '/']).to_string())
         .collect();
 
     entries.retain(|path, entry| {
-        let p = path.to_lowercase();
-        let under_root = lowers
-            .iter()
-            .any(|r| !r.is_empty() && p.starts_with(r.as_str()));
+        let path = path.trim_end_matches(['\\', '/']);
+        let under_root = lowers.iter().any(|root| {
+            !root.is_empty()
+                && path.len() >= root.len()
+                && path
+                    .get(..root.len())
+                    .is_some_and(|head| head.eq_ignore_ascii_case(root))
+                && (path.len() == root.len()
+                    || path
+                        .as_bytes()
+                        .get(root.len())
+                        .is_some_and(|c| *c == b'\\' || *c == b'/'))
+        });
         if under_root {
             seen.contains(&entry.id)
         } else {
