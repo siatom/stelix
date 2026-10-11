@@ -20,7 +20,7 @@ const items: { key: PanelKey; icon: IconName; title: string }[] = [
     <div class="brand" :class="{ collapsed: ui.sidebarCollapsed }" aria-label="Stelix 星索">
       <img v-if="ui.sidebarCollapsed" class="brand-logo" src="/app-icon.svg" alt="" />
       <span v-else class="brand-title">
-        Stelix 星索
+        Stelix
         <span v-if="isDev" class="dev-badge">dev</span>
       </span>
     </div>
@@ -93,7 +93,7 @@ const items: { key: PanelKey; icon: IconName; title: string }[] = [
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 46px 0 6px;
+  padding: 40px 0 6px;
   gap: 2px;
 }
 .brand {
@@ -102,8 +102,8 @@ const items: { key: PanelKey; icon: IconName; title: string }[] = [
   top: 0;
   left: 0;
   width: calc(var(--activity-bar-w) + var(--sidebar-w));
-  /* 高度与侧栏顶部留白一致（.area-sidebar padding-top），避免露出底色形成横线 */
-  height: 46px;
+  /* 高度与侧栏顶部留白一致，避免露出底色形成横线 */
+  height: 40px;
   padding: 0 16px;
   display: flex;
   align-items: center;

@@ -115,8 +115,9 @@ button:disabled {
   grid-template-columns: auto auto 1fr auto;
   column-gap: 2px;
   /* minmax(0, 1fr)：首行不允许被内容撑高（否则文件多时会把状态栏顶出视口） */
-  grid-template-rows: minmax(0, 1fr);
+  grid-template-rows: 42px minmax(0, 1fr);
   grid-template-areas:
+    'titlebar titlebar titlebar titlebar'
     'activity sidebar main ai';
   height: 100%;
   width: 100%;
@@ -129,7 +130,7 @@ button:disabled {
 .area-sidebar {
   grid-area: sidebar;
   min-height: 0;
-  padding: 46px 0 8px;
+  padding: 40px 0 8px;
   margin-left: -2px;
 }
 .area-main {

@@ -9,12 +9,31 @@ import AiPanel from './components/AiPanel.vue'
 import CommandPalette from './components/CommandPalette.vue'
 import SettingsDialog from './components/SettingsDialog.vue'
 import Icon from './components/icons/Icon.vue'
-import { onBeforeUnmount, ref } from 'vue'
+import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { getCurrentWindow } from '@tauri-apps/api/window'
 
 const ui = useUiStore()
+const appWindow = getCurrentWindow()
+const isMaximized = ref(false)
+let unlistenResize: (() => void) | undefined
 
-const SIDEBAR_WIDTH_KEY = 'file-povit.sidebarWidth'
-const AI_WIDTH_KEY = 'file-povit.aiWidth'
+async function syncMaximizedState() {
+  isMaximized.value = await appWindow.isMaximized()
+}
+
+async function toggleMaximize() {
+  if (isMaximized.value) await appWindow.unmaximize()
+  else await appWindow.maximize()
+  await syncMaximizedState()
+}
+
+onMounted(async () => {
+  await syncMaximizedState()
+  unlistenResize = await appWindow.onResized(syncMaximizedState)
+})
+
+const SIDEBAR_WIDTH_KEY = 'stelix.sidebarWidth'
+const AI_WIDTH_KEY = 'stelix.aiWidth'
 const SIDEBAR_WIDTH_MIN = 180
 const SIDEBAR_WIDTH_MAX = 480
 const AI_WIDTH_MIN = 240
@@ -65,6 +84,7 @@ function startResize(ev: MouseEvent, target: 'sidebar' | 'ai') {
 }
 
 onBeforeUnmount(() => {
+  unlistenResize?.()
   window.removeEventListener('mousemove', onResizeMove)
   window.removeEventListener('mouseup', stopResize)
 })
@@ -76,6 +96,21 @@ onBeforeUnmount(() => {
     :class="{ resizing: resizing !== null }"
     :style="{ '--sidebar-w': `${sidebarWidth}px`, '--ai-w': `${aiWidth}px` }"
   >
+    <header class="app-titlebar" data-tauri-drag-region>
+      <span class="titlebar-title" data-tauri-drag-region>Stelix File Manager（星索）</span>
+      <div class="titlebar-controls">
+        <button class="titlebar-button" type="button" aria-label="最小化" title="最小化" @click="appWindow.minimize()">
+          <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 6h8" /></svg>
+        </button>
+        <button class="titlebar-button" type="button" :aria-label="isMaximized ? '还原' : '最大化'" :title="isMaximized ? '还原' : '最大化'" @click="toggleMaximize()">
+          <svg v-if="isMaximized" viewBox="0 0 12 12" aria-hidden="true"><path d="M4 2.5h5.5V8M8 4H2.5v5.5H8z" /></svg>
+          <svg v-else viewBox="0 0 12 12" aria-hidden="true"><rect x="2.5" y="2.5" width="7" height="7" rx=".5" /></svg>
+        </button>
+        <button class="titlebar-button close-button" type="button" aria-label="关闭" title="关闭" @click="appWindow.close()">
+          <svg viewBox="0 0 12 12" aria-hidden="true"><path d="m3 3 6 6M9 3 3 9" /></svg>
+        </button>
+      </div>
+    </header>
     <ActivityBar class="area-activity" />
     <SidebarPanel v-if="!ui.sidebarCollapsed" class="area-sidebar" />
     <div
@@ -123,6 +158,75 @@ onBeforeUnmount(() => {
 <style scoped>
 .app-root {
   position: relative;
+}
+.app-titlebar {
+  grid-area: titlebar;
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 42px;
+  padding-left: 18px;
+  font-family: 'Microsoft YaHei', '微软雅黑', sans-serif;
+  color: var(--fg-muted);
+  background: var(--bg-app);
+  border-bottom: 1px solid var(--border);
+  user-select: none;
+}
+.titlebar-title {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.035em;
+  color: var(--fg-dim);
+}
+.titlebar-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+}
+.titlebar-button {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 28px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-panel);
+  color: var(--fg-muted);
+  box-shadow: 0 1px 2px rgb(15 23 42 / 8%);
+  transition:
+    background 0.16s ease,
+    color 0.16s ease,
+    border-color 0.16s ease,
+    box-shadow 0.16s ease,
+    transform 0.16s ease;
+}
+.titlebar-button:hover {
+  background: var(--bg-active);
+  color: var(--fg);
+  border-color: var(--border-strong);
+  box-shadow: 0 2px 7px rgb(15 23 42 / 12%);
+  transform: translateY(-1px);
+}
+.titlebar-button:active {
+  box-shadow: none;
+  transform: translateY(0) scale(0.96);
+}
+.titlebar-button svg {
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.35;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.titlebar-button.close-button:hover {
+  color: #fff;
+  background: #d94b4b;
+  border-color: #d94b4b;
+  box-shadow: 0 2px 8px rgb(217 75 75 / 28%);
 }
 .resize-handle {
   position: absolute;
