@@ -530,6 +530,9 @@ export const usePaneStore = defineStore('pane', () => {
   function setClipboard(op: 'copy' | 'move', paths: string[]) {
     clipboard.value = { op, paths }
     setStatus(op === 'copy' ? `已复制 ${paths.length} 项到剪贴板` : `已剪切 ${paths.length} 项`)
+    void api.setFileClipboard(paths, op === 'move').catch((error) => {
+      setStatus(`系统剪贴板写入失败：${String(error)}`)
+    })
   }
 
   async function runFs(paneId: string, op: FsOp): Promise<FsOpResult> {
@@ -608,7 +611,16 @@ export const usePaneStore = defineStore('pane', () => {
 
   /** 把剪贴板内容粘贴到指定目录 */
   async function pasteInto(paneId: string, targetDir: string) {
-    const clip = clipboard.value
+    let clip: { op: 'copy' | 'move'; paths: string[] } | null = null
+    try {
+      const systemClip = await api.getFileClipboard()
+      if (systemClip?.paths.length) {
+        clip = { op: systemClip.moveFiles ? 'move' : 'copy', paths: systemClip.paths }
+      }
+    } catch {
+      // 系统剪贴板不可读时，仍可使用应用内剪贴板。
+    }
+    clip ??= clipboard.value
     if (!clip || !clip.paths.length) {
       setStatus('剪贴板为空')
       return

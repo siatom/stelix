@@ -29,6 +29,9 @@ export const api = {
   getRemotePassword: (hostId: string) => invoke<string | null>('get_remote_password', { hostId }),
   deleteRemotePassword: (hostId: string) => invoke<void>('delete_remote_password', { hostId }),
   fsOperation: (op: FsOp) => invoke<FsOpResult>('fs_operation', { op }),
+  setFileClipboard: (paths: string[], moveFiles: boolean) =>
+    invoke<void>('set_file_clipboard', { paths, moveFiles }),
+  getFileClipboard: () => invoke<{ paths: string[]; moveFiles: boolean } | null>('get_file_clipboard'),
   /** 取文件/文件夹的 Windows 系统图标（base64 PNG data URL）；失败返回 null。 */
   getFileIcon: (path: string, isDir: boolean) =>
     invoke<string | null>('get_file_icon', { path, isDir }),

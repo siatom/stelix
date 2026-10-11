@@ -612,7 +612,7 @@ function onDrop(ev: DragEvent) {
       <div class="sep" />
       <button @click="copyToClipboard('copy')"><Icon name="copy" :size="14" /><span>复制</span><kbd>Ctrl+C</kbd></button>
       <button @click="copyToClipboard('move')"><Icon name="arrow-right" :size="14" /><span>剪切</span><kbd>Ctrl+X</kbd></button>
-      <button :disabled="!paneStore.clipboard" @click="paste"><Icon name="folder-open" :size="14" /><span>粘贴到此目录</span><kbd>Ctrl+V</kbd></button>
+      <button @click="paste"><Icon name="folder-open" :size="14" /><span>粘贴到此目录</span><kbd>Ctrl+V</kbd></button>
       <div class="sep" />
       <button @click="startRename(ctx.entry.path); closeCtx()"><Icon name="pencil" :size="14" /><span>重命名</span><kbd>F2</kbd></button>
       <button class="danger" @click="emit('delete', [ctx.entry.path]); closeCtx()"><Icon name="trash" :size="14" /><span>删除</span><kbd>Delete</kbd></button>

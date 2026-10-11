@@ -5,6 +5,7 @@
 
 mod ai_agent;
 mod app_core;
+mod clipboard;
 mod credentials;
 mod fs_core;
 mod index_engine;
@@ -112,6 +113,24 @@ async fn get_file_icon(
     tauri::async_runtime::spawn_blocking(move || cache.get_or_load(&path, is_dir))
         .await
         .map_err(|error| format!("图标提取任务失败: {error}"))
+}
+
+#[tauri::command]
+fn set_file_clipboard(paths: Vec<String>, move_files: bool) -> Result<(), String> {
+    clipboard::set_files(&paths, move_files)
+}
+
+#[tauri::command]
+fn get_file_clipboard() -> Result<Option<FileClipboard>, String> {
+    clipboard::get_files()
+        .map(|value| value.map(|(paths, move_files)| FileClipboard { paths, move_files }))
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FileClipboard {
+    paths: Vec<String>,
+    move_files: bool,
 }
 
 #[tauri::command]
@@ -412,6 +431,8 @@ pub fn run() {
             delete_remote_password,
             fs_operation,
             get_file_icon,
+            set_file_clipboard,
+            get_file_clipboard,
             path_is_file,
             open_in_terminal,
             show_item_properties,
