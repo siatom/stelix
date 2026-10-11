@@ -230,14 +230,43 @@ async function openInTerminal(entry: FileEntry) {
   closeCtx()
 }
 
-function openCtx(ev: MouseEvent, entry: FileEntry) {
-  ev.preventDefault()
-  if (!props.tab.selected.includes(entry.path)) props.tab.selected = [entry.path]
+function showCtxAt(ev: MouseEvent, entry: FileEntry) {
   const menuW = 176
   const menuH = 300
   const x = Math.min(ev.clientX, window.innerWidth - menuW - 4)
   const y = Math.min(ev.clientY, window.innerHeight - menuH - 4)
   ctx.value = { x, y, entry }
+}
+
+function openCtx(ev: MouseEvent, entry: FileEntry) {
+  ev.preventDefault()
+  if (!props.tab.selected.includes(entry.path)) props.tab.selected = [entry.path]
+  showCtxAt(ev, entry)
+}
+
+/** 当前所在目录对应的 FileEntry —— 供空白处右键时呈现与「文件夹右键」一致的菜单 */
+function currentDirEntry(): FileEntry {
+  return {
+    id: -1,
+    name: basename(props.tab.path),
+    path: props.tab.path,
+    isDir: true,
+    size: 0,
+    modified: 0,
+    ext: null,
+    hidden: false,
+    system: false,
+  }
+}
+
+/** 文件窗格空白处右键：对「当前所在文件夹」弹出与文件夹右键相同的菜单 */
+function onBlankContextMenu(ev: MouseEvent) {
+  const el = ev.target as HTMLElement | null
+  // 条目行 / 图标格 / 表头 / 行内输入 / 已弹出的右键菜单 上各有处理，其余空白归属当前目录
+  if (el?.closest('.row, .icon-cell, .header, .inline-new, .ctx-menu')) return
+  if (props.tab.loading || props.tab.error) return
+  ev.preventDefault()
+  showCtxAt(ev, currentDirEntry())
 }
 
 function closeCtx() {
@@ -440,7 +469,14 @@ function onDrop(ev: DragEvent) {
 </script>
 
 <template>
-  <div ref="rootRef" class="file-list" :class="viewMode" @dragover.prevent="onDragOver" @drop.prevent="onDrop">
+  <div
+    ref="rootRef"
+    class="file-list"
+    :class="viewMode"
+    @dragover.prevent="onDragOver"
+    @drop.prevent="onDrop"
+    @contextmenu="onBlankContextMenu"
+  >
     <!-- 加载中 -->
     <div v-if="tab.loading" class="state">
       <span class="spinner" />
