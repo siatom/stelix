@@ -30,7 +30,7 @@
   --bg-selected: #343434;
   --bg-input: #2b2b2b;
   --pane-title-bg: var(--bg-panel);
-  --pane-title-bg-active: #293746;
+  --pane-title-bg-active: #263b50;
 
   --border: #303030;
   --border-strong: #484848;
@@ -81,7 +81,7 @@
   --bg-active: #e5e5e5;
   --bg-selected: #e5e5e5;
   --bg-input: #ffffff;
-  --pane-title-bg-active: #edf3fb;
+  --pane-title-bg-active: #e3edf9;
 
   --border: #e5e5e5;
   --border-strong: #d1d1d1;
