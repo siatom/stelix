@@ -7,8 +7,9 @@ import type { FileEntry, TabState } from '../../types'
 import { usePaneStore } from '../../stores/pane'
 import { useUiStore } from '../../stores/ui'
 import { api } from '../../api'
-import { basename, dirname, fileIcon, fileKind, formatSize, formatTime, joinPath, typeLabel } from './utils'
+import { basename, dirname, fileKind, formatSize, formatTime, joinPath, typeLabel } from './utils'
 import Icon from '../icons/Icon.vue'
+import FileIcon from '../icons/FileIcon.vue'
 import {
   addFavorite,
   FAVORITES_CHANGED_EVENT,
@@ -486,7 +487,7 @@ function onDrop(ev: DragEvent) {
       </div>
 
       <div v-if="editing && editing.mode === 'mkdir'" class="inline-new">
-        <span class="ico"><Icon name="folder" :size="14" /></span>
+        <span class="ico"><FileIcon :path="tab.path" :is-dir="true" :ext="null" :size="14" /></span>
         <span class="nm">
           <input
             v-model="editing.name"
@@ -515,7 +516,12 @@ function onDrop(ev: DragEvent) {
             @dragstart="onDragStart($event, rows[vi.index])"
           >
             <span class="ico" :class="`k-${fileKind(rows[vi.index])}`">
-              <Icon :name="fileIcon(rows[vi.index])" :size="14" />
+              <FileIcon
+                :path="rows[vi.index].path"
+                :is-dir="rows[vi.index].isDir"
+                :ext="rows[vi.index].ext"
+                :size="14"
+              />
             </span>
             <span v-if="editing && editing.mode === 'rename' && editing.path === rows[vi.index].path" class="nm">
               <input
@@ -542,7 +548,7 @@ function onDrop(ev: DragEvent) {
     <!-- 图标视图（限制渲染数量） -->
     <div v-else class="icons-scroll" @click.self="clearSelection">
       <div v-if="editing && editing.mode === 'mkdir'" class="icon-cell dir">
-        <span class="icon-big k-folder"><Icon name="folder" :size="30" :stroke-width="1.4" /></span>
+        <span class="icon-big k-folder"><FileIcon :path="tab.path" :is-dir="true" :ext="null" :size="30" /></span>
         <span class="icon-name">
           <input
             v-model="editing.name"
@@ -569,7 +575,7 @@ function onDrop(ev: DragEvent) {
           @dragstart="onDragStart($event, entry)"
         >
           <span class="icon-big" :class="`k-${fileKind(entry)}`">
-            <Icon :name="fileIcon(entry)" :size="30" :stroke-width="1.4" />
+            <FileIcon :path="entry.path" :is-dir="entry.isDir" :ext="entry.ext" :size="30" />
           </span>
           <span v-if="editing && editing.mode === 'rename' && editing.path === entry.path" class="icon-name">
             <input

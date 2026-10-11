@@ -102,14 +102,14 @@ const KIND_ICON: Record<FileKind, IconName> = {
 }
 
 /** 判断文件大类 */
-export function fileKind(entry: FileEntry): FileKind {
+export function fileKind(entry: Pick<FileEntry, 'isDir' | 'ext'>): FileKind {
   if (entry.isDir) return 'folder'
   const ext = (entry.ext ?? '').replace(/^\./, '').toLowerCase()
   return KIND_BY_EXT[ext] ?? 'file'
 }
 
-/** 根据大类给出图标名 */
-export function fileIcon(entry: FileEntry): IconName {
+/** 根据大类给出图标名（系统图标不可用时的回退） */
+export function fileIcon(entry: Pick<FileEntry, 'isDir' | 'ext'>): IconName {
   return KIND_ICON[fileKind(entry)]
 }
 

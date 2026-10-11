@@ -11,6 +11,7 @@ mod index_engine;
 mod network;
 mod persistence;
 mod search_engine;
+mod shell_icon;
 mod smb_discovery;
 mod state;
 mod types;
@@ -95,6 +96,22 @@ async fn delete_remote_password(host_id: String) -> Result<(), String> {
 #[tauri::command]
 fn fs_operation(op: FsOp) -> FsOpResult {
     fs_core::execute(&op)
+}
+
+/// 取文件 / 文件夹的 Windows 系统图标，返回 `data:image/png;base64,...`。
+///
+/// 走后台线程：`SHGetFileInfoW` 属慢调用，且结果按图标种类缓存在 `AppState`。
+/// 提取失败（非 Windows / 路径不可用）返回 `None`，前端回退到内置矢量图标。
+#[tauri::command]
+async fn get_file_icon(
+    state: State<'_, AppState>,
+    path: String,
+    is_dir: bool,
+) -> Result<Option<String>, String> {
+    let cache = state.icons.clone();
+    tauri::async_runtime::spawn_blocking(move || cache.get_or_load(&path, is_dir))
+        .await
+        .map_err(|error| format!("图标提取任务失败: {error}"))
 }
 
 #[tauri::command]
@@ -394,6 +411,7 @@ pub fn run() {
             get_remote_password,
             delete_remote_password,
             fs_operation,
+            get_file_icon,
             path_is_file,
             open_in_terminal,
             show_item_properties,
