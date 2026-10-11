@@ -6,7 +6,6 @@ import { useUiStore } from '../../stores/ui'
 import type { PanelKey } from '../../stores/ui'
 import FolderTree from './FolderTree.vue'
 import TabGroups from './TabGroups.vue'
-import SettingsPanel from './SettingsPanel.vue'
 import SearchBar from '../SearchBar.vue'
 
 const ui = useUiStore()
@@ -15,14 +14,12 @@ const titles: Record<PanelKey, string> = {
   files: '文件导航',
   recent: '最近 / 标签页组',
   search: '搜索',
-  settings: '设置',
 }
 
 const panels: Record<PanelKey, Component> = {
   files: FolderTree,
   recent: TabGroups,
   search: SearchBar,
-  settings: SettingsPanel,
 }
 
 const title = computed(() => titles[ui.activePanel])

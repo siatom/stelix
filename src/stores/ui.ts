@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 
 /** 左侧栏面板类型 */
-export type PanelKey = 'files' | 'recent' | 'search' | 'settings'
+export type PanelKey = 'files' | 'recent' | 'search'
 
 /** 主题模式 */
 export type ThemeMode = 'system' | 'dark' | 'light'
@@ -56,7 +56,7 @@ function readBool(key: string, fallback: boolean): boolean {
 function readPanel(): PanelKey {
   try {
     const saved = localStorage.getItem(LS_ACTIVE_PANEL)
-    return saved === 'recent' || saved === 'search' || saved === 'settings' ? saved : 'files'
+    return saved === 'recent' || saved === 'search' ? saved : 'files'
   } catch {
     return 'files'
   }
@@ -105,6 +105,7 @@ export const useUiStore = defineStore('ui', () => {
   const hideProtected = ref(readBool(LS_HIDE_PROTECTED, true))
   const hideFileExtensions = ref(readBool(LS_HIDE_FILE_EXTENSIONS, false))
   const activePanel = ref<PanelKey>(readPanel())
+  const settingsOpen = ref(false)
   const statusText = ref('就绪')
   const indexTotal = ref(0)
 
@@ -146,6 +147,14 @@ export const useUiStore = defineStore('ui', () => {
     } catch {
       /* ignore */
     }
+  }
+
+  function openSettings() {
+    settingsOpen.value = true
+  }
+
+  function closeSettings() {
+    settingsOpen.value = false
   }
 
   function toggleAi() {
@@ -263,6 +272,7 @@ export const useUiStore = defineStore('ui', () => {
     hideProtected,
     hideFileExtensions,
     activePanel,
+    settingsOpen,
     statusText,
     indexTotal,
     indexRoots,
@@ -270,6 +280,8 @@ export const useUiStore = defineStore('ui', () => {
     scanned,
     toggleSidebar,
     setPanel,
+    openSettings,
+    closeSettings,
     toggleAi,
     setTheme,
     toggleTheme,

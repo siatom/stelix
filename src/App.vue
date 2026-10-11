@@ -7,6 +7,7 @@ import SidebarPanel from './components/Sidebar/SidebarPanel.vue'
 import DualPane from './components/Pane/DualPane.vue'
 import AiPanel from './components/AiPanel.vue'
 import CommandPalette from './components/CommandPalette.vue'
+import SettingsDialog from './components/SettingsDialog.vue'
 import Icon from './components/icons/Icon.vue'
 import { onBeforeUnmount, ref } from 'vue'
 
@@ -115,6 +116,7 @@ onBeforeUnmount(() => {
     </button>
 
     <CommandPalette />
+    <SettingsDialog />
   </div>
 </template>
 
