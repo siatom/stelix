@@ -1,24 +1,24 @@
 <script setup lang="ts">
-// 二级面板容器：按 activePanel 渲染文件导航 / 工作区 / 设置
+// 二级面板容器：按 activePanel 渲染文件导航 / 定时任务 / 搜索
 import { computed } from 'vue'
 import type { Component } from 'vue'
 import { useUiStore } from '../../stores/ui'
 import type { PanelKey } from '../../stores/ui'
 import FolderTree from './FolderTree.vue'
-import TabGroups from './TabGroups.vue'
+import TaskPanel from './TaskPanel.vue'
 import SearchBar from '../SearchBar.vue'
 
 const ui = useUiStore()
 
 const titles: Record<PanelKey, string> = {
   files: '文件导航',
-  recent: '最近 / 标签页组',
+  tasks: '定时任务',
   search: '搜索',
 }
 
 const panels: Record<PanelKey, Component> = {
   files: FolderTree,
-  recent: TabGroups,
+  tasks: TaskPanel,
   search: SearchBar,
 }
 

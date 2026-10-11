@@ -20,23 +20,7 @@ export interface TreeNodeData {
   path: string
 }
 
-/** 单个窗格在标签页组中的快照 */
-export interface TabGroupPane {
-  tabs: string[]
-  active: number
-}
-
-/** 标签页组（工作区）快照 */
-export interface TabGroup {
-  id: string
-  name: string
-  panes: TabGroupPane[]
-  activePaneId: string
-  createdAt: number
-}
-
 export const FAVORITES_KEY = 'stelix.favorites'
-export const TABGROUPS_KEY = 'stelix.tabgroups'
 export const FAVORITES_CHANGED_EVENT = 'stelix:favorites-changed'
 export const RECENT_DIRECTORIES_KEY = 'stelix.recent-directories'
 export const RECENT_DIRECTORIES_CHANGED_EVENT = 'stelix:recent-directories-changed'
@@ -179,26 +163,6 @@ export function loadRecentDirectories(limit = 8): RecentDirectory[] {
       .slice(0, limit)
   } catch {
     return []
-  }
-}
-
-export function loadTabGroups(): TabGroup[] {
-  try {
-    const raw = localStorage.getItem(TABGROUPS_KEY)
-    if (!raw) return []
-    const parsed: unknown = JSON.parse(raw)
-    if (!Array.isArray(parsed)) return []
-    return parsed as TabGroup[]
-  } catch {
-    return []
-  }
-}
-
-export function saveTabGroups(items: TabGroup[]): void {
-  try {
-    localStorage.setItem(TABGROUPS_KEY, JSON.stringify(items))
-  } catch {
-    /* 忽略持久化失败 */
   }
 }
 

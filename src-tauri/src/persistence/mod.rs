@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
-use crate::types::{AiConfig, FileEntry};
+use crate::types::{AiConfig, FileEntry, ScheduledTask};
 use dashmap::DashMap;
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use serde::{Deserialize, Serialize};
@@ -311,4 +311,23 @@ pub fn save_ai_config(cfg: &AiConfig) -> Result<(), String> {
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let text = serde_json::to_string_pretty(cfg).map_err(|e| e.to_string())?;
     std::fs::write(ai_config_path(), text).map_err(|e| e.to_string())
+}
+
+fn tasks_path() -> PathBuf {
+    config_dir().join("tasks.json")
+}
+
+/// 读取定时任务列表；文件缺失或损坏时返回空列表。
+pub fn load_tasks() -> Vec<ScheduledTask> {
+    let Ok(text) = std::fs::read_to_string(tasks_path()) else {
+        return Vec::new();
+    };
+    serde_json::from_str(&text).unwrap_or_default()
+}
+
+pub fn save_tasks(tasks: &[ScheduledTask]) -> Result<(), String> {
+    let dir = config_dir();
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let text = serde_json::to_string_pretty(tasks).map_err(|e| e.to_string())?;
+    std::fs::write(tasks_path(), text).map_err(|e| e.to_string())
 }

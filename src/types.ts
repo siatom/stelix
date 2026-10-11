@@ -132,3 +132,74 @@ export interface PaneState {
   activeTabId: string
   viewMode: ViewMode
 }
+
+// ---- 定时任务 ----
+
+/** 触发规则（简单预设）。 */
+export interface TaskSchedule {
+  kind: 'interval' | 'daily' | 'weekly' | 'monthly'
+  /** interval：间隔分钟数 */
+  intervalMinutes?: number | null
+  /** daily / weekly / monthly：小时（0-23） */
+  hour?: number | null
+  /** daily / weekly / monthly：分钟（0-59） */
+  minute?: number | null
+  /** weekly：0=周日 … 6=周六 */
+  weekday?: number | null
+  /** monthly：1-28 */
+  dayOfMonth?: number | null
+}
+
+/** 文件筛选条件；全部为空表示「不限」。 */
+export interface TaskFilters {
+  /** 扩展名白名单（小写、不含点）；空 = 不限 */
+  extensions: string[]
+  nameContains?: string | null
+  minAgeDays?: number | null
+  minSizeBytes?: number | null
+  maxSizeBytes?: number | null
+}
+
+/** 任务动作；只作用于文件，绝不删除目录。 */
+export interface TaskAction {
+  kind: 'delete' | 'move'
+  root: string
+  recursive: boolean
+  moveTarget?: string | null
+  filters: TaskFilters
+}
+
+/** 一条定时任务。 */
+export interface ScheduledTask {
+  id: string
+  name: string
+  enabled: boolean
+  schedule: TaskSchedule
+  action: TaskAction
+  createdAt: number
+  lastRun?: number | null
+  lastResult?: string | null
+  nextRun?: number | null
+  runCount: number
+}
+
+/** AI 规划出的任务草稿。 */
+export interface TaskDraft {
+  name: string
+  schedule: TaskSchedule
+  action: TaskAction
+}
+
+/** AI 任务规划回复。 */
+export interface TaskPlanReply {
+  text: string
+  draft?: TaskDraft | null
+}
+
+/** 预演（dry-run）结果。 */
+export interface TaskPreview {
+  count: number
+  totalSize: number
+  samples: string[]
+  truncated: boolean
+}

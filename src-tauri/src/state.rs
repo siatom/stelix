@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use crate::ai_agent::AiService;
 use crate::index_engine::IndexStore;
+use crate::schedule::ScheduleService;
 use crate::shell_icon::IconCache;
 
 pub struct AppState {
@@ -13,6 +14,8 @@ pub struct AppState {
     pub ai: Arc<AiService>,
     /// Windows 系统图标缓存（按图标种类缓存，见 shell_icon.rs）
     pub icons: Arc<IconCache>,
+    /// 定时任务服务（规格存储 + 后台调度，见 schedule/mod.rs）
+    pub tasks: Arc<ScheduleService>,
 }
 
 impl AppState {
@@ -21,6 +24,7 @@ impl AppState {
             index: Arc::new(IndexStore::new()),
             ai: Arc::new(AiService::new()),
             icons: Arc::new(IconCache::new()),
+            tasks: Arc::new(ScheduleService::new()),
         }
     }
 }

@@ -11,8 +11,12 @@ import type {
   FsOp,
   FsOpResult,
   IndexStatus,
+  ScheduledTask,
   SearchHit,
   SearchQuery,
+  TaskAction,
+  TaskPlanReply,
+  TaskPreview,
   ToolOutcome,
 } from '../types'
 
@@ -49,6 +53,18 @@ export const api = {
     invoke<ToolOutcome>('ai_execute_tool', { call, approved }),
   aiConfigGet: () => invoke<AiConfig>('ai_config_get'),
   aiConfigSet: (config: AiConfig) => invoke<void>('ai_config_set', { config }),
+  /** 用大模型把自然语言需求规划为一条定时任务草稿（离线时走规则解析兜底）。 */
+  aiPlanTask: (prompt: string, context: AiContext) =>
+    invoke<TaskPlanReply>('ai_plan_task', { prompt, context }),
+
+  taskList: () => invoke<ScheduledTask[]>('task_list'),
+  taskSave: (task: ScheduledTask) => invoke<ScheduledTask>('task_save', { task }),
+  taskDelete: (id: string) => invoke<void>('task_delete', { id }),
+  taskSetEnabled: (id: string, enabled: boolean) =>
+    invoke<void>('task_set_enabled', { id, enabled }),
+  taskRunNow: (id: string) => invoke<string>('task_run_now', { id }),
+  /** 预演（dry-run）：统计将命中的文件，不产生任何副作用。 */
+  taskPreview: (action: TaskAction) => invoke<TaskPreview>('task_preview', { action }),
 
   autostartGet: () => invoke<boolean>('autostart_get'),
   autostartSet: (enabled: boolean) => invoke<void>('autostart_set', { enabled }),
@@ -61,4 +77,6 @@ export const events = {
   onSearchResult: (cb: (p: unknown) => void) => listen('search:result', (e) => cb(e.payload)),
   onAiToken: (cb: (p: string) => void) => listen('ai:token', (e) => cb(e.payload as string)),
   onFsProgress: (cb: (p: string) => void) => listen('fs:progress', (e) => cb(e.payload as string)),
+  /** 定时任务状态变化（新增 / 运行 / 启用状态改变）。 */
+  onTaskUpdated: (cb: (id: string) => void) => listen('task:updated', (e) => cb(e.payload as string)),
 }
