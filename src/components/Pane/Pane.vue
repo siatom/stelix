@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // 单个窗格 = 标签栏 + 内嵌工具栏 + 面包屑 + 文件列表（虚拟滚动）（WS-D）
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { usePaneStore } from '../../stores/pane'
 import { basename } from './utils'
 import TabBar from './TabBar.vue'
@@ -30,6 +30,16 @@ function activate() {
 const deleteDialog = ref<string[] | null>(null)
 const errorMsg = ref<string | null>(null)
 const busy = ref(false)
+
+function handleDeleteDialogKeydown(event: KeyboardEvent) {
+  if (!deleteDialog.value || event.key !== 'Enter' || event.isComposing) return
+  event.preventDefault()
+  event.stopPropagation()
+  if (!busy.value) void confirmDelete()
+}
+
+onMounted(() => window.addEventListener('keydown', handleDeleteDialogKeydown, true))
+onBeforeUnmount(() => window.removeEventListener('keydown', handleDeleteDialogKeydown, true))
 
 function openDelete(paths: string[]) {
   errorMsg.value = null
