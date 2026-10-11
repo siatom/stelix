@@ -17,9 +17,17 @@ import {
   recordOpenedFileDirectory,
 } from '../Sidebar/shared'
 
-const props = defineProps<{ paneId: string; tab: TabState }>()
+/** 由窗格工具栏发起的一次「新建」请求（FileList 处理后回发 create-handled）。 */
+interface CreateRequest {
+  kind: 'mkdir' | 'createFile'
+  seq: number
+  tabId: string
+}
+
+const props = defineProps<{ paneId: string; tab: TabState; createRequest?: CreateRequest | null }>()
 const emit = defineEmits<{
   (e: 'delete', paths: string[]): void
+  (e: 'create-handled'): void
 }>()
 
 const paneStore = usePaneStore()
@@ -122,10 +130,10 @@ async function onDblClick(entry: FileEntry) {
   await openEntry(entry, true)
 }
 
-// ---- 行内编辑（重命名 / 新建文件夹） ----
+// ---- 行内编辑（重命名 / 新建文件夹 / 新建文件） ----
 
 interface Editing {
-  mode: 'rename' | 'mkdir'
+  mode: 'rename' | 'mkdir' | 'createFile'
   /** rename 时的原路径 */
   path?: string
   /** 输入框当前文本 */
@@ -177,8 +185,17 @@ function cancelEdit() {
   editing.value = null
 }
 
-/** 正在行内新建文件夹时，即使目录为空也要渲染列表分支以显示输入行 */
-const editingMkdir = computed(() => editing.value?.mode === 'mkdir')
+/** 进入「新建」行内编辑（文件夹 / 空文件），在当前目录创建 */
+function startCreate(kind: 'mkdir' | 'createFile') {
+  if (props.tab.kind === 'search') return // 搜索结果标签页无目录语义
+  editing.value = { mode: kind, name: '', selStart: 0, selEnd: 0 }
+  focusEdit()
+}
+
+/** 正在行内新建（文件夹 / 文件）时，即使目录为空也要渲染列表分支以显示输入行 */
+const editingCreate = computed(
+  () => editing.value?.mode === 'mkdir' || editing.value?.mode === 'createFile',
+)
 
 async function commitEdit() {
   const e = editing.value
@@ -186,8 +203,8 @@ async function commitEdit() {
   const name = e.name.trim()
   editing.value = null // 先关闭，避免 Enter 与 blur 重复提交
   if (!name) return
-  if (e.mode === 'mkdir') {
-    await paneStore.runFs(props.paneId, { op: 'mkdir', target: joinPath(props.tab.path, name) })
+  if (e.mode === 'mkdir' || e.mode === 'createFile') {
+    await paneStore.runFs(props.paneId, { op: e.mode, target: joinPath(props.tab.path, name) })
     return
   }
   if (!e.path || name === basename(e.path)) return // 名称未变则取消
@@ -232,7 +249,7 @@ async function openInTerminal(entry: FileEntry) {
 
 function showCtxAt(ev: MouseEvent, entry: FileEntry) {
   const menuW = 176
-  const menuH = 300
+  const menuH = 372
   const x = Math.min(ev.clientX, window.innerWidth - menuW - 4)
   const y = Math.min(ev.clientY, window.innerHeight - menuH - 4)
   ctx.value = { x, y, entry }
@@ -393,6 +410,17 @@ onBeforeUnmount(() => {
   window.removeEventListener(FAVORITES_CHANGED_EVENT, syncFavorites)
 })
 
+// ---- 工具栏「新建」请求 ----
+
+watch(
+  () => props.createRequest,
+  (req) => {
+    if (!req || req.tabId !== props.tab.id) return
+    startCreate(req.kind)
+    emit('create-handled')
+  },
+)
+
 // ---- 外部定位（搜索结果 / AI） ----
 
 watch(
@@ -491,15 +519,15 @@ function onDrop(ev: DragEvent) {
     </div>
 
     <!-- 空目录 / 无匹配 -->
-    <div v-else-if="!hasEntries && !editingMkdir" class="state">
+    <div v-else-if="!hasEntries && !editingCreate" class="state">
       <Icon name="folder-open" :size="30" class="big-ico" />
       <p>{{ tab.kind === 'search' ? '没有找到匹配项' : '此目录为空' }}</p>
     </div>
-    <div v-else-if="emptyByProtect && !editingMkdir" class="state">
+    <div v-else-if="emptyByProtect && !editingCreate" class="state">
       <Icon name="folder-open" :size="30" class="big-ico" />
       <p>已隐藏受保护的操作系统文件</p>
     </div>
-    <div v-else-if="emptyByFilter && !editingMkdir" class="state">
+    <div v-else-if="emptyByFilter && !editingCreate" class="state">
       <Icon name="search" :size="30" class="big-ico" />
       <p>没有匹配「{{ tab.filter }}」的条目</p>
     </div>
@@ -522,8 +550,11 @@ function onDrop(ev: DragEvent) {
         </button>
       </div>
 
-      <div v-if="editing && editing.mode === 'mkdir'" class="inline-new">
-        <span class="ico"><FileIcon :path="tab.path" :is-dir="true" :ext="null" :size="14" /></span>
+      <div v-if="editingCreate && editing" class="inline-new" :class="{ file: editing.mode === 'createFile' }">
+        <span class="ico">
+          <FileIcon v-if="editing.mode === 'mkdir'" :path="tab.path" :is-dir="true" :ext="null" :size="14" />
+          <Icon v-else name="file" :size="14" />
+        </span>
         <span class="nm">
           <input
             v-model="editing.name"
@@ -583,8 +614,11 @@ function onDrop(ev: DragEvent) {
 
     <!-- 图标视图（限制渲染数量） -->
     <div v-else class="icons-scroll" @click.self="clearSelection">
-      <div v-if="editing && editing.mode === 'mkdir'" class="icon-cell dir">
-        <span class="icon-big k-folder"><FileIcon :path="tab.path" :is-dir="true" :ext="null" :size="30" /></span>
+      <div v-if="editingCreate && editing" class="icon-cell" :class="{ dir: editing.mode === 'mkdir' }">
+        <span class="icon-big" :class="editing.mode === 'mkdir' ? 'k-folder' : 'k-file'">
+          <FileIcon v-if="editing.mode === 'mkdir'" :path="tab.path" :is-dir="true" :ext="null" :size="30" />
+          <Icon v-else name="file" :size="30" />
+        </span>
         <span class="icon-name">
           <input
             v-model="editing.name"
@@ -641,6 +675,11 @@ function onDrop(ev: DragEvent) {
       @click.stop
       @contextmenu.prevent
     >
+      <template v-if="tab.kind !== 'search'">
+        <button @click="startCreate('mkdir'); closeCtx()"><Icon name="folder-plus" :size="14" />新建文件夹</button>
+        <button @click="startCreate('createFile'); closeCtx()"><Icon name="file-plus" :size="14" />新建文件</button>
+        <div class="sep" />
+      </template>
       <button @click="openEntry(ctx.entry); closeCtx()"><Icon :name="ctx.entry.isDir ? 'folder-open' : 'file'" :size="14" />打开</button>
       <button v-if="ctx.entry.isDir" @click="openInNewTab(ctx.entry)"><Icon name="plus" :size="14" />在新标签页打开</button>
       <button v-if="ctx.entry.isDir" :disabled="favoritePaths.has(ctx.entry.path)" @click="addEntryFavorite(ctx.entry)"><Icon name="star" :size="14" />{{ favoritePaths.has(ctx.entry.path) ? '已在收藏中' : '添加到收藏' }}</button>
@@ -784,6 +823,9 @@ function onDrop(ev: DragEvent) {
   align-items: center;
   justify-content: center;
   color: var(--ico-folder);
+}
+.inline-new.file .ico {
+  color: var(--ico-file);
 }
 
 /* 行内编辑输入框 */

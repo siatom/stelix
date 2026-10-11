@@ -195,8 +195,45 @@ pub fn execute(op: &FsOp) -> FsOpResult {
             None => errors.push("Mkdir 缺少 target".into()),
             Some(t) if t.trim().is_empty() => errors.push("Mkdir 目标路径为空".into()),
             Some(t) => {
-                if let Err(e) = fs::create_dir_all(t) {
+                let p = Path::new(t);
+                if is_drive_root(p) {
+                    errors.push(format!("已拒绝在驱动器根新建目录：{t}"));
+                } else if p.exists() {
+                    // 同名已存在：显式报错，避免 create_dir_all 静默成功而无任何反馈。
+                    errors.push(format!("已存在同名项：{t}"));
+                } else if let Err(e) = fs::create_dir_all(t) {
                     errors.push(format!("新建目录失败 {t}: {e}"));
+                }
+            }
+        },
+        FsOpKind::CreateFile => match op.target.as_deref() {
+            None => errors.push("CreateFile 缺少 target".into()),
+            Some(t) if t.trim().is_empty() => errors.push("新建文件路径为空".into()),
+            Some(t) => {
+                let p = Path::new(t);
+                if is_drive_root(p) {
+                    errors.push(format!("已拒绝在驱动器根新建文件：{t}"));
+                } else if p.exists() {
+                    errors.push(format!("已存在同名项：{t}"));
+                } else {
+                    if let Some(parent) = p.parent() {
+                        if !parent.as_os_str().is_empty() && !parent.exists() {
+                            if let Err(e) = fs::create_dir_all(parent) {
+                                errors.push(format!(
+                                    "创建目标目录失败 {}: {e}",
+                                    parent.display()
+                                ));
+                                return FsOpResult {
+                                    ok: false,
+                                    errors,
+                                };
+                            }
+                        }
+                    }
+                    // create_new：目标已存在时返回错误（前面已判存在，这里是兜底）。
+                    if let Err(e) = fs::OpenOptions::new().create_new(true).write(true).open(p) {
+                        errors.push(format!("新建文件失败 {t}: {e}"));
+                    }
                 }
             }
         },
@@ -408,5 +445,58 @@ fn copy_recursive(src: &Path, dest: &Path) -> std::io::Result<()> {
             fs::create_dir_all(parent)?;
         }
         fs::copy(src, dest).map(|_| ())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::{FsOp, FsOpKind};
+
+    fn temp_dir(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("stelix-fs-core-{tag}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn op(kind: FsOpKind, target: &Path) -> FsOp {
+        FsOp {
+            op: kind,
+            sources: Vec::new(),
+            target: Some(target.to_string_lossy().to_string()),
+        }
+    }
+
+    #[test]
+    fn create_file_creates_empty_file() {
+        let dir = temp_dir("create-file");
+        let target = dir.join("hello.txt");
+        let res = execute(&op(FsOpKind::CreateFile, &target));
+        assert!(res.ok, "{:?}", res.errors);
+        assert!(target.is_file());
+        assert_eq!(fs::metadata(&target).unwrap().len(), 0);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn create_file_rejects_existing_name_without_truncating() {
+        let dir = temp_dir("create-file-dup");
+        let target = dir.join("dup.txt");
+        fs::write(&target, b"keep").unwrap();
+        let res = execute(&op(FsOpKind::CreateFile, &target));
+        assert!(!res.ok);
+        assert_eq!(fs::read(&target).unwrap(), b"keep");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn mkdir_reports_existing_name() {
+        let dir = temp_dir("mkdir-dup");
+        let target = dir.join("sub");
+        fs::create_dir(&target).unwrap();
+        let res = execute(&op(FsOpKind::Mkdir, &target));
+        assert!(!res.ok);
+        let _ = fs::remove_dir_all(&dir);
     }
 }

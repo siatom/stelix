@@ -25,6 +25,22 @@ function activate() {
   paneStore.activePaneId = props.paneId
 }
 
+// ---- 工具栏「新建」→ 文件列表行内编辑 ----
+// PaneToolbar 与 FileList 是兄弟组件，用一次性请求对象中转；FileList 处理完回发 create-handled。
+const createRequest = ref<{ kind: 'mkdir' | 'createFile'; seq: number; tabId: string } | null>(null)
+let createSeq = 0
+
+function onCreate(kind: 'mkdir' | 'createFile') {
+  const t = tab.value
+  if (!t) return
+  createSeq += 1
+  createRequest.value = { kind, seq: createSeq, tabId: t.id }
+}
+
+function onCreateHandled() {
+  createRequest.value = null
+}
+
 // ---- 删除确认对话框 ----
 
 const deleteDialog = ref<string[] | null>(null)
@@ -68,13 +84,19 @@ async function confirmDelete() {
   <section class="pane" @mousedown="activate">
     <template v-if="tab">
       <div class="pane-topbar" :class="{ 'is-active': isActivePane }">
-        <PaneToolbar :pane-id="paneId" />
+        <PaneToolbar :pane-id="paneId" @create="onCreate" />
         <div v-if="tab.kind === 'search'" class="search-heading" :title="tab.searchQuery">
           搜索结果：{{ tab.searchQuery }}
         </div>
         <PathBar v-else :pane-id="paneId" :tab="tab" />
       </div>
-      <FileList :pane-id="paneId" :tab="tab" @delete="openDelete" />
+      <FileList
+        :pane-id="paneId"
+        :tab="tab"
+        :create-request="createRequest"
+        @delete="openDelete"
+        @create-handled="onCreateHandled"
+      />
     </template>
     <div v-else class="state">没有可用标签</div>
     <TabBar :pane-id="paneId" />
