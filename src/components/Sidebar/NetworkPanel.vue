@@ -56,6 +56,7 @@ const sections = ref({ smb: false, remote: false, cloud: false })
 const smbDraft = ref('')
 const showSmbForm = ref(false)
 const showHostForm = ref(false)
+const editingHostId = ref<string | null>(null)
 const protocol = ref<'ftp' | 'sftp'>('sftp')
 const label = ref('')
 const host = ref('')
@@ -104,14 +105,24 @@ function closeSmbForm() {
 
 function openHostForm() {
   sections.value.remote = true
+  editingHostId.value = null
+  protocol.value = 'sftp'
+  label.value = ''
+  host.value = ''
+  port.value = 22
+  username.value = ''
+  draftPassword.value = ''
   showHostForm.value = true
   error.value = ''
 }
 
 function closeHostForm() {
   showHostForm.value = false
+  editingHostId.value = null
+  protocol.value = 'sftp'
   label.value = ''
   host.value = ''
+  port.value = 22
   username.value = ''
   draftPassword.value = ''
   error.value = ''
@@ -166,7 +177,7 @@ async function saveHost() {
     error.value = '请填写有效的主机地址和端口'
     return
   }
-  const id = crypto.randomUUID()
+  const id = editingHostId.value || crypto.randomUUID()
   if (draftPassword.value) {
     try {
       await api.saveRemotePassword(id, draftPassword.value)
@@ -179,15 +190,34 @@ async function saveHost() {
     id, protocol: protocol.value, label: label.value.trim() || address,
     host: address, port: port.value, username: username.value.trim(),
   }
-  hosts.value.push(item)
+  const existingIndex = hosts.value.findIndex((hostItem) => hostItem.id === id)
+  if (existingIndex >= 0) hosts.value[existingIndex] = item
+  else hosts.value.push(item)
   localStorage.setItem(HOSTS_KEY, JSON.stringify(hosts.value))
   if (draftPassword.value) passwords.value[item.id] = draftPassword.value
-  showHostForm.value = false
-  label.value = ''
-  host.value = ''
-  username.value = ''
-  draftPassword.value = ''
+  delete hostEntries.value[item.id]
+  delete hostErrors.value[item.id]
+  expandedHosts.value[item.id] = false
+  closeHostForm()
+}
+
+async function editHost(item: RemoteHost) {
+  editingHostId.value = item.id
+  protocol.value = item.protocol
+  label.value = item.label
+  host.value = item.host
+  port.value = item.port
+  username.value = item.username
+  draftPassword.value = passwords.value[item.id] || ''
+  sections.value.remote = true
+  showHostForm.value = true
   error.value = ''
+  try {
+    const storedPassword = await api.getRemotePassword(item.id)
+    if (editingHostId.value === item.id && storedPassword) draftPassword.value = storedPassword
+  } catch (cause) {
+    if (editingHostId.value === item.id) error.value = String(cause)
+  }
 }
 
 async function removeHost(id: string) {
@@ -281,7 +311,10 @@ function toggleHost(item: RemoteHost) {
               <span class="twist" :class="{ open: expandedHosts[item.id] }"><Icon name="chevron-right" :size="11" /></span>
               <Icon name="drive" :size="14" /><span class="label">{{ item.label }}</span><small>{{ item.protocol.toUpperCase() }}</small>
             </button>
-            <button class="remove" title="移除主机" @click="removeHost(item.id)"><Icon name="x" :size="11" /></button>
+            <div class="host-actions">
+              <button class="remove" title="编辑主机" aria-label="编辑主机" @click="editHost(item)"><Icon name="pencil" :size="12" /></button>
+              <button class="remove" title="移除主机" aria-label="移除主机" @click="removeHost(item.id)"><Icon name="x" :size="11" /></button>
+            </div>
           </div>
           <div v-if="expandedHosts[item.id]">
             <div class="credentials">
@@ -327,7 +360,7 @@ function toggleHost(item: RemoteHost) {
 
       <div v-if="showHostForm" class="dialog-backdrop" tabindex="-1" @keydown.esc.prevent.stop>
         <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="host-dialog-title">
-          <h2 id="host-dialog-title">添加 FTP / SFTP 主机</h2>
+          <h2 id="host-dialog-title">{{ editingHostId ? '编辑 FTP / SFTP 主机' : '添加 FTP / SFTP 主机' }}</h2>
           <form class="dialog-form" @submit.prevent="saveHost">
             <label>协议
               <select v-model="protocol" aria-label="协议" @change="port = protocol === 'sftp' ? 22 : 21">
@@ -342,7 +375,7 @@ function toggleHost(item: RemoteHost) {
             <p v-if="error" class="dialog-error">{{ error }}</p>
             <div class="dialog-actions">
               <button type="button" class="secondary" @click="closeHostForm">取消</button>
-              <button type="submit" class="primary">保存主机</button>
+              <button type="submit" class="primary">{{ editingHostId ? '保存修改' : '保存主机' }}</button>
             </div>
           </form>
         </section>
@@ -353,12 +386,13 @@ function toggleHost(item: RemoteHost) {
 
 <style scoped>
 .network-tree { display: flex; flex-direction: column; gap: 3px; }
-.tree-row { display: flex; align-items: center; height: 22px; border-radius: var(--radius); }
+.tree-row { display: flex; align-items: center; height: var(--sidebar-row-h); border-radius: var(--radius); }
 .tree-row:hover { background: var(--bg-hover); }
 .row-main { display: flex; align-items: center; gap: 4px; flex: 1; min-width: 0; height: 100%; padding: 0 6px; text-align: left; color: var(--fg-folder); font-size: 1rem; }
 .row-main span:last-of-type, .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .category-icon { flex: none; color: var(--accent); }
 .host-row .row-main { padding-left: 18px; }
+.host-actions { display: flex; align-items: center; gap: 2px; flex: none; }
 .server-row .row-main { padding-left: 18px; }
 .twist { display: flex; align-items: center; justify-content: center; width: 12px; flex: none; color: var(--fg-dim); transition: transform .12s ease; }
 .twist.open { transform: rotate(90deg); }
