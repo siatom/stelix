@@ -73,18 +73,18 @@
 }
 
 :root[data-theme='light'] {
-  /* Warm white canvas and soft gray navigation surfaces */
+  /* Bright white canvas with subtle gray interaction surfaces */
   --bg-app: #ffffff;
-  --bg-panel: #f9f9f9;
+  --bg-panel: #ffffff;
   --bg-elevated: #ffffff;
-  --bg-hover: #ececec;
-  --bg-active: #e5e5e5;
-  --bg-selected: #e5e5e5;
+  --bg-hover: #f5f5f5;
+  --bg-active: #eeeeee;
+  --bg-selected: #eeeeee;
   --bg-input: #ffffff;
   --pane-title-bg-active: #e3edf9;
 
-  --border: #e5e5e5;
-  --border-strong: #d1d1d1;
+  --border: #ededed;
+  --border-strong: #d8d8d8;
 
   --fg: #212121;
   --fg-muted: #5d5d5d;
