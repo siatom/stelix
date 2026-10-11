@@ -255,7 +255,7 @@ fn insert_entry(
     ])
 }
 
-fn set_meta<T: Serialize>(
+fn set_meta<T: Serialize + ?Sized>(
     transaction: &Transaction<'_>,
     key: &str,
     value: &T,
