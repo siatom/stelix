@@ -118,6 +118,20 @@ watch(
 let anchor = -1
 let lastItemClick: { path: string; at: number } | null = null
 
+interface MarqueeState {
+  startX: number
+  startY: number
+  currentX: number
+  currentY: number
+  moved: boolean
+  additive: boolean
+  baseSelection: string[]
+}
+
+const marquee = ref<MarqueeState | null>(null)
+const marqueeBox = ref({ left: 0, top: 0, width: 0, height: 0 })
+let suppressBlankClick = false
+
 // ---- 选择 ----
 
 function onClick(ev: MouseEvent, index: number, entry: FileEntry) {
@@ -155,6 +169,97 @@ function clearSelection() {
   paneStore.clearSelection(props.tab)
   anchor = -1
   lastItemClick = null
+}
+
+function updateMarqueeBox(ev: MouseEvent) {
+  const state = marquee.value
+  const root = rootRef.value
+  if (!state || !root) return
+  state.currentX = ev.clientX
+  state.currentY = ev.clientY
+  const bounds = root.getBoundingClientRect()
+  const left = Math.min(state.startX, ev.clientX) - bounds.left
+  const top = Math.min(state.startY, ev.clientY) - bounds.top
+  marqueeBox.value = {
+    left,
+    top,
+    width: Math.abs(ev.clientX - state.startX),
+    height: Math.abs(ev.clientY - state.startY),
+  }
+}
+
+function applyMarqueeSelection() {
+  const state = marquee.value
+  const root = rootRef.value
+  if (!state || !root || !state.moved) return
+
+  const left = Math.min(state.startX, state.currentX)
+  const top = Math.min(state.startY, state.currentY)
+  const right = Math.max(state.startX, state.currentX)
+  const bottom = Math.max(state.startY, state.currentY)
+  const selected = Array.from(root.querySelectorAll<HTMLElement>('[data-selection-path]'))
+    .filter((el) => {
+      const rect = el.getBoundingClientRect()
+      return rect.right >= left && rect.left <= right && rect.bottom >= top && rect.top <= bottom
+    })
+    .map((el) => el.dataset.selectionPath)
+    .filter((path): path is string => !!path)
+
+  props.tab.selected = state.additive ? Array.from(new Set([...state.baseSelection, ...selected])) : selected
+  anchor = -1
+}
+
+function stopMarquee(ev?: MouseEvent) {
+  if (!marquee.value) return
+  if (ev) {
+    updateMarqueeBox(ev)
+    const state = marquee.value
+    state.moved = Math.abs(ev.clientX - state.startX) > 4 || Math.abs(ev.clientY - state.startY) > 4
+    applyMarqueeSelection()
+    suppressBlankClick = state.moved
+  }
+  marquee.value = null
+  window.removeEventListener('mousemove', onMarqueeMove)
+  window.removeEventListener('mouseup', onMarqueeUp)
+}
+
+function onMarqueeMove(ev: MouseEvent) {
+  const state = marquee.value
+  if (!state) return
+  if (Math.abs(ev.clientX - state.startX) > 4 || Math.abs(ev.clientY - state.startY) > 4) state.moved = true
+  updateMarqueeBox(ev)
+}
+
+function onMarqueeUp(ev: MouseEvent) {
+  stopMarquee(ev)
+}
+
+function onRootMouseDown(ev: MouseEvent) {
+  if (ev.button !== 0 || editing.value) return
+  const target = ev.target as HTMLElement
+  if (target.closest('.header, .row, .icon-cell, .inline-new, .ctx-menu, button, input')) return
+  suppressBlankClick = false
+  ev.preventDefault()
+  marquee.value = {
+    startX: ev.clientX,
+    startY: ev.clientY,
+    currentX: ev.clientX,
+    currentY: ev.clientY,
+    moved: false,
+    additive: ev.ctrlKey || ev.metaKey,
+    baseSelection: [...props.tab.selected],
+  }
+  marqueeBox.value = { left: 0, top: 0, width: 0, height: 0 }
+  window.addEventListener('mousemove', onMarqueeMove)
+  window.addEventListener('mouseup', onMarqueeUp)
+}
+
+function onBlankClick() {
+  if (suppressBlankClick) {
+    suppressBlankClick = false
+    return
+  }
+  clearSelection()
 }
 
 // ---- 打开 ----
@@ -484,6 +589,7 @@ onBeforeUnmount(() => {
   document.removeEventListener('keydown', onKey)
   window.removeEventListener('keydown', onGlobalKey)
   window.removeEventListener(FAVORITES_CHANGED_EVENT, syncFavorites)
+  stopMarquee()
   paneStore.setVisibleDirs(props.paneId, [])
 })
 
@@ -614,6 +720,7 @@ function onDrop(ev: DragEvent) {
     ref="rootRef"
     class="file-list"
     :class="viewMode"
+    @mousedown="onRootMouseDown"
     @dragover.prevent="onDragOver"
     @drop.prevent="onDrop"
     @contextmenu="onBlankContextMenu"
@@ -683,12 +790,13 @@ function onDrop(ev: DragEvent) {
         </span>
       </div>
 
-      <div ref="scrollRef" class="fl-scroll" @click.self="clearSelection">
+      <div ref="scrollRef" class="fl-scroll" @click.self="onBlankClick">
         <div class="fl-inner" :style="{ height: `${virtualizer.getTotalSize()}px` }">
           <div
             v-for="vr in virtualRows"
             :key="String(vr.key)"
             class="row"
+            :data-selection-path="vr.row.entry.path"
             :draggable="!editing"
             :class="{ selected: tab.selected.includes(vr.row.entry.path), dir: vr.row.entry.isDir }"
             :style="{ height: `${vr.size}px`, transform: `translateY(${vr.start}px)` }"
@@ -746,7 +854,7 @@ function onDrop(ev: DragEvent) {
     </template>
 
     <!-- 图标视图（限制渲染数量） -->
-    <div v-else class="icons-scroll" @click.self="clearSelection">
+    <div v-else class="icons-scroll" @click.self="onBlankClick">
       <div v-if="editingCreate && editing" class="icon-cell" :class="{ dir: editing.mode === 'mkdir' }">
         <span class="icon-big" :class="editing.mode === 'mkdir' ? 'k-folder' : 'k-file'">
           <FileIcon v-if="editing.mode === 'mkdir'" :path="tab.path" :is-dir="true" :ext="null" :size="38" />
@@ -769,6 +877,7 @@ function onDrop(ev: DragEvent) {
           v-for="(entry, i) in iconRows"
           :key="entry.path"
           class="icon-cell"
+          :data-selection-path="entry.path"
           :draggable="!editing"
           :class="{ selected: tab.selected.includes(entry.path), dir: entry.isDir }"
           :title="entry.path"
@@ -800,6 +909,17 @@ function onDrop(ev: DragEvent) {
         条目较多，仅显示前 {{ ICON_CAP }} 项（共 {{ rows.length }} 项）
       </p>
     </div>
+
+    <div
+      v-if="marquee"
+      class="marquee-box"
+      :style="{
+        left: `${marqueeBox.left}px`,
+        top: `${marqueeBox.top}px`,
+        width: `${marqueeBox.width}px`,
+        height: `${marqueeBox.height}px`,
+      }"
+    />
 
     <!-- 右键菜单 -->
     <div
@@ -847,6 +967,13 @@ function onDrop(ev: DragEvent) {
   background: var(--bg-app);
   overflow: hidden;
   position: relative;
+}
+.marquee-box {
+  position: absolute;
+  z-index: 20;
+  pointer-events: none;
+  border: 1px solid color-mix(in srgb, var(--accent) 75%, transparent);
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
 }
 
 /* 状态页 */
