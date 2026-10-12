@@ -2,8 +2,8 @@
 //!
 //! 设计要点（性能）：
 //! - **不按文件缓存，按图标种类缓存**。绝大多数文件（.txt/.pdf/…）只按扩展名
-//!   取「类型图标」，用 `SHGFI_USEFILEATTRIBUTES` 传入假文件名，**不读盘**。
-//! - 只有自带图标资源的文件（exe/lnk/ico/…）才用真实路径读内嵌图标。
+//!   取系统关联图标，优先查询真实路径；不可用时按扩展名回退。
+//! - 自带图标资源的文件（exe/lnk/ico/…）按每个文件缓存内嵌图标。
 //! - 缓存 key 规则与前端 `src/components/icons/fileIconCache.ts` 保持一致：
 //!   - 目录 → `dir`
 //!   - 普通文件 → `e:<ext>`
@@ -82,20 +82,32 @@ fn extract(path: &str, is_dir: bool) -> Option<String> {
 
 #[cfg(windows)]
 fn extract_windows(path: &str, is_dir: bool) -> Option<String> {
+    // Shell 首次初始化并发查询可能返回空图标；串行提取也避免争用系统图标缓存。
+    static SHELL_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _shell = SHELL_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+
     use windows_sys::Win32::Storage::FileSystem::{
         FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_NORMAL,
     };
-    use windows_sys::Win32::System::Com::{CoInitializeEx, COINIT_APARTMENTTHREADED};
+    use windows_sys::Win32::System::Com::{
+        CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED,
+    };
     use windows_sys::Win32::UI::Shell::{SHGFI_ICON, SHGFI_LARGEICON, SHGFI_USEFILEATTRIBUTES};
     use windows_sys::Win32::UI::WindowsAndMessaging::{DestroyIcon, HICON};
 
-    // Shell API 内部依赖 COM；当前线程若未初始化则补上，已初始化/换过 apartment 都忽略。
-    unsafe {
-        CoInitializeEx(std::ptr::null(), COINIT_APARTMENTTHREADED as u32);
+    // 每次成功初始化（包括 S_FALSE）都必须配对释放。
+    struct ComGuard(bool);
+    impl Drop for ComGuard {
+        fn drop(&mut self) {
+            if self.0 {
+                unsafe { CoUninitialize() };
+            }
+        }
     }
+    let _com =
+        ComGuard(unsafe { CoInitializeEx(std::ptr::null(), COINIT_APARTMENTTHREADED as u32) >= 0 });
 
     let ext = extension_of(path);
-    let per_file = !is_dir && PER_FILE_EXTS.contains(&ext.as_str());
     let base = SHGFI_ICON | SHGFI_LARGEICON;
 
     // 用假文件名按扩展名取「类型图标」，不读盘。
@@ -111,8 +123,9 @@ fn extract_windows(path: &str, is_dir: bool) -> Option<String> {
             FILE_ATTRIBUTE_DIRECTORY,
             base | SHGFI_USEFILEATTRIBUTES,
         )
-    } else if per_file {
-        // 先用真实路径读内嵌图标；文件不存在/读取失败时退回类型图标。
+    } else {
+        // 每种扩展名只加载一次：真实路径可取得 Shell 扩展提供的关联图标。
+        // 文件不存在（例如远程条目）时，仍可按扩展名取系统类型图标。
         query_icon(path, FILE_ATTRIBUTE_NORMAL, base).or_else(|| {
             query_icon(
                 &fake_name,
@@ -120,12 +133,6 @@ fn extract_windows(path: &str, is_dir: bool) -> Option<String> {
                 base | SHGFI_USEFILEATTRIBUTES,
             )
         })
-    } else {
-        query_icon(
-            &fake_name,
-            FILE_ATTRIBUTE_NORMAL,
-            base | SHGFI_USEFILEATTRIBUTES,
-        )
     };
 
     let hicon = hicon?;
@@ -202,8 +209,8 @@ fn bitmap_to_rgba(
     mask: windows_sys::Win32::Graphics::Gdi::HBITMAP,
 ) -> Option<(u32, u32, Vec<u8>)> {
     use windows_sys::Win32::Graphics::Gdi::{
-        CreateCompatibleDC, DeleteDC, GetDC, GetDIBits, GetObjectW, ReleaseDC, SelectObject,
-        BITMAP, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS, HGDIOBJ,
+        CreateCompatibleDC, DeleteDC, GetDC, GetDIBits, GetObjectW, ReleaseDC, BITMAP, BITMAPINFO,
+        BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS, HGDIOBJ, RGBQUAD,
     };
 
     let mut bm: BITMAP = unsafe { std::mem::zeroed() };
@@ -233,7 +240,7 @@ fn bitmap_to_rgba(
     bi.bmiHeader.biCompression = BI_RGB;
 
     let mut color_buf = vec![0u8; (width * height * 4) as usize];
-    let old = unsafe { SelectObject(mem_dc, color as HGDIOBJ) };
+    // GetDIBits 要求位图未被选入 DC。
     let lines = unsafe {
         GetDIBits(
             mem_dc,
@@ -245,7 +252,6 @@ fn bitmap_to_rgba(
             DIB_RGB_COLORS,
         )
     };
-    unsafe { SelectObject(mem_dc, old) };
     if lines == 0 {
         unsafe {
             DeleteDC(mem_dc);
@@ -268,15 +274,20 @@ fn bitmap_to_rgba(
             )
         };
         if ok_mask != 0 && bm_mask.bmHeight >= bm.bmHeight {
-            let mut bi_mask: BITMAPINFO = unsafe { std::mem::zeroed() };
-            bi_mask.bmiHeader.biSize = std::mem::size_of::<BITMAPINFOHEADER>() as u32;
-            bi_mask.bmiHeader.biWidth = bm.bmWidth;
-            bi_mask.bmiHeader.biHeight = -bm.bmHeight;
-            bi_mask.bmiHeader.biPlanes = 1;
-            bi_mask.bmiHeader.biBitCount = 1;
-            bi_mask.bmiHeader.biCompression = BI_RGB;
+            // 1bpp 需要两个调色板项；BITMAPINFO 本身只预留了一个。
+            #[repr(C)]
+            struct MaskBitmapInfo {
+                header: BITMAPINFOHEADER,
+                colors: [RGBQUAD; 2],
+            }
+            let mut bi_mask: MaskBitmapInfo = unsafe { std::mem::zeroed() };
+            bi_mask.header.biSize = std::mem::size_of::<BITMAPINFOHEADER>() as u32;
+            bi_mask.header.biWidth = bm.bmWidth;
+            bi_mask.header.biHeight = -bm.bmHeight;
+            bi_mask.header.biPlanes = 1;
+            bi_mask.header.biBitCount = 1;
+            bi_mask.header.biCompression = BI_RGB;
 
-            let old_mask = unsafe { SelectObject(mem_dc, mask as HGDIOBJ) };
             let lines_mask = unsafe {
                 GetDIBits(
                     mem_dc,
@@ -284,11 +295,10 @@ fn bitmap_to_rgba(
                     0,
                     height,
                     mask_buf.as_mut_ptr() as *mut std::ffi::c_void,
-                    &mut bi_mask,
+                    &mut bi_mask as *mut MaskBitmapInfo as *mut BITMAPINFO,
                     DIB_RGB_COLORS,
                 )
             };
-            unsafe { SelectObject(mem_dc, old_mask) };
             has_mask = lines_mask != 0;
         }
     }
@@ -377,5 +387,32 @@ mod tests {
             &[0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a],
             "应是合法 PNG 签名"
         );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn extracts_document_icons_with_visible_pixels() {
+        use base64::Engine as _;
+
+        let cache = IconCache::new();
+        for ext in ["docx", "xlsx", "pdf", "txt"] {
+            let path = format!(r"C:\stelix-icon-test-missing.{ext}");
+            let url = cache
+                .get_or_load(&path, false)
+                .unwrap_or_else(|| panic!("应能提取 {ext} 系统类型图标"));
+            let bytes = base64::engine::general_purpose::STANDARD
+                .decode(url.strip_prefix("data:image/png;base64,").unwrap())
+                .unwrap();
+            let mut reader = png::Decoder::new(std::io::Cursor::new(bytes))
+                .read_info()
+                .unwrap();
+            let mut pixels = vec![0; reader.output_buffer_size()];
+            let frame = reader.next_frame(&mut pixels).unwrap();
+            assert_eq!(frame.color_type, png::ColorType::Rgba);
+            assert!(pixels[..frame.buffer_size()]
+                .chunks_exact(4)
+                .any(|p| p[3] > 0));
+            assert_eq!(cache.get_or_load(&path, false), Some(url));
+        }
     }
 }
