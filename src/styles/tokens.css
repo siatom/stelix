@@ -1,5 +1,7 @@
 :root {
   --ui-font-size: 12px;
+  --sidebar-font-size: 13px;
+  --file-font-size: 13px;
   font-size: var(--ui-font-size);
   /* Layout */
   --activity-bar-w: 52px;
@@ -10,7 +12,7 @@
   --pane-bar-h: 32px;
   --search-bar-h: 50px;
   /* 列表行高偏好：由设置面板调节（侧边栏列表/树、文件列表），仅尺寸不随主题变 */
-  --sidebar-row-h: 24px;
+  --sidebar-row-h: 26px;
   --file-row-h: 26px;
 
   /* Shape and motion */

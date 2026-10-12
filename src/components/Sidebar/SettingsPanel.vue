@@ -161,70 +161,56 @@ onMounted(() => {
       </section>
 
       <section v-show="ui.settingsTab === 'general'" class="card">
+        <header class="card-head">启动</header>
+        <div class="card-body tight">
+          <label class="row">
+          <span class="row-label">开机自启动</span>
+          <input
+            type="checkbox"
+            :checked="autostart"
+            :disabled="autostartBusy"
+            @change="toggleAutostart(($event.target as HTMLInputElement).checked)"
+          />
+        </label>
+        <p class="row-hint">启动后静默驻留系统托盘</p>
+      </div>
+    </section>
+
+      <section v-show="ui.settingsTab === 'general'" class="card">
         <header class="card-head">视图</header>
         <div class="card-body tight">
           <label class="row">
-            <span class="row-label">界面字体大小</span>
-            <select
-              class="setting-select"
-              :value="ui.fontSize"
-              @change="ui.setFontSize(Number(($event.target as HTMLSelectElement).value))"
-            >
-              <option v-for="size in [11, 12, 13, 14, 15, 16]" :key="size" :value="size">{{ size }}px</option>
+            <span class="row-label">侧边栏字体大小</span>
+            <select class="setting-select" :value="String(ui.sidebarFontSize || 12)" @change="ui.setSidebarFontSize(Number(($event.target as HTMLSelectElement).value))">
+              <option v-for="size in [11, 12, 13, 14, 15, 16]" :key="size" :value="String(size)">{{ size }}px</option>
+            </select>
+          </label>
+          <label class="row">
+            <span class="row-label">文件列表字体大小</span>
+            <select class="setting-select" :value="String(ui.fileFontSize || 12)" @change="ui.setFileFontSize(Number(($event.target as HTMLSelectElement).value))">
+              <option v-for="size in [11, 12, 13, 14, 15, 16]" :key="size" :value="String(size)">{{ size }}px</option>
             </select>
           </label>
           <label class="row">
             <span class="row-label">侧边栏行高</span>
-            <select
-              class="setting-select"
-              :value="ui.sidebarRowHeight"
-              @change="ui.setSidebarRowHeight(Number(($event.target as HTMLSelectElement).value))"
-            >
+            <select class="setting-select" :value="ui.sidebarRowHeight" @change="ui.setSidebarRowHeight(Number(($event.target as HTMLSelectElement).value))">
               <option v-for="size in [20, 22, 24, 26, 28, 30, 32]" :key="size" :value="size">{{ size }}px</option>
             </select>
           </label>
           <label class="row">
             <span class="row-label">文件列表行高</span>
-            <select
-              class="setting-select"
-              :value="ui.fileRowHeight"
-              @change="ui.setFileRowHeight(Number(($event.target as HTMLSelectElement).value))"
-            >
+            <select class="setting-select" :value="ui.fileRowHeight" @change="ui.setFileRowHeight(Number(($event.target as HTMLSelectElement).value))">
               <option v-for="size in [22, 24, 26, 28, 30, 32, 34, 36, 40]" :key="size" :value="size">{{ size }}px</option>
             </select>
           </label>
           <label class="row">
             <span class="row-label">隐藏受保护的操作系统文件</span>
-            <input
-              type="checkbox"
-              :checked="ui.hideProtected"
-              @change="ui.setHideProtected(($event.target as HTMLInputElement).checked)"
-            />
+            <input type="checkbox" :checked="ui.hideProtected" @change="ui.setHideProtected(($event.target as HTMLInputElement).checked)" />
           </label>
           <label class="row">
             <span class="row-label">隐藏文件扩展名</span>
-            <input
-              type="checkbox"
-              :checked="ui.hideFileExtensions"
-              @change="ui.setHideFileExtensions(($event.target as HTMLInputElement).checked)"
-            />
+            <input type="checkbox" :checked="ui.hideFileExtensions" @change="ui.setHideFileExtensions(($event.target as HTMLInputElement).checked)" />
           </label>
-        </div>
-      </section>
-
-      <section v-show="ui.settingsTab === 'general'" class="card">
-        <header class="card-head">启动</header>
-        <div class="card-body tight">
-          <label class="row">
-            <span class="row-label">开机自启动</span>
-            <input
-              type="checkbox"
-              :checked="autostart"
-              :disabled="autostartBusy"
-              @change="toggleAutostart(($event.target as HTMLInputElement).checked)"
-            />
-          </label>
-          <p class="row-hint">启动后静默驻留系统托盘</p>
         </div>
       </section>
 
@@ -251,12 +237,14 @@ onMounted(() => {
   grid-template-columns: 154px minmax(0, 1fr);
   height: 100%;
   min-height: 0;
+  font-size: max(12px, var(--ui-font-size));
+  background: var(--bg-app);
 }
 .settings-tabs {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 16px 12px;
+  padding: 18px 12px;
   border-right: 1px solid var(--border);
   background: var(--bg-panel);
 }
@@ -272,7 +260,7 @@ onMounted(() => {
 }
 .settings-tabs button:hover { background: var(--bg-hover); color: var(--fg); }
 .settings-tabs button.active { background: var(--bg-active); color: var(--fg); font-weight: 600; }
-.settings-content { display: flex; flex-direction: column; min-width: 0; min-height: 0; padding: 20px; }
+.settings-content { display: flex; flex-direction: column; min-width: 0; min-height: 0; padding: 20px; background: var(--bg-app); }
 .page-title { margin: 0 0 6px; font-size: 1.3333rem; font-weight: 600; }
 .about-text { margin: 4px; color: var(--fg-muted); }
 @media (max-width: 580px) {
@@ -298,10 +286,11 @@ onMounted(() => {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   overflow: hidden;
+  box-shadow: var(--shadow-sm);
 }
 .card-head {
-  padding: 7px 11px;
-  font-size: 0.9167rem;
+  padding: 10px 12px;
+  font-size: 1rem;
   font-weight: 600;
   color: var(--fg-muted);
   border-bottom: 1px solid var(--border);
@@ -339,7 +328,7 @@ onMounted(() => {
 .root-path {
   flex: 1;
   min-width: 0;
-  font-size: 0.9167rem;
+  font-size: 1rem;
   font-family: var(--mono);
   color: var(--fg);
   white-space: nowrap;
@@ -367,7 +356,7 @@ onMounted(() => {
 .root-input {
   flex: 1;
   min-width: 0;
-  font-size: 0.9167rem;
+  font-size: 1rem;
 }
 .add {
   flex: none;
@@ -386,12 +375,12 @@ onMounted(() => {
   align-items: center;
   gap: 6px;
   width: 100%;
-  height: 28px;
+  height: 30px;
   padding: 0 9px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   color: var(--fg-muted);
-  font-size: 0.9167rem;
+  font-size: 1rem;
 }
 .add-current:hover:not(:disabled) {
   background: var(--bg-hover);
@@ -419,7 +408,7 @@ onMounted(() => {
 }
 .state {
   padding: 2px;
-  font-size: 0.9167rem;
+  font-size: 1rem;
   color: var(--fg-dim);
 }
 
@@ -430,6 +419,8 @@ onMounted(() => {
   justify-content: space-between;
   gap: 8px;
   padding: 7px 8px;
+  height: 32px;
+  box-sizing: border-box;
   border-radius: var(--radius-sm);
   cursor: pointer;
 }
@@ -437,7 +428,7 @@ onMounted(() => {
   background: var(--bg-hover);
 }
 .row-label {
-  font-size: 0.9167rem;
+  font-size: 1rem;
   color: var(--fg);
 }
 .row input {
@@ -447,7 +438,9 @@ onMounted(() => {
 }
 .setting-select {
   flex: none;
-  padding: 3px 6px;
+  min-width: 78px;
+  height: 28px;
+  padding: 2px 6px;
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);
   background: var(--bg-input);
@@ -458,7 +451,7 @@ onMounted(() => {
 .row-hint {
   margin: 0;
   padding: 0 8px 4px;
-  font-size: 0.8333rem;
+  font-size: 1rem;
   color: var(--fg-dim);
 }
 
@@ -467,7 +460,7 @@ onMounted(() => {
   border-radius: var(--radius);
   background: var(--danger-soft);
   color: var(--danger);
-  font-size: 0.9167rem;
+  font-size: 1rem;
   word-break: break-all;
 }
 .panel-footer {
@@ -488,7 +481,7 @@ onMounted(() => {
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);
   color: var(--fg-muted);
-  font-size: 0.9167rem;
+  font-size: 1rem;
 }
 .restore-btn:hover:not(:disabled) {
   background: var(--bg-hover);

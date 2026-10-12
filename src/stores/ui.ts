@@ -16,16 +16,20 @@ const LS_HIDE_FILE_EXTENSIONS = 'stelix.hideFileExtensions'
 const LS_SIDEBAR_COLLAPSED = 'stelix.sidebarCollapsed'
 const LS_ACTIVE_PANEL = 'stelix.activePanel'
 const LS_FONT_SIZE = 'stelix.fontSize'
+const LS_SIDEBAR_FONT_SIZE = 'stelix.sidebarFontSize'
+const LS_FILE_FONT_SIZE = 'stelix.fileFontSize'
 const LS_SIDEBAR_ROW_H = 'stelix.sidebarRowHeight'
 const LS_FILE_ROW_H = 'stelix.fileRowHeight'
 
 // 行高可选范围与默认值（px）。默认值与 tokens.css 的 --sidebar-row-h / --file-row-h 保持一致。
 const SIDEBAR_ROW_MIN = 20
 const SIDEBAR_ROW_MAX = 32
-const SIDEBAR_ROW_DEF = 24
+const SIDEBAR_ROW_DEF = 26
 const FILE_ROW_MIN = 22
 const FILE_ROW_MAX = 40
 const FILE_ROW_DEF = 26
+const SIDEBAR_FONT_SIZE_DEF = 13
+const FILE_FONT_SIZE_DEF = 13
 
 // 视图设置默认值（「恢复默认」回到这些值）
 const FONT_SIZE_MIN = 11
@@ -34,12 +38,12 @@ const FONT_SIZE_DEF = 12
 const HIDE_PROTECTED_DEF = true
 const HIDE_FILE_EXTENSIONS_DEF = false
 
-function readFontSize(): number {
+function readFontSize(key = LS_FONT_SIZE, fallback = FONT_SIZE_DEF): number {
   try {
-    const saved = Number(localStorage.getItem(LS_FONT_SIZE))
-    return Number.isInteger(saved) && saved >= FONT_SIZE_MIN && saved <= FONT_SIZE_MAX ? saved : FONT_SIZE_DEF
+    const saved = Number(localStorage.getItem(key))
+    return Number.isInteger(saved) && saved >= FONT_SIZE_MIN && saved <= FONT_SIZE_MAX ? saved : fallback
   } catch {
-    return FONT_SIZE_DEF
+    return fallback
   }
 }
 
@@ -91,6 +95,14 @@ function applyFontSize(size: number) {
   document.documentElement.style.setProperty('--ui-font-size', `${size}px`)
 }
 
+function applySidebarFontSize(size: number) {
+  document.documentElement.style.setProperty('--sidebar-font-size', `${size}px`)
+}
+
+function applyFileFontSize(size: number) {
+  document.documentElement.style.setProperty('--file-font-size', `${size}px`)
+}
+
 function applyRowHeights(sidebar: number, file: number) {
   const style = document.documentElement.style
   style.setProperty('--sidebar-row-h', `${sidebar}px`)
@@ -106,6 +118,8 @@ export const useUiStore = defineStore('ui', () => {
   const sidebarCollapsed = ref(readBool(LS_SIDEBAR_COLLAPSED, false))
   const theme = ref<ThemeMode>(readTheme())
   const fontSize = ref(readFontSize())
+  const sidebarFontSize = ref(readFontSize(LS_SIDEBAR_FONT_SIZE, SIDEBAR_FONT_SIZE_DEF))
+  const fileFontSize = ref(readFontSize(LS_FILE_FONT_SIZE, FILE_FONT_SIZE_DEF))
   const sidebarRowHeight = ref(readRowHeight(LS_SIDEBAR_ROW_H, SIDEBAR_ROW_MIN, SIDEBAR_ROW_MAX, SIDEBAR_ROW_DEF))
   const fileRowHeight = ref(readRowHeight(LS_FILE_ROW_H, FILE_ROW_MIN, FILE_ROW_MAX, FILE_ROW_DEF))
   const resolvedTheme = computed(() => theme.value === 'system' ? systemTheme() : theme.value)
@@ -122,6 +136,8 @@ export const useUiStore = defineStore('ui', () => {
   // 首次进入时应用已持久化的主题
   applyTheme(theme.value)
   applyFontSize(fontSize.value)
+  applySidebarFontSize(sidebarFontSize.value)
+  applyFileFontSize(fileFontSize.value)
   applyRowHeights(sidebarRowHeight.value, fileRowHeight.value)
   const systemThemeQuery = window.matchMedia('(prefers-color-scheme: dark)')
   systemThemeQuery.addEventListener('change', () => {
@@ -201,6 +217,28 @@ export const useUiStore = defineStore('ui', () => {
     }
   }
 
+  function setSidebarFontSize(size: number) {
+    if (!Number.isInteger(size) || size < FONT_SIZE_MIN || size > FONT_SIZE_MAX) return
+    sidebarFontSize.value = size
+    applySidebarFontSize(size)
+    try {
+      localStorage.setItem(LS_SIDEBAR_FONT_SIZE, String(size))
+    } catch {
+      /* ignore */
+    }
+  }
+
+  function setFileFontSize(size: number) {
+    if (!Number.isInteger(size) || size < FONT_SIZE_MIN || size > FONT_SIZE_MAX) return
+    fileFontSize.value = size
+    applyFileFontSize(size)
+    try {
+      localStorage.setItem(LS_FILE_FONT_SIZE, String(size))
+    } catch {
+      /* ignore */
+    }
+  }
+
   function setSidebarRowHeight(size: number) {
     if (!Number.isInteger(size) || size < SIDEBAR_ROW_MIN || size > SIDEBAR_ROW_MAX) return
     sidebarRowHeight.value = size
@@ -249,6 +287,8 @@ export const useUiStore = defineStore('ui', () => {
   function resetViewDefaults() {
     try {
       localStorage.removeItem(LS_FONT_SIZE)
+      localStorage.removeItem(LS_SIDEBAR_FONT_SIZE)
+      localStorage.removeItem(LS_FILE_FONT_SIZE)
       localStorage.removeItem(LS_SIDEBAR_ROW_H)
       localStorage.removeItem(LS_FILE_ROW_H)
       localStorage.removeItem(LS_HIDE_PROTECTED)
@@ -257,11 +297,15 @@ export const useUiStore = defineStore('ui', () => {
       /* ignore */
     }
     fontSize.value = FONT_SIZE_DEF
+    sidebarFontSize.value = SIDEBAR_FONT_SIZE_DEF
+    fileFontSize.value = FILE_FONT_SIZE_DEF
     sidebarRowHeight.value = SIDEBAR_ROW_DEF
     fileRowHeight.value = FILE_ROW_DEF
     hideProtected.value = HIDE_PROTECTED_DEF
     hideFileExtensions.value = HIDE_FILE_EXTENSIONS_DEF
     applyFontSize(fontSize.value)
+    applySidebarFontSize(sidebarFontSize.value)
+    applyFileFontSize(fileFontSize.value)
     applyRowHeights(sidebarRowHeight.value, fileRowHeight.value)
   }
 
@@ -315,6 +359,8 @@ export const useUiStore = defineStore('ui', () => {
     sidebarCollapsed,
     theme,
     fontSize,
+    sidebarFontSize,
+    fileFontSize,
     sidebarRowHeight,
     fileRowHeight,
     resolvedTheme,
@@ -338,6 +384,8 @@ export const useUiStore = defineStore('ui', () => {
     setTheme,
     toggleTheme,
     setFontSize,
+    setSidebarFontSize,
+    setFileFontSize,
     setSidebarRowHeight,
     setFileRowHeight,
     setHideProtected,
