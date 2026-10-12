@@ -228,6 +228,7 @@ function onMarqueeMove(ev: MouseEvent) {
   if (!state) return
   if (Math.abs(ev.clientX - state.startX) > 4 || Math.abs(ev.clientY - state.startY) > 4) state.moved = true
   updateMarqueeBox(ev)
+  applyMarqueeSelection()
 }
 
 function onMarqueeUp(ev: MouseEvent) {
@@ -814,7 +815,7 @@ function onDrop(ev: DragEvent) {
             @dragstart="onDragStart($event, vr.row.entry)"
           >
             <span class="name-cell">
-              <span v-if="vr.row.depth" class="indent" :style="{ width: `${vr.row.depth * 14}px` }" />
+              <span v-if="vr.row.depth" class="indent" :style="{ width: `${vr.row.depth * 10}px` }" />
               <button
                 v-if="vr.row.entry.isDir && !isRemote"
                 class="twisty"
@@ -971,6 +972,7 @@ function onDrop(ev: DragEvent) {
 .file-list {
   flex: 1;
   min-height: 0;
+  font-size: var(--file-font-size);
   display: flex;
   flex-direction: column;
   background: var(--bg-app);
@@ -981,8 +983,7 @@ function onDrop(ev: DragEvent) {
   position: absolute;
   z-index: 20;
   pointer-events: none;
-  border: 1px solid color-mix(in srgb, var(--accent) 75%, transparent);
-  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  background: color-mix(in srgb, var(--accent) 24%, transparent);
 }
 
 /* 状态页 */
@@ -1231,14 +1232,14 @@ function onDrop(ev: DragEvent) {
   width: 52px;
   height: 52px;
   border-radius: 14px;
-  background: color-mix(in srgb, currentColor 13%, var(--bg-panel));
-  transition: transform 120ms ease, background-color 120ms ease;
+  background: transparent;
+  transition: transform 120ms ease;
 }
 .icon-cell:hover .icon-big {
   transform: translateY(-1px);
 }
 .icon-cell.selected .icon-big {
-  background: color-mix(in srgb, currentColor 19%, var(--bg-panel));
+  background: transparent;
 }
 .icon-name {
   font-size: 1rem;
