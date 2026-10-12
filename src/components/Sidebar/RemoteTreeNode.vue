@@ -71,7 +71,7 @@ function openInPane() {
         <Icon name="chevron-right" :size="11" />
       </span>
       <button class="row-main" :title="path" @click="openInPane">
-        <Icon name="folder" :size="14" />
+        <Icon name="folder" :size="18" />
         <span class="label">{{ name }}</span>
       </button>
     </div>

@@ -299,7 +299,7 @@ function toggleHost(item: RemoteHost) {
       <div class="tree-row category">
         <button class="row-main" @click="toggleSmb">
           <span class="twist" :class="{ open: sections.smb }"><Icon name="chevron-right" :size="11" /></span>
-          <Icon class="category-icon" :name="sections.smb ? 'folder-open' : 'folder'" :size="14" /><span>局域网 · SMB</span>
+          <Icon class="category-icon category-smb" name="network" :size="18" /><span>局域网 · SMB</span>
         </button>
         <button class="action" title="刷新网上邻居" aria-label="刷新网上邻居" :disabled="scanLoading" @click="refreshSmb"><Icon name="refresh" :size="13" /></button>
         <button class="action" title="添加共享" aria-label="添加 SMB 共享" @click="openSmbForm"><Icon name="plus" :size="13" /></button>
@@ -311,7 +311,7 @@ function toggleHost(item: RemoteHost) {
           <div class="tree-row server-row">
             <button class="row-main" :title="`\\\\${neighbor.server}`" @click="toggleServer(neighbor.server)">
               <span class="twist" :class="{ open: expandedServers[neighbor.server] }"><Icon name="chevron-right" :size="11" /></span>
-              <Icon name="drive" :size="14" /><span class="label">{{ neighbor.server }}</span>
+              <Icon name="drive" :size="18" /><span class="label">{{ neighbor.server }}</span>
             </button>
           </div>
           <div v-if="expandedServers[neighbor.server]">
@@ -336,7 +336,7 @@ function toggleHost(item: RemoteHost) {
       <div class="tree-row category">
         <button class="row-main" @click="sections.remote = !sections.remote">
           <span class="twist" :class="{ open: sections.remote }"><Icon name="chevron-right" :size="11" /></span>
-          <Icon class="category-icon" :name="sections.remote ? 'folder-open' : 'folder'" :size="14" /><span>FTP / SFTP</span>
+          <Icon class="category-icon category-remote" name="swap" :size="18" /><span>FTP / SFTP</span>
         </button>
         <button class="action" title="添加主机" aria-label="添加 FTP 或 SFTP 主机" @click="openHostForm"><Icon name="plus" :size="13" /></button>
       </div>
@@ -351,7 +351,7 @@ function toggleHost(item: RemoteHost) {
               <Icon name="chevron-right" :size="11" />
             </span>
             <button class="row-main" :title="`打开 ${item.protocol}://${item.host}:${item.port}`" @click="openHostInPane(item)">
-              <Icon name="drive" :size="14" /><span class="label">{{ item.label }}</span><small>{{ item.protocol.toUpperCase() }}</small>
+              <Icon name="drive" :size="18" /><span class="label">{{ item.label }}</span><small>{{ item.protocol.toUpperCase() }}</small>
             </button>
             <div class="host-actions">
               <button class="remove" title="编辑主机" aria-label="编辑主机" @click="editHost(item)"><Icon name="pencil" :size="12" /></button>
@@ -376,7 +376,7 @@ function toggleHost(item: RemoteHost) {
       <div class="tree-row category">
         <button class="row-main" @click="sections.cloud = !sections.cloud">
           <span class="twist" :class="{ open: sections.cloud }"><Icon name="chevron-right" :size="11" /></span>
-          <Icon class="category-icon" :name="sections.cloud ? 'folder-open' : 'folder'" :size="14" /><span>云存储</span>
+          <Icon class="category-icon category-cloud" name="cloud" :size="18" /><span>云存储</span>
         </button>
       </div>
       <p v-if="sections.cloud" class="state">暂无云存储连接</p>
@@ -428,7 +428,11 @@ function toggleHost(item: RemoteHost) {
 .tree-row:hover { background: var(--bg-hover); }
 .row-main { display: flex; align-items: center; gap: 4px; flex: 1; min-width: 0; height: 100%; padding: 0 6px; text-align: left; color: var(--fg-folder); font-size: 1rem; }
 .row-main span:last-of-type, .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.category-icon { flex: none; color: var(--accent); }
+.category-icon { flex: none; }
+.category-icon :deep(path) { fill: currentColor; }
+.category-smb { color: #4f83e8; }
+.category-remote { color: #b07ad8; }
+.category-cloud { color: #22a98b; }
 .host-row .twist { margin-left: 18px; }
 .host-actions { display: flex; align-items: center; gap: 2px; flex: none; }
 .server-row .row-main { padding-left: 18px; }
