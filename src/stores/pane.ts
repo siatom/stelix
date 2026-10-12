@@ -2,10 +2,11 @@ import { defineStore } from 'pinia'
 import { computed, ref, watch } from 'vue'
 import { homeDir } from '@tauri-apps/api/path'
 import { api } from '../api'
-import type { DirListing, FileEntry, FsOp, FsOpResult, PaneState, SearchHit, TabState, ViewMode } from '../types'
+import type { DirListing, FileEntry, FsOp, FsOpResult, PaneState, RemoteLocation, SearchHit, TabState, ViewMode } from '../types'
 import { useUiStore } from './ui'
 import { dirname } from '../components/Pane/utils'
 import { normalizePath, setWatchSource } from '../shell/dirWatch'
+import { remoteDirname, resolveRemotePassword } from '../shell/remote'
 
 /**
  * 双窗格 / 多标签状态 —— 由 **WS-D (feat/ui-panes)** 实现。
@@ -126,13 +127,22 @@ function sameEntries(a: FileEntry[], b: FileEntry[]): boolean {
   return true
 }
 
-/** 浏览历史中的一处位置：普通目录只记路径，搜索结果还需带查询词与命中列表以便还原。 */
+/** 浏览历史中的一处位置：普通目录只记路径，搜索结果与远程目录还需带上还原所需的信息。 */
 interface HistoryItem {
   path: string
-  kind?: 'files' | 'search'
+  kind?: 'files' | 'search' | 'remote'
   title?: string
   searchQuery?: string
   entries?: FileEntry[]
+  remote?: RemoteLocation
+}
+
+/**
+ * 是否可持久化：搜索结果（命中无法跨会话还原）与远程标签（没有凭据、也拿不到远端内容）都不写入
+ * localStorage，否则恢复时会被当成普通本地目录标签（表现为重复目录 / 打开失败）。
+ */
+function isPersistableTab(tab: TabState): boolean {
+  return tab.kind !== 'search' && tab.kind !== 'remote'
 }
 
 interface HistoryEntry {
@@ -191,16 +201,16 @@ export const usePaneStore = defineStore('pane', () => {
     try {
       const paths: Record<string, SavedPanePaths> = {}
       for (const pane of panes.value) {
-        // 搜索标签不持久化：命中结果无法跨会话还原，恢复时会被当成普通目录标签（表现为重复目录）。
-        const fileTabs = pane.tabs.filter((tab) => tab.kind !== 'search')
+        // 搜索 / 远程标签不持久化（见 `isPersistableTab`）。
+        const fileTabs = pane.tabs.filter(isPersistableTab)
         if (!fileTabs.length) continue
         let activeTabIndex = fileTabs.findIndex((tab) => tab.id === pane.activeTabId)
         if (activeTabIndex < 0) {
-          // 活动标签是搜索标签时，退回其左侧最近的文件标签。
+          // 活动标签是搜索 / 远程标签时，退回其左侧最近的可持久化标签。
           const activePos = pane.tabs.findIndex((tab) => tab.id === pane.activeTabId)
           const before = pane.tabs
             .slice(0, activePos < 0 ? pane.tabs.length : activePos)
-            .filter((tab) => tab.kind !== 'search').length
+            .filter(isPersistableTab).length
           activeTabIndex = Math.min(Math.max(before - 1, 0), fileTabs.length - 1)
         }
         paths[pane.id] = {
@@ -243,12 +253,12 @@ export const usePaneStore = defineStore('pane', () => {
   )
   watch(() => [activePaneId.value, splitRatio.value, singlePane.value], savePaneLayout, { flush: 'sync' })
 
-  // 把「所有打开的文件标签目录」上报给目录监听注册表（搜索结果标签没有目录语义）。
+  // 把「所有打开的文件标签目录」上报给目录监听注册表（搜索 / 远程标签没有本地目录语义）。
   watch(
     () =>
       panes.value
         .flatMap((pane) => pane.tabs)
-        .filter((tab) => tab.kind !== 'search')
+        .filter(isPersistableTab)
         .map((tab) => tab.path),
     (paths) => setWatchSource('panes', paths),
     { flush: 'sync' },
@@ -261,6 +271,7 @@ export const usePaneStore = defineStore('pane', () => {
       title: tab.title,
       searchQuery: tab.searchQuery,
       entries: tab.kind === 'search' ? tab.entries : undefined,
+      remote: tab.kind === 'remote' ? tab.remote : undefined,
     }
   }
 
@@ -296,11 +307,19 @@ export const usePaneStore = defineStore('pane', () => {
 
   // ---- 加载 / 导航 ----
 
+  /** 远程标签：取（内存 / 凭据库里的）密码后列出 FTP / SFTP 目录。 */
+  async function listRemoteTab(tab: TabState): Promise<DirListing> {
+    const location = tab.remote
+    if (!location) throw new Error('远程连接信息缺失')
+    const password = await resolveRemotePassword(location.id)
+    return api.listRemoteDir({ ...location, password, path: tab.path })
+  }
+
   async function load(tab: TabState) {
     tab.loading = true
     tab.error = null
     try {
-      const listing = await api.listDir(tab.path)
+      const listing = tab.kind === 'remote' ? await listRemoteTab(tab) : await api.listDir(tab.path)
       tab.entries = listing.entries
       tab.selected = []
     } catch (e) {
@@ -325,12 +344,43 @@ export const usePaneStore = defineStore('pane', () => {
     tab.kind = 'files'
     tab.title = undefined
     tab.searchQuery = undefined
+    tab.remote = undefined
     tab.path = path
     if (pushHistory) recordHistory(tab)
     await load(tab)
   }
 
-  /** 把标签页还原到某个历史位置：普通目录重新加载，搜索结果恢复其命中列表。 */
+  /**
+   * 在文件窗格打开一个远程（FTP / SFTP）目录。
+   *
+   * 与本地 `navigateTo` 分开：`navigateTo` 会把标签强制打回本地（`kind = 'files'`），
+   * 而远程标签要在整段浏览过程中保持 `kind = 'remote'` 与连接信息。
+   */
+  async function openRemote(paneId: string, location: RemoteLocation, path = '/') {
+    await navigateRemote(paneId, location, path)
+  }
+
+  async function navigateRemote(
+    paneId: string,
+    location: RemoteLocation,
+    path: string,
+    tabId?: string,
+    pushHistory = true,
+  ) {
+    const pane = paneById(paneId)
+    if (!pane) return
+    const tab = tabId ? pane.tabs.find((t) => t.id === tabId) : activeTabOf(pane)
+    if (!tab) return
+    tab.kind = 'remote'
+    tab.remote = location
+    tab.title = location.label
+    tab.searchQuery = undefined
+    tab.path = path
+    if (pushHistory) recordHistory(tab)
+    await load(tab)
+  }
+
+  /** 把标签页还原到某个历史位置：普通目录重新加载，搜索结果 / 远程目录按其快照还原。 */
   async function restoreHistory(paneId: string, tab: TabState, item: HistoryItem) {
     if (item.kind === 'search') {
       tab.kind = 'search'
@@ -341,6 +391,10 @@ export const usePaneStore = defineStore('pane', () => {
       tab.selected = []
       tab.loading = false
       tab.error = null
+      return
+    }
+    if (item.kind === 'remote' && item.remote) {
+      await navigateRemote(paneId, item.remote, item.path, tab.id, false)
       return
     }
     await navigateTo(paneId, item.path, tab.id, false)
@@ -389,6 +443,12 @@ export const usePaneStore = defineStore('pane', () => {
     if (!pane) return
     const tab = activeTabOf(pane)
     if (!tab) return
+    if (tab.kind === 'remote' && tab.remote) {
+      const parent = remoteDirname(tab.path)
+      if (parent === tab.path) return
+      await navigateRemote(paneId, tab.remote, parent)
+      return
+    }
     const parent = dirname(tab.path)
     if (!parent || parent === tab.path) return
     await navigateTo(paneId, parent)
@@ -403,7 +463,8 @@ export const usePaneStore = defineStore('pane', () => {
     // 手动刷新是「深层变更」唯一确定的观测时机（notify 只监听被打开目录的直接子项，
     // 深层删除不会触发事件），因此在这里让该目录子树的大小缓存失效并重算；
     // 普通导航不做此失效，避免每次进目录都重走大目录。
-    if (!tab.error) invalidateDirSizes([tab.path])
+    // 远程目录没有本地递归统计，跳过缓存失效。
+    if (!tab.error && tab.kind !== 'remote') invalidateDirSizes([tab.path])
   }
 
   /**
@@ -413,7 +474,7 @@ export const usePaneStore = defineStore('pane', () => {
    * 供「目录变更自动刷新」使用，避免应用内操作与 watcher 事件造成重复刷新与闪烁。
    */
   async function reloadQuiet(tab: TabState) {
-    if (tab.loading || tab.kind === 'search') return
+    if (tab.loading || tab.kind === 'search' || tab.kind === 'remote') return
     let listing: DirListing
     try {
       listing = await api.listDir(tab.path)
@@ -435,6 +496,7 @@ export const usePaneStore = defineStore('pane', () => {
     for (const pane of panes.value) {
       for (const tab of pane.tabs) {
         if (tab.id === editingTabId.value) continue // 正在行内编辑，跳过以免打断输入
+        if (tab.kind === 'remote') continue // 远程目录与本地监听无关
         if (normalizePath(tab.path) !== target) continue
         jobs.push(reloadQuiet(tab))
       }
@@ -651,6 +713,10 @@ export const usePaneStore = defineStore('pane', () => {
     if (srcIdx < 0) return
     const src = pane.tabs[srcIdx]
     const tab = makeTab(src.path)
+    tab.kind = src.kind
+    tab.title = src.title
+    tab.searchQuery = src.searchQuery
+    tab.remote = src.remote
     tab.filter = src.filter
     tab.sortKey = src.sortKey
     tab.sortAsc = src.sortAsc
@@ -807,6 +873,10 @@ export const usePaneStore = defineStore('pane', () => {
     if (!srcPane || !dstPane) return
     const srcTab = activeTabOf(srcPane)
     if (!srcTab) return
+    if (srcTab.kind === 'remote' && srcTab.remote) {
+      await navigateRemote(dstPane.id, srcTab.remote, srcTab.path)
+      return
+    }
     await navigateTo(dstPane.id, srcTab.path)
   }
 
@@ -894,6 +964,8 @@ export const usePaneStore = defineStore('pane', () => {
     invalidateDirSizes,
     navigate,
     navigateTo,
+    openRemote,
+    navigateRemote,
     load,
     goUp,
     goBack,

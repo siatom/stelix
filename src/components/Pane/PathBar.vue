@@ -8,17 +8,33 @@ import Icon from '../icons/Icon.vue'
 import { addFavorite, FAVORITES_CHANGED_EVENT, loadFavorites } from '../Sidebar/shared'
 import { useUiStore } from '../../stores/ui'
 import { api } from '../../api'
+import { normalizeRemotePath } from '../../shell/remote'
 
 const props = defineProps<{ paneId: string; tab: TabState }>()
 const paneStore = usePaneStore()
 const ui = useUiStore()
 const isFavorite = ref(loadFavorites().some((item) => item.path === props.tab.path))
 
+/** 远程（FTP / SFTP）标签：路径只读展示，不参与本地收藏与路径补全。 */
+const isRemote = computed(() => props.tab.kind === 'remote' && !!props.tab.remote)
+
 const editing = ref(false)
 const draft = ref('')
 const inputRef = ref<HTMLInputElement | null>(null)
 
 const segments = computed(() => {
+  const location = props.tab.remote
+  if (props.tab.kind === 'remote' && location) {
+    const parts: { label: string; path: string }[] = [
+      { label: `${location.protocol}://${location.host}:${location.port}`, path: '/' },
+    ]
+    let acc = ''
+    for (const seg of normalizeRemotePath(props.tab.path).split('/').filter(Boolean)) {
+      acc = `${acc}/${seg}`
+      parts.push({ label: seg, path: acc })
+    }
+    return parts
+  }
   const norm = props.tab.path.replace(/\//g, '\\')
   const share = norm.match(/^(\\\\[^\\]+\\[^\\]+)/)
   if (share) {
@@ -46,6 +62,11 @@ const segments = computed(() => {
 })
 
 function go(path: string) {
+  const location = props.tab.remote
+  if (props.tab.kind === 'remote' && location) {
+    void paneStore.navigateRemote(props.paneId, location, path)
+    return
+  }
   void paneStore.navigateTo(props.paneId, path)
 }
 
@@ -64,6 +85,7 @@ onMounted(() => window.addEventListener(FAVORITES_CHANGED_EVENT, syncFavorite))
 onBeforeUnmount(() => window.removeEventListener(FAVORITES_CHANGED_EVENT, syncFavorite))
 
 async function startEdit() {
+  if (isRemote.value) return // 远程路径只读
   draft.value = props.tab.path
   editing.value = true
   await nextTick()
@@ -73,6 +95,10 @@ async function startEdit() {
 
 async function commit() {
   if (!editing.value) return
+  if (isRemote.value) {
+    editing.value = false
+    return
+  }
   const value = draft.value.trim()
   editing.value = false
   if (!value || value === props.tab.path) return
@@ -113,7 +139,12 @@ watch(
 
 <template>
   <div class="path-bar">
-    <div v-if="!editing" class="crumbs" title="双击切换为可编辑路径" @dblclick.stop.prevent="startEdit">
+    <div
+      v-if="!editing"
+      class="crumbs"
+      :title="isRemote ? '远程路径（只读）' : '双击切换为可编辑路径'"
+      @dblclick.stop.prevent="startEdit"
+    >
       <template v-for="(seg, i) in segments" :key="seg.path">
         <span v-if="i > 0" class="sep"><Icon name="chevron-right" :size="11" /></span>
         <button class="crumb" :class="{ last: i === segments.length - 1 }" @click="go(seg.path)">
@@ -132,6 +163,7 @@ watch(
       @blur="commit"
     />
     <button
+      v-if="!isRemote"
       class="favorite-button"
       :class="{ 'is-favorite': isFavorite }"
       :title="isFavorite ? '当前目录已在收藏中' : '将当前目录加入收藏'"

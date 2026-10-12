@@ -7,7 +7,7 @@ import type { FileEntry, TabState } from '../../types'
 import { usePaneStore } from '../../stores/pane'
 import { useUiStore } from '../../stores/ui'
 import { api } from '../../api'
-import { basename, dirname, fileKind, formatSize, formatTime, joinPath, typeLabel } from './utils'
+import { basename, dirname, fileIcon, fileKind, formatSize, formatTime, joinPath, typeLabel } from './utils'
 import Icon from '../icons/Icon.vue'
 import FileIcon from '../icons/FileIcon.vue'
 import {
@@ -39,6 +39,15 @@ const DRAG_FALLBACK_TYPE = 'text/plain'
 const DRAG_PREFIX = 'stelix:'
 
 const viewMode = computed(() => paneStore.panes.find((p) => p.id === props.paneId)?.viewMode ?? 'details')
+/**
+ * 远程（FTP / SFTP）标签：只读浏览。
+ *
+ * 远程条目只能用矢量图标（`get_file_icon` 只认本地路径），且本地文件操作
+ * （新建 / 重命名 / 删除 / 粘贴 / 拖拽对拷 / 终端 / 属性 / 收藏 / 递归大小）全部不适用。
+ */
+const isRemote = computed(() => props.tab.kind === 'remote' && !!props.tab.remote)
+/** 只有本地目录标签才有本地文件操作。 */
+const isLocal = computed(() => props.tab.kind !== 'search' && props.tab.kind !== 'remote')
 // 先取 store 的过滤+排序结果，再按「隐藏受保护的操作系统文件」剔除（Explorer 语义：hidden && system）
 const allRows = computed(() => paneStore.entriesFor(props.tab))
 const rows = computed(() =>
@@ -83,7 +92,7 @@ function onClick(ev: MouseEvent, index: number, entry: FileEntry) {
     lastItemClick?.path === entry.path &&
     now - lastItemClick.at >= 400
 
-  if (isRenameClick) {
+  if (isRenameClick && !isRemote.value) {
     lastItemClick = null
     startRename(entry.path)
     return
@@ -113,6 +122,16 @@ function clearSelection() {
 // ---- 打开 ----
 
 async function openEntry(entry: FileEntry, countForFrequentDirectories = false) {
+  const location = props.tab.remote
+  if (isRemote.value && location) {
+    if (entry.isDir) {
+      await paneStore.navigateRemote(props.paneId, location, entry.path)
+      return
+    }
+    // 只读浏览：远程文件不在本轮范围内，不做下载 / 打开。
+    ui.statusText = '远程文件暂不支持打开（当前仅支持浏览目录）'
+    return
+  }
   if (entry.isDir) {
     await paneStore.navigateTo(props.paneId, entry.path)
     return
@@ -175,6 +194,7 @@ function focusEdit(attempt = 0) {
 
 /** 进入某条目的行内重命名 */
 function startRename(path: string) {
+  if (isRemote.value) return // 远程标签只读
   const entry = rows.value.find((e) => e.path === path) ?? props.tab.entries.find((e) => e.path === path)
   if (!entry) return
   const name = entry.name
@@ -197,7 +217,7 @@ function cancelEdit() {
 
 /** 进入「新建」行内编辑（文件夹 / 空文件），在当前目录创建 */
 function startCreate(kind: 'mkdir' | 'createFile') {
-  if (props.tab.kind === 'search') return // 搜索结果标签页无目录语义
+  if (!isLocal.value) return // 搜索结果 / 远程标签无本地目录语义
   editing.value = { mode: kind, name: '', selStart: 0, selEnd: 0 }
   focusEdit()
 }
@@ -210,6 +230,10 @@ const editingCreate = computed(
 async function commitEdit() {
   const e = editing.value
   if (!e) return
+  if (!isLocal.value) {
+    editing.value = null
+    return
+  }
   const name = e.name.trim()
   editing.value = null // 先关闭，避免 Enter 与 blur 重复提交
   if (!name) return
@@ -288,6 +312,7 @@ function currentDirEntry(): FileEntry {
 
 /** 文件窗格空白处右键：对「当前所在文件夹」弹出与文件夹右键相同的菜单 */
 function onBlankContextMenu(ev: MouseEvent) {
+  if (!isLocal.value) return // 远程标签订单只读，空白处不弹菜单
   const el = ev.target as HTMLElement | null
   // 条目行 / 图标格 / 表头 / 行内输入 / 已弹出的右键菜单 上各有处理，其余空白归属当前目录
   if (el?.closest('.row, .icon-cell, .header, .inline-new, .ctx-menu')) return
@@ -301,7 +326,7 @@ function closeCtx() {
 }
 
 function openInNewTab(entry: FileEntry) {
-  if (!entry.isDir) return
+  if (!entry.isDir || !isLocal.value) return
   paneStore.addTab(props.paneId, entry.path)
   closeCtx()
 }
@@ -371,6 +396,7 @@ function isEditableTarget(t: EventTarget | null): boolean {
 function onGlobalKey(ev: KeyboardEvent) {
   if (isEditableTarget(ev.target)) return
   if (paneStore.activePaneId !== props.paneId) return // 左右窗格只处理一次
+  if (!isLocal.value) return // 远程标签只读：不响应 Ctrl+C/X/V、F2、Delete
 
   const key = ev.key.toLowerCase()
   const ctrl = ev.ctrlKey || ev.metaKey
@@ -463,12 +489,16 @@ const emptyByProtect = computed(
 const emptyByFilter = computed(
   () => hasEntries.value && rows.value.length === 0 && !!props.tab.filter.trim(),
 )
+const emptyText = computed(() =>
+  props.tab.kind === 'search' ? '没有找到匹配项' : isRemote.value ? '远程目录为空' : '此目录为空',
+)
 
 // ---- 详情视图：文件夹大小按需统计（仅可见行） ----
 
 /** 详情视图当前可见的文件夹路径（虚拟滚动，通常仅十几行）。 */
 const visibleDirPaths = computed(() => {
   if (viewMode.value !== 'details') return []
+  if (isRemote.value) return [] // POSIX 远程路径不做本地递归统计
   const list = rows.value
   const out: string[] = []
   for (const item of virtualizer.value.getVirtualItems()) {
@@ -498,6 +528,10 @@ interface DragPayload {
 
 function onDragStart(ev: DragEvent, entry: FileEntry) {
   if (!ev.dataTransfer) return
+  if (!isLocal.value) {
+    ev.preventDefault() // 远程条目不可拖出（本地复制 / 移动不适用）
+    return
+  }
   if (!props.tab.selected.includes(entry.path)) props.tab.selected = [entry.path]
   const payload: DragPayload = {
     paneId: props.paneId,
@@ -511,6 +545,7 @@ function onDragStart(ev: DragEvent, entry: FileEntry) {
 }
 
 function onDragOver(ev: DragEvent) {
+  if (!isLocal.value) return // 远程目录不能作为本地拖放目标
   const types = Array.from(ev.dataTransfer?.types ?? [])
   if (types.includes(DRAG_TYPE) || types.includes(DRAG_FALLBACK_TYPE)) {
     if (ev.dataTransfer) ev.dataTransfer.dropEffect = ev.shiftKey ? 'copy' : 'move'
@@ -518,6 +553,7 @@ function onDragOver(ev: DragEvent) {
 }
 
 function onDrop(ev: DragEvent) {
+  if (!isLocal.value) return // 远程目录不能接收本地复制 / 移动
   const transfer = ev.dataTransfer
   const custom = transfer?.getData(DRAG_TYPE)
   const plain = transfer?.getData(DRAG_FALLBACK_TYPE) ?? ''
@@ -559,7 +595,7 @@ function onDrop(ev: DragEvent) {
     <!-- 空目录 / 无匹配 -->
     <div v-else-if="!hasEntries && !editingCreate" class="state">
       <Icon name="folder-open" :size="30" class="big-ico" />
-      <p>{{ tab.kind === 'search' ? '没有找到匹配项' : '此目录为空' }}</p>
+      <p>{{ emptyText }}</p>
     </div>
     <div v-else-if="emptyByProtect && !editingCreate" class="state">
       <Icon name="folder-open" :size="30" class="big-ico" />
@@ -621,7 +657,9 @@ function onDrop(ev: DragEvent) {
             @dragstart="onDragStart($event, rows[vi.index])"
           >
             <span class="ico" :class="`k-${fileKind(rows[vi.index])}`">
+              <Icon v-if="isRemote" :name="fileIcon(rows[vi.index])" :size="14" />
               <FileIcon
+                v-else
                 :path="rows[vi.index].path"
                 :is-dir="rows[vi.index].isDir"
                 :ext="rows[vi.index].ext"
@@ -683,7 +721,8 @@ function onDrop(ev: DragEvent) {
           @dragstart="onDragStart($event, entry)"
         >
           <span class="icon-big" :class="`k-${fileKind(entry)}`">
-            <FileIcon :path="entry.path" :is-dir="entry.isDir" :ext="entry.ext" :size="30" />
+            <Icon v-if="isRemote" :name="fileIcon(entry)" :size="30" />
+            <FileIcon v-else :path="entry.path" :is-dir="entry.isDir" :ext="entry.ext" :size="30" />
           </span>
           <span v-if="editing && editing.mode === 'rename' && editing.path === entry.path" class="icon-name">
             <input
@@ -713,27 +752,31 @@ function onDrop(ev: DragEvent) {
       @click.stop
       @contextmenu.prevent
     >
-      <template v-if="tab.kind !== 'search'">
+      <template v-if="isLocal">
         <button @click="startCreate('mkdir'); closeCtx()"><Icon name="folder-plus" :size="14" />新建文件夹</button>
         <button @click="startCreate('createFile'); closeCtx()"><Icon name="file-plus" :size="14" />新建文件</button>
         <div class="sep" />
       </template>
       <button @click="openEntry(ctx.entry); closeCtx()"><Icon :name="ctx.entry.isDir ? 'folder-open' : 'file'" :size="14" />打开</button>
-      <button v-if="ctx.entry.isDir" @click="openInNewTab(ctx.entry)"><Icon name="plus" :size="14" />在新标签页打开</button>
-      <button v-if="ctx.entry.isDir" :disabled="favoritePaths.has(ctx.entry.path)" @click="addEntryFavorite(ctx.entry)"><Icon name="star" :size="14" />{{ favoritePaths.has(ctx.entry.path) ? '已在收藏中' : '添加到收藏' }}</button>
-      <button v-if="ctx.entry.isDir" @click="openInTerminal(ctx.entry)"><Icon name="terminal" :size="14" />在终端打开</button>
-      <div class="sep" />
-      <button @click="copyToClipboard('copy')"><Icon name="copy" :size="14" /><span>复制</span><kbd>Ctrl+C</kbd></button>
-      <button @click="copyToClipboard('move')"><Icon name="arrow-right" :size="14" /><span>剪切</span><kbd>Ctrl+X</kbd></button>
-      <button @click="paste"><Icon name="folder-open" :size="14" /><span>粘贴到此目录</span><kbd>Ctrl+V</kbd></button>
-      <div class="sep" />
-      <button @click="startRename(ctx.entry.path); closeCtx()"><Icon name="pencil" :size="14" /><span>重命名</span><kbd>F2</kbd></button>
-      <button class="danger" @click="emit('delete', [ctx.entry.path]); closeCtx()"><Icon name="trash" :size="14" /><span>删除</span><kbd>Delete</kbd></button>
+      <button v-if="ctx.entry.isDir && isLocal" @click="openInNewTab(ctx.entry)"><Icon name="plus" :size="14" />在新标签页打开</button>
+      <button v-if="ctx.entry.isDir && isLocal" :disabled="favoritePaths.has(ctx.entry.path)" @click="addEntryFavorite(ctx.entry)"><Icon name="star" :size="14" />{{ favoritePaths.has(ctx.entry.path) ? '已在收藏中' : '添加到收藏' }}</button>
+      <button v-if="ctx.entry.isDir && isLocal" @click="openInTerminal(ctx.entry)"><Icon name="terminal" :size="14" />在终端打开</button>
+      <template v-if="isLocal">
+        <div class="sep" />
+        <button @click="copyToClipboard('copy')"><Icon name="copy" :size="14" /><span>复制</span><kbd>Ctrl+C</kbd></button>
+        <button @click="copyToClipboard('move')"><Icon name="arrow-right" :size="14" /><span>剪切</span><kbd>Ctrl+X</kbd></button>
+        <button @click="paste"><Icon name="folder-open" :size="14" /><span>粘贴到此目录</span><kbd>Ctrl+V</kbd></button>
+        <div class="sep" />
+        <button @click="startRename(ctx.entry.path); closeCtx()"><Icon name="pencil" :size="14" /><span>重命名</span><kbd>F2</kbd></button>
+        <button class="danger" @click="emit('delete', [ctx.entry.path]); closeCtx()"><Icon name="trash" :size="14" /><span>删除</span><kbd>Delete</kbd></button>
+      </template>
       <div class="sep" />
       <button @click="copyFileName"><Icon name="file" :size="14" />复制文件名</button>
       <button @click="copyPath"><Icon name="file-text" :size="14" />复制路径</button>
-      <div class="sep" />
-      <button @click="showProperties(ctx.entry)"><Icon name="info" :size="14" />属性</button>
+      <template v-if="isLocal">
+        <div class="sep" />
+        <button @click="showProperties(ctx.entry)"><Icon name="info" :size="14" />属性</button>
+      </template>
     </div>
   </div>
 </template>
