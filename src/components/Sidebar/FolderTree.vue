@@ -17,6 +17,7 @@ import {
 } from './shared'
 import type { QuickLocation, RecentDirectory, TreeNodeData } from './shared'
 import Icon from '../icons/Icon.vue'
+import FileIcon from '../icons/FileIcon.vue'
 
 const pane = usePaneStore()
 const ui = useUiStore()
@@ -229,33 +230,35 @@ onBeforeUnmount(() => {
 <template>
   <div class="files-nav">
     <!-- 常用位置 -->
-    <section class="nav-section">
+    <section class="nav-section system-section">
       <div class="nav-head">
         <button class="nav-toggle" :aria-expanded="sections.system" @click="sections.system = !sections.system">
-          <Icon name="chevron-right" :size="11" :class="{ open: sections.system }" /><Icon name="home" class="section-icon system" :size="14" /><span class="nav-title">常用位置</span>
+          <Icon name="chevron-right" :size="11" :class="{ open: sections.system }" /><Icon name="home" class="section-icon system" :size="18" /><span class="nav-title">常用位置</span>
         </button>
       </div>
       <div v-if="sections.system && locLoading" class="state">加载中…</div>
       <div v-else-if="sections.system && locError" class="state err">系统路径不可用：{{ locError }}</div>
       <ul v-else-if="sections.system" class="nav-list">
         <li v-for="loc in system" :key="loc.path" :title="loc.path" @click="go(loc.path)">
-          <span class="ico"><Icon :name="loc.icon" :size="14" /></span>
+          <span class="ico system-ico" :class="`system-${loc.icon}`">
+            <FileIcon :path="loc.path" :is-dir="true" :ext="null" :use-path-icon="true" :fallback="loc.icon" :size="18" />
+          </span>
           <span class="label">{{ loc.label }}</span>
         </li>
       </ul>
     </section>
 
     <!-- 收藏 -->
-    <section class="nav-section">
+    <section class="nav-section favorites-section">
       <div class="nav-head">
         <button class="nav-toggle" :aria-expanded="sections.favorites" @click="sections.favorites = !sections.favorites">
-          <Icon name="chevron-right" :size="11" :class="{ open: sections.favorites }" /><Icon name="folder" class="section-icon favorites" :size="14" /><span class="nav-title">收藏</span>
+          <Icon name="chevron-right" :size="11" :class="{ open: sections.favorites }" /><Icon name="star" class="section-icon favorites" :size="18" /><span class="nav-title">收藏</span>
         </button>
       </div>
       <div v-if="sections.favorites && !favorites.length" class="state">暂无收藏，可从窗格工具栏添加当前目录</div>
       <TransitionGroup v-else-if="sections.favorites" tag="ul" name="favorite-sort" class="nav-list">
         <li
-          v-for="fav in favorites"
+          v-for="(fav, index) in favorites"
           :key="fav.path"
           :data-favorite-path="fav.path"
           :title="fav.path"
@@ -266,7 +269,7 @@ onBeforeUnmount(() => {
           @pointerup="finishFavoriteDrag"
           @pointercancel="finishFavoriteDrag"
         >
-          <span class="ico favorite-ico"><Icon name="folder" :size="14" /></span>
+          <span class="ico favorite-ico" :class="`favorite-color-${index % 5}`"><Icon name="folder" :size="18" /></span>
           <span class="label">{{ fav.label }}</span>
           <button class="del" title="移除收藏" @click.stop="removeFavorite(fav.path)">
             <Icon name="x" :size="11" />
@@ -276,10 +279,10 @@ onBeforeUnmount(() => {
     </section>
 
     <!-- 最近高频打开文件的目录 -->
-    <section class="nav-section">
+    <section class="nav-section recent-section">
       <div class="nav-head">
         <button class="nav-toggle" :aria-expanded="sections.recent" @click="sections.recent = !sections.recent">
-          <Icon name="chevron-right" :size="11" :class="{ open: sections.recent }" /><span class="nav-title">最近常用</span>
+          <Icon name="chevron-right" :size="11" :class="{ open: sections.recent }" /><Icon name="clock" class="section-icon recent" :size="18" /><span class="nav-title">最近常用</span>
         </button>
       </div>
       <div v-if="sections.recent && !recentDirectories.length" class="state">双击打开文件后，这里会显示常用目录</div>
@@ -290,7 +293,16 @@ onBeforeUnmount(() => {
           :title="`${directory.path}（所选 24 小时窗口打开 ${directory.count} 次）`"
           @click="go(directory.path)"
         >
-          <span class="ico"><Icon :name="directory.icon" :size="14" /></span>
+          <span class="ico">
+            <FileIcon
+              :path="directory.path"
+              :is-dir="true"
+              :ext="null"
+              :use-path-icon="true"
+              :fallback="directory.icon"
+              :size="18"
+            />
+          </span>
           <span class="label">{{ directory.label }}</span>
           <span class="count">{{ directory.count }} 次</span>
         </li>
@@ -301,7 +313,7 @@ onBeforeUnmount(() => {
     <section class="nav-section">
       <div class="nav-head">
         <button class="nav-toggle" :aria-expanded="sections.computer" @click="sections.computer = !sections.computer">
-          <Icon name="chevron-right" :size="11" :class="{ open: sections.computer }" /><Icon name="monitor" class="section-icon computer" :size="14" /><span class="nav-title">此电脑</span>
+          <Icon name="chevron-right" :size="11" :class="{ open: sections.computer }" /><Icon name="monitor" class="section-icon computer" :size="18" /><span class="nav-title">此电脑</span>
         </button>
         <button class="mini" title="刷新驱动器和 WSL 实例" :disabled="loading || wslLoading" @click="refreshComputer">
           <Icon name="refresh" :size="13" />
@@ -320,7 +332,20 @@ onBeforeUnmount(() => {
         <div v-if="wslDistros.length" class="wsl-tree">
           <button class="wsl-row" :title="`Linux（${wslDistros.length} 个 WSL 实例）`" @click="wslExpanded = !wslExpanded">
             <span class="wsl-twist" :class="{ open: wslExpanded }"><Icon name="chevron-right" :size="11" /></span>
-            <span class="wsl-icon"><Icon name="linux" :size="14" :stroke-width="1.4" /></span>
+            <span class="wsl-icon" aria-hidden="true">
+              <svg class="wsl-penguin" viewBox="0 0 24 24" aria-hidden="true">
+                <ellipse class="penguin-body" cx="12" cy="13.2" rx="7" ry="8" />
+                <ellipse class="penguin-belly" cx="12" cy="14.2" rx="4.4" ry="5.4" />
+                <path class="penguin-scarf" d="M5.8 10.5h12.4v2.1H5.8z" />
+                <circle class="penguin-eye" cx="9.8" cy="8.7" r="1.15" />
+                <circle class="penguin-eye" cx="14.2" cy="8.7" r="1.15" />
+                <circle class="penguin-pupil" cx="10" cy="8.9" r=".45" />
+                <circle class="penguin-pupil" cx="14" cy="8.9" r=".45" />
+                <path class="penguin-beak" d="m12 10.1 1.8 1.6-1.8 1.2-1.8-1.2z" />
+                <ellipse class="penguin-foot" cx="8.8" cy="21" rx="3" ry="1" />
+                <ellipse class="penguin-foot" cx="15.2" cy="21" rx="3" ry="1" />
+              </svg>
+            </span>
             <span class="wsl-name">Linux（WSL）</span>
           </button>
           <TreeNode
@@ -340,7 +365,7 @@ onBeforeUnmount(() => {
     <section class="nav-section">
       <div class="nav-head">
         <button class="nav-toggle" :aria-expanded="sections.network" @click="sections.network = !sections.network">
-          <Icon name="chevron-right" :size="11" :class="{ open: sections.network }" /><Icon name="network" class="section-icon network" :size="14" /><span class="nav-title">网络</span>
+          <Icon name="chevron-right" :size="11" :class="{ open: sections.network }" /><Icon name="globe" class="section-icon network" :size="18" /><span class="nav-title">网络</span>
         </button>
       </div>
       <NetworkPanel v-show="sections.network" />
@@ -353,6 +378,7 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  font-size: var(--sidebar-font-size);
 }
 .nav-section {
   display: flex;
@@ -368,7 +394,7 @@ onBeforeUnmount(() => {
   margin-bottom: 4px;
 }
 .nav-title {
-  font-size: 0.9167rem;
+  font-size: 1rem;
   color: var(--fg-muted);
   letter-spacing: 0.04em;
 }
@@ -377,9 +403,14 @@ onBeforeUnmount(() => {
   margin-left: 2px;
 }
 .section-icon.system { color: #e5a22b; }
-.section-icon.favorites { color: var(--ico-folder); }
+.section-icon.favorites { color: #f2bd63; }
 .section-icon.computer { color: #4f83e8; }
 .section-icon.network { color: #16a085; }
+.section-icon.recent { color: var(--fg-muted); }
+.section-icon.favorites :deep(path),
+.favorite-ico :deep(path) { fill: currentColor; }
+.nav-toggle .section-icon,
+.nav-toggle .nav-title { position: relative; left: -6px; }
 .nav-toggle {
   display: flex;
   align-items: center;
@@ -391,6 +422,7 @@ onBeforeUnmount(() => {
 }
 .nav-toggle:hover .nav-title { color: var(--fg); }
 .nav-toggle :deep(svg) { flex: none; transition: transform 0.12s ease; }
+.nav-toggle :deep(svg:first-child) { position: relative; left: -6px; }
 .nav-toggle :deep(svg.open) { transform: rotate(90deg); }
 .mini {
   width: 20px;
@@ -434,13 +466,24 @@ onBeforeUnmount(() => {
   transition: transform 0.12s ease;
 }
 .wsl-twist.open { transform: rotate(90deg); }
-.wsl-icon { display: flex; flex: none; color: var(--accent); }
+.wsl-icon { display: flex; flex: none; }
+.wsl-penguin { display: block; width: 18px; height: 18px; }
+.penguin-body { fill: #30343b; }
+.penguin-belly { fill: #f2f3f5; }
+.penguin-eye { fill: #ffffff; }
+.penguin-pupil { fill: #30343b; }
+.penguin-scarf { fill: #4f83e8; }
+.penguin-beak,
+.penguin-foot { fill: #e08a2e; }
 .wsl-name { color: var(--fg-folder); font-size: 1rem; }
 .nav-list {
   list-style: none;
   margin: 0;
   padding: 0;
 }
+.system-section .nav-list,
+.favorites-section .nav-list,
+.recent-section .nav-list { padding-left: 16px; }
 .nav-list li {
   display: flex;
   align-items: center;
@@ -477,6 +520,19 @@ onBeforeUnmount(() => {
   align-items: center;
   color: var(--fg-muted);
 }
+.favorite-ico.favorite-color-0 { color: #f2bd63; }
+.favorite-ico.favorite-color-1 { color: #56c7b0; }
+.favorite-ico.favorite-color-2 { color: #b890eb; }
+.favorite-ico.favorite-color-3 { color: #e7849b; }
+.favorite-ico.favorite-color-4 { color: #67c7e8; }
+.system-ico { color: var(--ico-folder); }
+.system-ico.system-home { color: #e5a22b; }
+.system-ico.system-monitor { color: #4f83e8; }
+.system-ico.system-download { color: #56c7b0; }
+.system-ico.system-file-text { color: #f2bd63; }
+.system-ico.system-image { color: #e7849b; }
+.system-ico.system-user { color: #b890eb; }
+.system-ico.system-windows { color: #67c7e8; }
 .label {
   flex: 1;
   font-size: 1rem;

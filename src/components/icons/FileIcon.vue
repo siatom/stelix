@@ -9,19 +9,23 @@ import { computed } from 'vue'
 import Icon from './Icon.vue'
 import { fileIconRef } from './fileIconCache'
 import { fileIcon } from '../Pane/utils'
+import type { IconName } from './paths'
 
 const props = withDefaults(
   defineProps<{
     path: string
     isDir: boolean
     ext: string | null
+    isDrive?: boolean
+    usePathIcon?: boolean
+    fallback?: IconName
     size?: number
   }>(),
   { size: 20 },
 )
 
 // computed：虚拟滚动的行会被复用（key 为索引），path 变化时需要重新取图标。
-const url = computed(() => fileIconRef(props.path, props.isDir, props.ext).value)
+const url = computed(() => fileIconRef(props.path, props.isDir, props.ext, props.isDrive, props.usePathIcon).value)
 </script>
 
 <template>
@@ -33,7 +37,7 @@ const url = computed(() => fileIconRef(props.path, props.isDir, props.ext).value
     alt=""
     draggable="false"
   />
-  <Icon v-else :name="fileIcon({ isDir, ext })" :size="size" />
+  <Icon v-else :name="fallback ?? fileIcon({ isDir, ext })" :size="size" />
 </template>
 
 <style scoped>

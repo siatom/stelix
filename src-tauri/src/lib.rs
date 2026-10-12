@@ -112,9 +112,10 @@ async fn get_file_icon(
     state: State<'_, AppState>,
     path: String,
     is_dir: bool,
+    use_path_icon: bool,
 ) -> Result<Option<String>, String> {
     let cache = state.icons.clone();
-    tauri::async_runtime::spawn_blocking(move || cache.get_or_load(&path, is_dir))
+    tauri::async_runtime::spawn_blocking(move || cache.get_or_load(&path, is_dir, use_path_icon))
         .await
         .map_err(|error| format!("图标提取任务失败: {error}"))
 }

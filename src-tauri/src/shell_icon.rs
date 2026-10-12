@@ -34,19 +34,26 @@ impl IconCache {
     }
 
     /// 取指定路径的图标（`data:image/png;base64,...`）；失败返回 `None`。
-    pub fn get_or_load(&self, path: &str, is_dir: bool) -> Option<String> {
-        let key = cache_key(path, is_dir);
+    pub fn get_or_load(&self, path: &str, is_dir: bool, use_path_icon: bool) -> Option<String> {
+        let key = cache_key(path, is_dir, use_path_icon);
         if let Some(hit) = self.map.get(&key) {
             return hit.clone();
         }
-        let value = extract(path, is_dir);
+        let value = extract(path, is_dir, use_path_icon);
         self.map.insert(key, value.clone());
         value
     }
 }
 
 /// 计算缓存 key（与前端 `fileIconCache.ts` 的 `iconKey` 同规则）。
-pub fn cache_key(path: &str, is_dir: bool) -> String {
+/// 磁盘根目录单独缓存，避免与无扩展名文件共用图标。
+pub fn cache_key(path: &str, is_dir: bool, use_path_icon: bool) -> String {
+    if use_path_icon {
+        return format!("system:{}", path.to_lowercase());
+    }
+    if !is_dir && is_drive_root(path) {
+        return format!("drive:{}", path.to_lowercase());
+    }
     if is_dir {
         return "dir".to_string();
     }
@@ -56,6 +63,14 @@ pub fn cache_key(path: &str, is_dir: bool) -> String {
     } else {
         format!("e:{ext}")
     }
+}
+
+fn is_drive_root(path: &str) -> bool {
+    let bytes = path.as_bytes();
+    bytes.len() == 3
+        && bytes[0].is_ascii_alphabetic()
+        && bytes[1] == b':'
+        && (bytes[2] == b'\\' || bytes[2] == b'/')
 }
 
 /// 小写扩展名（不含点）；无扩展名返回空串。
@@ -68,20 +83,20 @@ fn extension_of(path: &str) -> String {
 
 // ---------------------------------------------------------------- 提取
 
-fn extract(path: &str, is_dir: bool) -> Option<String> {
+fn extract(path: &str, is_dir: bool, use_path_icon: bool) -> Option<String> {
     #[cfg(windows)]
     {
-        extract_windows(path, is_dir)
+        extract_windows(path, is_dir, use_path_icon)
     }
     #[cfg(not(windows))]
     {
-        let _ = (path, is_dir);
+        let _ = (path, is_dir, use_path_icon);
         None
     }
 }
 
 #[cfg(windows)]
-fn extract_windows(path: &str, is_dir: bool) -> Option<String> {
+fn extract_windows(path: &str, is_dir: bool, use_path_icon: bool) -> Option<String> {
     // Shell 首次初始化并发查询可能返回空图标；串行提取也避免争用系统图标缓存。
     static SHELL_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
     let _shell = SHELL_LOCK.lock().unwrap_or_else(|error| error.into_inner());
@@ -118,11 +133,21 @@ fn extract_windows(path: &str, is_dir: bool) -> Option<String> {
     };
 
     let hicon: Option<HICON> = if is_dir {
-        query_icon(
-            "folder",
-            FILE_ATTRIBUTE_DIRECTORY,
-            base | SHGFI_USEFILEATTRIBUTES,
-        )
+        if use_path_icon {
+            query_icon(path, FILE_ATTRIBUTE_DIRECTORY, base).or_else(|| {
+                query_icon(
+                    "folder",
+                    FILE_ATTRIBUTE_DIRECTORY,
+                    base | SHGFI_USEFILEATTRIBUTES,
+                )
+            })
+        } else {
+            query_icon(
+                "folder",
+                FILE_ATTRIBUTE_DIRECTORY,
+                base | SHGFI_USEFILEATTRIBUTES,
+            )
+        }
     } else {
         // 每种扩展名只加载一次：真实路径可取得 Shell 扩展提供的关联图标。
         // 文件不存在（例如远程条目）时，仍可按扩展名取系统类型图标。
@@ -360,12 +385,12 @@ mod tests {
 
     #[test]
     fn cache_key_matches_expected_rules() {
-        assert_eq!(cache_key(r"C:\Windows", true), "dir");
-        assert_eq!(cache_key(r"C:\a\b.txt", false), "e:txt");
-        assert_eq!(cache_key(r"C:\a\b.PDF", false), "e:pdf");
-        assert_eq!(cache_key(r"C:\a\b", false), "e:");
+        assert_eq!(cache_key(r"C:\Windows", true, false), "dir");
+        assert_eq!(cache_key(r"C:\a\b.txt", false, false), "e:txt");
+        assert_eq!(cache_key(r"C:\a\b.PDF", false, false), "e:pdf");
+        assert_eq!(cache_key(r"C:\a\b", false, false), "e:");
         assert_eq!(
-            cache_key(r"C:\Program Files\App.EXE", false),
+            cache_key(r"C:\Program Files\App.EXE", false, false),
             r"p:c:\program files\app.exe"
         );
     }
@@ -375,7 +400,7 @@ mod tests {
     fn extracts_folder_icon_as_png_data_url() {
         use base64::Engine as _;
 
-        let url = extract(r"C:\Windows", true).expect("应能提取文件夹图标");
+        let url = extract(r"C:\Windows", true, false).expect("应能提取文件夹图标");
         let encoded = url
             .strip_prefix("data:image/png;base64,")
             .expect("应返回 base64 PNG data URL");
@@ -398,7 +423,7 @@ mod tests {
         for ext in ["docx", "xlsx", "pdf", "txt"] {
             let path = format!(r"C:\stelix-icon-test-missing.{ext}");
             let url = cache
-                .get_or_load(&path, false)
+                .get_or_load(&path, false, false)
                 .unwrap_or_else(|| panic!("应能提取 {ext} 系统类型图标"));
             let bytes = base64::engine::general_purpose::STANDARD
                 .decode(url.strip_prefix("data:image/png;base64,").unwrap())
@@ -412,7 +437,7 @@ mod tests {
             assert!(pixels[..frame.buffer_size()]
                 .chunks_exact(4)
                 .any(|p| p[3] > 0));
-            assert_eq!(cache.get_or_load(&path, false), Some(url));
+            assert_eq!(cache.get_or_load(&path, false, false), Some(url));
         }
     }
 }

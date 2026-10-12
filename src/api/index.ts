@@ -41,8 +41,8 @@ export const api = {
     invoke<void>('set_file_clipboard', { paths, moveFiles }),
   getFileClipboard: () => invoke<{ paths: string[]; moveFiles: boolean } | null>('get_file_clipboard'),
   /** 取文件/文件夹的 Windows 系统图标（base64 PNG data URL）；失败返回 null。 */
-  getFileIcon: (path: string, isDir: boolean) =>
-    invoke<string | null>('get_file_icon', { path, isDir }),
+  getFileIcon: (path: string, isDir: boolean, usePathIcon = false) =>
+    invoke<string | null>('get_file_icon', { path, isDir, usePathIcon }),
   pathIsFile: (path: string) => invoke<boolean>('path_is_file', { path }),
   openInTerminal: (path: string) => invoke<void>('open_in_terminal', { path }),
   showItemProperties: (path: string) => invoke<void>('show_item_properties', { path }),

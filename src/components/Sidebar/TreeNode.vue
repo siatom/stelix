@@ -7,12 +7,15 @@ import type { FileEntry } from '../../types'
 import type { TreeNodeData } from './shared'
 import { clearWatchSource, FS_CHANGED_EVENT, normalizePath, setWatchSource } from '../../shell/dirWatch'
 import Icon from '../icons/Icon.vue'
+import FileIcon from '../icons/FileIcon.vue'
 import { folderIcon } from '../Pane/utils'
 
 const props = defineProps<{ node: TreeNodeData; depth: number }>()
 const emit = defineEmits<{ (e: 'navigate', path: string): void }>()
 
 const ui = useUiStore()
+
+const isDrive = props.depth === 0 && /^[A-Za-z]:[\\/]?$/.test(props.node.path)
 
 const expanded = ref(false)
 const loaded = ref(false)
@@ -88,6 +91,7 @@ const childPad = (d: number) => `${d * 12 + 22}px`
   <div class="tree-node">
     <div
       class="row"
+      :class="`depth-${Math.min(depth, 4)}`"
       :style="{ paddingLeft: pad(depth) }"
       :title="node.path"
       @click="emit('navigate', node.path)"
@@ -95,7 +99,26 @@ const childPad = (d: number) => `${d * 12 + 22}px`
       <span class="twist" :class="{ open: expanded }" @click.stop="toggle">
         <Icon name="chevron-right" :size="11" />
       </span>
-      <span class="ico"><Icon :name="folderIcon(expanded)" :size="14" /></span>
+      <span class="ico">
+        <FileIcon
+          v-if="isDrive"
+          :path="node.path"
+          :is-dir="false"
+          :is-drive="true"
+          :ext="null"
+          fallback="drive"
+          :size="18"
+        />
+        <FileIcon
+          v-else
+          :path="node.path"
+          :is-dir="true"
+          :ext="null"
+          :use-path-icon="true"
+          :fallback="folderIcon(expanded)"
+          :size="18"
+        />
+      </span>
       <span class="label">{{ node.name }}</span>
     </div>
 
@@ -151,8 +174,13 @@ const childPad = (d: number) => `${d * 12 + 22}px`
   flex: none;
   display: flex;
   align-items: center;
-  color: var(--accent);
+  color: var(--tree-icon-color, var(--ico-folder));
 }
+.row.depth-0 { --tree-icon-color: var(--ico-folder); }
+.row.depth-1 { --tree-icon-color: #f2bd63; }
+.row.depth-2 { --tree-icon-color: #56c7b0; }
+.row.depth-3 { --tree-icon-color: #b890eb; }
+.row.depth-4 { --tree-icon-color: #e7849b; }
 .label {
   flex: 1;
   overflow: hidden;
