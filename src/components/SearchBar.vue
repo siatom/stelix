@@ -11,7 +11,7 @@ const paneStore = usePaneStore()
 const ui = useUiStore()
 
 const text = ref('')
-const scope = ref<'global' | 'current'>('global')
+const scope = ref<'global' | 'current'>(ui.searchScope)
 const open = ref(false)
 const activeTab = computed(() => paneStore.activeTab)
 
@@ -76,6 +76,7 @@ function clearAll() {
 function setScope(next: 'global' | 'current') {
   if (scope.value === next) return
   scope.value = next
+  ui.searchScope = next
   if (next === 'current') {
     requestId += 1
     search.clear()
@@ -89,6 +90,15 @@ function setScope(next: 'global' | 'current') {
     }
   }
 }
+
+watch(
+  () => ui.searchCurrentRequest,
+  () => {
+    text.value = ''
+    search.clear()
+    setScope('current')
+  },
+)
 
 function onEnter() {
   if (scope.value === 'current') return

@@ -428,7 +428,7 @@ async function openInTerminal(entry: FileEntry) {
 
 function showCtxAt(ev: MouseEvent, entry: FileEntry) {
   const menuW = 176
-  const menuH = 372
+  const menuH = 402
   const x = Math.min(ev.clientX, window.innerWidth - menuW - 4)
   const y = Math.min(ev.clientY, window.innerHeight - menuH - 4)
   ctx.value = { x, y, entry }
@@ -473,6 +473,14 @@ function closeCtx() {
 function openInNewTab(entry: FileEntry) {
   if (!entry.isDir || !isLocal.value) return
   paneStore.addTab(props.paneId, entry.path)
+  closeCtx()
+}
+
+async function searchFolder(entry: FileEntry) {
+  if (!entry.isDir || !isLocal.value) return
+  paneStore.activePaneId = props.paneId
+  await paneStore.navigateTo(props.paneId, entry.path, props.tab.id)
+  ui.openCurrentDirectorySearch()
   closeCtx()
 }
 
@@ -935,6 +943,7 @@ function onDrop(ev: DragEvent) {
         <div class="sep" />
       </template>
       <button @click="openEntry(ctx.entry); closeCtx()"><Icon :name="ctx.entry.isDir ? 'folder-open' : 'file'" :size="14" />打开</button>
+      <button v-if="ctx.entry.isDir && isLocal" @click="searchFolder(ctx.entry)"><Icon name="search" :size="14" />搜索此文件夹</button>
       <button v-if="ctx.entry.isDir && isLocal" @click="openInNewTab(ctx.entry)"><Icon name="plus" :size="14" />在新标签页打开</button>
       <button v-if="ctx.entry.isDir && isLocal" :disabled="favoritePaths.has(ctx.entry.path)" @click="addEntryFavorite(ctx.entry)"><Icon name="star" :size="14" />{{ favoritePaths.has(ctx.entry.path) ? '已在收藏中' : '添加到收藏' }}</button>
       <button v-if="ctx.entry.isDir && isLocal" @click="openInTerminal(ctx.entry)"><Icon name="terminal" :size="14" />在终端打开</button>

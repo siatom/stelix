@@ -112,6 +112,8 @@ export const useUiStore = defineStore('ui', () => {
   const hideProtected = ref(readBool(LS_HIDE_PROTECTED, HIDE_PROTECTED_DEF))
   const hideFileExtensions = ref(readBool(LS_HIDE_FILE_EXTENSIONS, HIDE_FILE_EXTENSIONS_DEF))
   const activePanel = ref<PanelKey>(readPanel())
+  const searchScope = ref<'global' | 'current'>('global')
+  const searchCurrentRequest = ref(0)
   const settingsOpen = ref(false)
   const settingsTab = ref<'general' | 'index' | 'ai' | 'about'>('general')
   const statusText = ref('就绪')
@@ -145,6 +147,14 @@ export const useUiStore = defineStore('ui', () => {
       activePanel.value = panel
       sidebarCollapsed.value = false
     }
+    persistSidebar()
+  }
+
+  function openCurrentDirectorySearch() {
+    searchScope.value = 'current'
+    searchCurrentRequest.value += 1
+    activePanel.value = 'search'
+    sidebarCollapsed.value = false
     persistSidebar()
   }
 
@@ -311,6 +321,8 @@ export const useUiStore = defineStore('ui', () => {
     hideProtected,
     hideFileExtensions,
     activePanel,
+    searchScope,
+    searchCurrentRequest,
     settingsOpen,
     settingsTab,
     statusText,
@@ -320,6 +332,7 @@ export const useUiStore = defineStore('ui', () => {
     scanned,
     toggleSidebar,
     setPanel,
+    openCurrentDirectorySearch,
     openSettings,
     closeSettings,
     setTheme,
