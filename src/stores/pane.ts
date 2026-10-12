@@ -297,11 +297,13 @@ export const usePaneStore = defineStore('pane', () => {
   function recordHistory(tab: TabState) {
     const h = hist(tab.id, tab)
     h.stack = h.stack.slice(0, h.index + 1)
-    if (h.stack[h.stack.length - 1]?.path !== tab.path) {
-      h.stack.push(snapshot(tab))
-    } else {
-      // 同一路径重复记录（如搜索结果刷新）时覆盖当前项，保持最新状态。
+    const last = h.stack[h.stack.length - 1]
+    // 同一路径且同一类型才视为「刷新」而覆盖；路径相同但类型不同（如搜索结果的父目录
+    // 恰好就是搜索标签的 path）必须新压一条，否则会覆盖掉搜索结果快照、后退回不去。
+    if (last && last.path === tab.path && last.kind === tab.kind) {
       h.stack[h.stack.length - 1] = snapshot(tab)
+    } else {
+      h.stack.push(snapshot(tab))
     }
     h.index = h.stack.length - 1
     histories.value[tab.id] = { ...h }

@@ -48,6 +48,8 @@ const viewMode = computed(() => paneStore.panes.find((p) => p.id === props.paneI
 const isRemote = computed(() => props.tab.kind === 'remote' && !!props.tab.remote)
 /** 只有本地目录标签才有本地文件操作。 */
 const isLocal = computed(() => props.tab.kind !== 'search' && props.tab.kind !== 'remote')
+/** 搜索结果标签：命中项散落在各目录，需要「打开所在文件夹」这类定位操作。 */
+const isSearch = computed(() => props.tab.kind === 'search')
 // 先取 store 的过滤+排序结果，再按「隐藏受保护的操作系统文件」剔除（Explorer 语义：hidden && system）
 const allRows = computed(() => paneStore.entriesFor(props.tab))
 /** 「隐藏受保护的操作系统文件」开关：顶层与原地展开的子项都按同一规则过滤。 */
@@ -475,6 +477,14 @@ function openInNewTab(entry: FileEntry) {
   if (!entry.isDir || !isLocal.value) return
   paneStore.addTab(props.paneId, entry.path)
   closeCtx()
+}
+
+/** 搜索结果：跳到该条目所在文件夹并选中它（后退可回到搜索结果） */
+async function openContainingFolder(entry: FileEntry) {
+  closeCtx()
+  await paneStore.navigateTo(props.paneId, dirname(entry.path), props.tab.id)
+  props.tab.selected = [entry.path]
+  paneStore.revealTarget = { tabId: props.tab.id, path: entry.path }
 }
 
 async function searchFolder(entry: FileEntry) {
@@ -944,6 +954,7 @@ function onDrop(ev: DragEvent) {
         <div class="sep" />
       </template>
       <button @click="openEntry(ctx.entry); closeCtx()"><Icon :name="ctx.entry.isDir ? 'folder-open' : 'file'" :size="14" />打开</button>
+      <button v-if="isSearch" @click="openContainingFolder(ctx.entry)"><Icon name="folder-arrow" :size="14" />打开所在文件夹</button>
       <button v-if="ctx.entry.isDir && isLocal" @click="searchFolder(ctx.entry)"><Icon name="search" :size="14" />搜索此文件夹</button>
       <button v-if="ctx.entry.isDir && isLocal" @click="openInNewTab(ctx.entry)"><Icon name="plus" :size="14" />在新标签页打开</button>
       <button v-if="ctx.entry.isDir && isLocal" :disabled="favoritePaths.has(ctx.entry.path)" @click="addEntryFavorite(ctx.entry)"><Icon name="star" :size="14" />{{ favoritePaths.has(ctx.entry.path) ? '已在收藏中' : '添加到收藏' }}</button>
