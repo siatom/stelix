@@ -4,12 +4,12 @@
       <stop stop-color="#FFFFFF"/>
       <stop offset="1" stop-color="#E4EAFF"/>
     </linearGradient>
-    <linearGradient id="folder" x1="192" y1="300" x2="832" y2="724" gradientUnits="userSpaceOnUse">
+    <linearGradient id="folder" x1="128" y1="160" x2="896" y2="864" gradientUnits="userSpaceOnUse">
       <stop stop-color="#3A56E0"/>
       <stop offset="1" stop-color="#1C2FA8"/>
     </linearGradient>
   </defs>
   <rect width="1024" height="1024" rx="224" fill="url(#bg)"/>
-  <path d="M240 300H400L460 360H784C810 360 832 382 832 408V676C832 702 810 724 784 724H240C214 724 192 702 192 676V348C192 322 214 300 240 300Z" fill="url(#folder)"/>
-  <path d="M512 380c40 110 40 110 150 150-110 40-110 40-150 150-40-110-40-110-150-150 110-40 110-40 150-150Z" fill="#FFFFFF"/>
+  <path d="M176 160H410L490 240H848C875 240 896 261 896 288V816C896 843 875 864 848 864H176C149 864 128 843 128 816V208C128 181 149 160 176 160Z" fill="url(#folder)"/>
+  <path d="M512 330c50 135 50 135 185 185-135 50-135 50-185 185-50-135-50-135-185-185 135-50 135-50 185-185Z" fill="#FFFFFF"/>
 </svg>
