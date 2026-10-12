@@ -1,15 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
   <defs>
-    <linearGradient id="bg" x1="140" y1="100" x2="890" y2="930" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#FFFFFF"/>
-      <stop offset="1" stop-color="#E4EAFF"/>
-    </linearGradient>
-    <linearGradient id="folder" x1="128" y1="160" x2="896" y2="864" gradientUnits="userSpaceOnUse">
+    <linearGradient id="folder" x1="96" y1="120" x2="928" y2="904" gradientUnits="userSpaceOnUse">
       <stop stop-color="#3A56E0"/>
       <stop offset="1" stop-color="#1C2FA8"/>
     </linearGradient>
   </defs>
-  <rect width="1024" height="1024" rx="224" fill="url(#bg)"/>
-  <path d="M176 160H410L490 240H848C875 240 896 261 896 288V816C896 843 875 864 848 864H176C149 864 128 843 128 816V208C128 181 149 160 176 160Z" fill="url(#folder)"/>
-  <path d="M512 330c50 135 50 135 185 185-135 50-135 50-185 185-50-135-50-135-185-185 135-50 135-50 185-185Z" fill="#FFFFFF"/>
+  <path d="M144 120H400L488 208H880C907 208 928 229 928 256V824C928 851 907 872 880 872H144C117 872 96 851 96 824V168C96 141 117 120 144 120Z" fill="url(#folder)"/>
+  <path transform="translate(0 40)" d="M512 300c54 146 54 146 200 200-146 54-146 54-200 200-54-146-54-146-200-200 146-54 146-54 200-200Z" fill="#FFFFFF"/>
 </svg>
