@@ -3,6 +3,7 @@
 use std::sync::Arc;
 
 use crate::ai_agent::AiService;
+use crate::dir_size::DirSizeService;
 use crate::index_engine::IndexStore;
 use crate::schedule::ScheduleService;
 use crate::shell_icon::IconCache;
@@ -19,6 +20,8 @@ pub struct AppState {
     pub tasks: Arc<ScheduleService>,
     /// 目录变更监听（notify watcher + 防抖上报，见 watcher/mod.rs）
     pub watcher: Arc<WatchService>,
+    /// 目录大小统计（详情视图按需计算，见 dir_size/mod.rs）
+    pub dir_sizes: Arc<DirSizeService>,
 }
 
 impl AppState {
@@ -29,6 +32,7 @@ impl AppState {
             icons: Arc::new(IconCache::new()),
             tasks: Arc::new(ScheduleService::new()),
             watcher: Arc::new(WatchService::new()),
+            dir_sizes: Arc::new(DirSizeService::new()),
         }
     }
 }

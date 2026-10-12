@@ -7,6 +7,7 @@ mod ai_agent;
 mod app_core;
 mod clipboard;
 mod credentials;
+mod dir_size;
 mod fs_core;
 mod index_engine;
 mod network;
@@ -338,6 +339,22 @@ fn watch_dirs_set(state: State<'_, AppState>, paths: Vec<String>) {
     state.watcher.set_dirs(&paths);
 }
 
+// ---------------------------------------------------------------- 目录大小统计
+
+/// 请求一批目录的递归内部大小（前端只上报详情视图当前可见的目录）。
+///
+/// 结果经 `fs:dir-size` 事件异步回填；已缓存且未过期的目录会立即回填。
+#[tauri::command]
+fn dir_size_request(app: tauri::AppHandle, state: State<'_, AppState>, paths: Vec<String>) {
+    state.dir_sizes.request(&app, paths);
+}
+
+/// 使一批目录的大小缓存失效（目录内容变化时调用），下次请求会重新遍历。
+#[tauri::command]
+fn dir_size_invalidate(state: State<'_, AppState>, paths: Vec<String>) {
+    state.dir_sizes.invalidate(&paths);
+}
+
 // ---------------------------------------------------------------- 开机自启动
 
 /// 开机自启动（Windows 走 `HKCU\...\Run` 注册表项，由 tauri-plugin-autostart 管理）。
@@ -521,6 +538,8 @@ pub fn run() {
             task_run_now,
             task_preview,
             watch_dirs_set,
+            dir_size_request,
+            dir_size_invalidate,
             autostart_get,
             autostart_set,
         ])

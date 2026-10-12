@@ -23,6 +23,7 @@ const titlebarActionMode = ref<'move' | 'size' | null>(null)
 const titlebarModeHint = ref('')
 let unlistenResize: (() => void) | undefined
 let unlistenFsChanged: (() => void) | undefined
+let unlistenDirSize: (() => void) | undefined
 let titlebarPointer: { x: number; y: number } | null = null
 let actionPosition: PhysicalPosition | null = null
 let actionSize: PhysicalSize | null = null
@@ -158,6 +159,12 @@ onMounted(async () => {
     if (!dirs?.length) return
     broadcastFsChanged(dirs)
     for (const dir of dirs) void paneStore.reloadByPath(dir)
+    // 目录内容变化 → 相关文件夹的大小缓存失效并重算。
+    paneStore.invalidateDirSizes(dirs)
+  })
+  // 文件夹大小统计结果（详情视图按需计算）回填。
+  unlistenDirSize = await events.onDirSize(({ path, size }) => {
+    paneStore.applyDirSize(path, size)
   })
 })
 
@@ -208,6 +215,7 @@ function startResize(ev: MouseEvent, target: 'sidebar') {
 onBeforeUnmount(() => {
   unlistenResize?.()
   unlistenFsChanged?.()
+  unlistenDirSize?.()
   stopTrackingTitlebarDrag()
   window.removeEventListener('mousedown', dismissTitlebarMenu)
   window.removeEventListener('keydown', onTitlebarActionKeydown)

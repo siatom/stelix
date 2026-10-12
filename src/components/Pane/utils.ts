@@ -38,8 +38,7 @@ export function joinPath(dir: string, name: string): string {
 }
 
 /** 人类可读大小 */
-export function formatSize(bytes: number, isDir: boolean): string {
-  if (isDir) return ''
+export function formatSize(bytes: number): string {
   if (!bytes || bytes < 0) return '0 B'
   const units = ['B', 'KB', 'MB', 'GB', 'TB']
   let value = bytes
