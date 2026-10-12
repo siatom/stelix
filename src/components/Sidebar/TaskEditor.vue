@@ -156,6 +156,7 @@ function formatSize(bytes: number): string {
     </section>
 
     <section class="te-card">
+      <div class="te-label">基本信息</div>
       <label class="te-field">
         <span>名称</span>
         <input v-model="form.name" placeholder="任务名称" spellcheck="false" />
@@ -214,6 +215,7 @@ function formatSize(bytes: number): string {
           <span>时间</span>
           <div class="te-time">
             <input
+              aria-label="小时"
               type="number"
               min="0"
               max="23"
@@ -222,6 +224,7 @@ function formatSize(bytes: number): string {
             />
             <em>:</em>
             <input
+              aria-label="分钟"
               type="number"
               min="0"
               max="59"
@@ -325,83 +328,115 @@ function formatSize(bytes: number): string {
 .task-editor {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 12px;
+  padding: 4px;
 }
 .te-head {
   display: flex;
   align-items: center;
-  gap: 6px;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 0 4px;
 }
 .te-back {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 4px;
+  min-height: 28px;
+  padding: 0 6px;
+  border-radius: var(--radius-sm);
   color: var(--fg-muted);
   font-size: 1rem;
 }
 .te-back:hover {
   color: var(--fg);
+  background: var(--bg-hover);
 }
 .te-title {
-  font-size: 1rem;
+  font-size: 1.0833rem;
   font-weight: 600;
   color: var(--fg);
 }
 .te-card {
   display: flex;
   flex-direction: column;
-  gap: 5px;
-  padding: 7px;
+  gap: 12px;
+  padding: 12px;
+  min-width: 0;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--bg-elevated);
 }
 .te-card.ai {
   border-color: var(--border-strong);
+  background: var(--bg-hover);
+}
+.te-card.ai > .te-btn {
+  align-self: flex-end;
 }
 .te-label {
   display: flex;
   align-items: center;
-  gap: 4px;
-  font-size: 0.9167rem;
+  gap: 6px;
+  font-size: 1rem;
   font-weight: 600;
-  color: var(--fg-muted);
+  color: var(--fg);
 }
 .te-field {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: stretch;
   gap: 6px;
   font-size: 0.9167rem;
   color: var(--fg-muted);
 }
 .te-field > span {
-  width: 60px;
   flex: none;
+  line-height: 1.4;
 }
 .te-field input,
 .te-field select {
-  flex: 1;
   min-width: 0;
-  height: 22px;
-  font-size: 0.9583rem;
+  width: 100%;
+  height: 32px;
+  padding: 0 9px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  color: var(--fg);
+  font-family: inherit;
+  font-size: 1rem;
+  outline: none;
+  transition: border-color var(--t-fast), box-shadow var(--t-fast);
+}
+.te-field input:focus-visible,
+.te-field select:focus-visible,
+.te-card textarea:focus-visible {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
 }
 .te-field.row {
+  flex-direction: row;
+  align-items: center;
   justify-content: space-between;
+  min-height: 28px;
 }
 .te-field.row input[type='checkbox'] {
   flex: none;
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+  cursor: pointer;
 }
 .te-time {
-  flex: 1;
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 8px;
 }
 .te-time input {
-  width: 44px;
-  flex: none;
+  width: 0;
+  flex: 1;
+  text-align: center;
 }
 .te-time em {
   color: var(--fg-dim);
@@ -409,14 +444,16 @@ function formatSize(bytes: number): string {
 }
 .te-card textarea {
   width: 100%;
+  min-height: 80px;
   resize: vertical;
   font-family: inherit;
-  font-size: 0.9583rem;
+  font-size: 1rem;
+  line-height: 1.6;
   color: var(--fg);
   background: var(--bg-input);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 5px 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
   outline: none;
 }
 .te-card textarea:focus {
@@ -427,12 +464,14 @@ function formatSize(bytes: number): string {
   align-items: center;
   justify-content: center;
   gap: 4px;
-  height: 24px;
-  padding: 0 10px;
+  min-height: 32px;
+  padding: 0 12px;
   border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
   color: var(--fg-muted);
-  font-size: 0.9583rem;
+  font-size: 1rem;
+  transition: background var(--t-fast), border-color var(--t-fast);
 }
 .te-btn:hover:not(:disabled) {
   background: var(--bg-hover);
@@ -443,7 +482,8 @@ function formatSize(bytes: number): string {
   cursor: default;
 }
 .te-btn.sm {
-  height: 22px;
+  min-height: 30px;
+  font-size: 0.9167rem;
 }
 .te-btn.primary {
   background: var(--accent);
@@ -451,7 +491,17 @@ function formatSize(bytes: number): string {
   color: var(--accent-fg);
 }
 .te-btn.ghost {
-  border-style: dashed;
+  background: transparent;
+}
+.te-btn.primary:hover:not(:disabled) {
+  background: var(--accent);
+  color: var(--accent-fg);
+  filter: brightness(0.9);
+}
+.te-btn:focus-visible,
+.te-back:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 .te-hint {
   margin: 0;
@@ -477,7 +527,10 @@ function formatSize(bytes: number): string {
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 6px;
+  padding: 8px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-hover);
 }
 .te-preview li {
   font-size: 0.8333rem;
@@ -487,9 +540,17 @@ function formatSize(bytes: number): string {
   text-overflow: ellipsis;
 }
 .te-actions {
+  position: sticky;
+  bottom: -6px;
+  z-index: 1;
   display: flex;
   justify-content: flex-end;
   gap: 8px;
-  padding-top: 2px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+.te-actions .te-btn {
+  flex: 1;
 }
 </style>

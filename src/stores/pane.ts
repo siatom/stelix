@@ -689,7 +689,7 @@ export const usePaneStore = defineStore('pane', () => {
       tab.sortAsc = !tab.sortAsc
     } else {
       tab.sortKey = key
-      tab.sortAsc = key !== 'modified'
+      tab.sortAsc = key !== 'modified' && key !== 'size'
     }
   }
 

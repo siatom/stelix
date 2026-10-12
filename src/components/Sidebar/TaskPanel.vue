@@ -172,14 +172,15 @@ onMounted(async () => {
 }
 .new-btn {
   width: 100%;
-  height: 26px;
+  height: 34px;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 5px;
-  border-radius: var(--radius);
-  border: 1px dashed var(--border-strong);
-  color: var(--fg-muted);
+  gap: 6px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong);
+  background: var(--bg-elevated);
+  color: var(--fg);
   font-size: 1rem;
 }
 .new-btn:hover {
