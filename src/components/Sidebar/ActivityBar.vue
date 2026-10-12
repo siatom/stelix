@@ -12,7 +12,7 @@ const items: { key: PanelKey; icon: IconName; title: string }[] = [
   { key: 'files', icon: 'folder', title: '文件导航' },
   { key: 'tasks', icon: 'clock', title: '定时任务' },
   { key: 'search', icon: 'search', title: '搜索' },
-  { key: 'ai', icon: 'bot', title: 'AI 助手' },
+  { key: 'ai', icon: 'sparkles', title: 'AI 助手' },
 ]
 </script>
 

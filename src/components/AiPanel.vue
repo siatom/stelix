@@ -109,7 +109,7 @@ function submitPath() {
 <template>
   <aside class="ai-panel" aria-label="AI 助手">
     <header class="ai-head">
-      <span class="title"><Icon name="bot" :size="15" />AI 助手</span>
+      <span class="title"><Icon name="sparkles" :size="15" />AI 助手</span>
       <div class="head-actions">
         <button class="head-btn" title="新建对话" aria-label="新建对话" :disabled="ai.executing || ai.historyLoading || ai.historyMutating" @click="newChat"><Icon name="plus" :size="15" /></button>
         <button class="head-btn" :class="{ selected: showHistory }" title="历史对话" aria-label="历史对话" :aria-pressed="showHistory" @click="showHistory = !showHistory"><Icon name="clock" :size="14" /></button>

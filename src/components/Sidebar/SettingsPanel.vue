@@ -14,7 +14,7 @@ const commitId = __COMMIT_ID__
 const tabs = [
   { id: 'general', label: '常规', icon: 'settings' },
   { id: 'index', label: '文件索引', icon: 'folder' },
-  { id: 'ai', label: 'AI 大模型', icon: 'bot' },
+  { id: 'ai', label: 'AI 大模型', icon: 'sparkles' },
   { id: 'about', label: '关于', icon: 'info' },
 ] as const
 

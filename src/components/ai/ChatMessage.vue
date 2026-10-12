@@ -40,7 +40,7 @@ async function onLink(event: MouseEvent) {
 
 <template>
   <article class="chat-message" :class="[message.role, { failed: message.status === 'error' || message.status === 'interrupted', operation: message.kind === 'operation' }]">
-    <div class="message-meta"><span class="speaker"><Icon v-if="message.role === 'assistant'" :name="message.kind === 'operation' ? 'check-circle' : 'bot'" :size="12" />{{ message.role === 'user' ? '你' : message.kind === 'operation' ? '执行结果' : 'AI 助手' }}</span><time :datetime="new Date(message.createdAt).toISOString()">{{ time }}</time></div>
+    <div class="message-meta"><span class="speaker"><Icon v-if="message.role === 'assistant'" :name="message.kind === 'operation' ? 'check-circle' : 'sparkles'" :size="12" />{{ message.role === 'user' ? '你' : message.kind === 'operation' ? '执行结果' : 'AI 助手' }}</span><time :datetime="new Date(message.createdAt).toISOString()">{{ time }}</time></div>
     <div v-if="message.status === 'pending'" class="pending" role="status"><span class="thinking-dots"><i /><i /><i /></span>{{ stepText }}</div>
     <div v-else-if="message.role === 'user'" class="message-content user-content">{{ message.content }}</div>
     <div v-else class="message-content markdown" data-native-context-menu @click="onLink" v-html="markdown" />
