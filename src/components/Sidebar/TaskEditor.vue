@@ -70,9 +70,11 @@ async function generate() {
   planText.value = ''
   try {
     const tab = pane.activeTab
+    // 远程（FTP / SFTP）标签的路径不是本地路径，定时任务只作用于本地文件，故不作为上下文。
+    const localTab = tab && tab.kind !== 'remote' ? tab : undefined
     const reply = await tasks.plan(prompt, {
-      activePath: tab?.path ?? null,
-      selected: tab?.selected ?? [],
+      activePath: localTab?.path ?? null,
+      selected: localTab?.selected ?? [],
     })
     planText.value = reply.text
     if (reply.draft) {

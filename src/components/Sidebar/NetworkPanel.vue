@@ -2,6 +2,7 @@
 import { ref } from 'vue'
 import { api } from '../../api'
 import { usePaneStore } from '../../stores/pane'
+import { setRemotePassword } from '../../shell/remote'
 import TreeNode from './TreeNode.vue'
 import RemoteTreeNode from './RemoteTreeNode.vue'
 import Icon from '../icons/Icon.vue'
@@ -64,7 +65,8 @@ const port = ref(22)
 const username = ref('')
 const draftPassword = ref('')
 const expandedHosts = ref<Record<string, boolean>>({})
-const hostEntries = ref<Record<string, string[]>>({})
+/** 主机 id → 该主机根目录下的**子目录**（展开树用；进入目录在文件窗格进行）。 */
+const hostEntries = ref<Record<string, { name: string; path: string }[]>>({})
 const passwords = ref<Record<string, string>>({})
 const hostLoading = ref<Record<string, boolean>>({})
 const hostErrors = ref<Record<string, string>>({})
@@ -241,18 +243,53 @@ async function loadHost(item: RemoteHost) {
       passwords.value[item.id] = (await api.getRemotePassword(item.id)) || ''
     }
     const password = passwords.value[item.id] || ''
-    if (password) await api.saveRemotePassword(item.id, password)
-    hostEntries.value[item.id] = await api.listRemote({ ...item, password: passwords.value[item.id] || '', path: '/' })
+    // 密码与文件窗格共享（内存态），这样在窗格里浏览时无需再读一次凭据库。
+    setRemotePassword(item.id, password)
+    const listing = await api.listRemoteDir({ ...item, password, path: '/' })
+    hostEntries.value[item.id] = listing.entries
+      .filter((entry) => entry.isDir)
+      .map((entry) => ({ name: entry.name, path: entry.path }))
   } catch (cause) {
-    hostErrors.value[item.id] = String(cause)
+    // 密码统一在「编辑主机」里维护，这里只在未设置密码时补一句提示。
+    const hint = passwords.value[item.id] ? '' : '（可在「编辑主机」中填写密码）'
+    hostErrors.value[item.id] = `${String(cause)}${hint}`
   } finally {
     hostLoading.value[item.id] = false
   }
 }
 
+/**
+ * 点击主机（连接）名称：在文件窗格打开该连接。
+ *
+ * 与「展开三角」分工：三角才在左侧树里逐级列出子目录（见 `toggleHost`）。
+ */
+async function openHostInPane(item: RemoteHost) {
+  if (passwords.value[item.id] === undefined) {
+    try {
+      passwords.value[item.id] = (await api.getRemotePassword(item.id)) || ''
+    } catch {
+      passwords.value[item.id] = ''
+    }
+  }
+  setRemotePassword(item.id, passwords.value[item.id] || '')
+  await pane.openRemote(
+    pane.activePaneId,
+    {
+      id: item.id,
+      protocol: item.protocol,
+      host: item.host,
+      port: item.port,
+      username: item.username,
+      label: item.label,
+    },
+    '/',
+  )
+}
+
 function toggleHost(item: RemoteHost) {
   expandedHosts.value[item.id] = !expandedHosts.value[item.id]
-  if (expandedHosts.value[item.id] && !hostEntries.value[item.id]) void loadHost(item)
+  // 每次展开都重新列一次（这就是该主机唯一的刷新入口 —— 密码在「编辑主机」里维护）。
+  if (expandedHosts.value[item.id]) void loadHost(item)
 }
 </script>
 
@@ -307,8 +344,13 @@ function toggleHost(item: RemoteHost) {
         <p v-if="!hosts.length" class="state">暂无主机</p>
         <div v-for="item in hosts" :key="item.id">
           <div class="tree-row host-row">
-            <button class="row-main" :title="`${item.protocol}://${item.host}:${item.port}`" @click="toggleHost(item)">
-              <span class="twist" :class="{ open: expandedHosts[item.id] }"><Icon name="chevron-right" :size="11" /></span>
+            <span class="twist" :class="{ open: expandedHosts[item.id] }" role="button"
+              :title="expandedHosts[item.id] ? '折叠' : '展开下一级'"
+              :aria-label="`${expandedHosts[item.id] ? '折叠' : '展开'}${item.label}`"
+              @click.stop="toggleHost(item)">
+              <Icon name="chevron-right" :size="11" />
+            </span>
+            <button class="row-main" :title="`打开 ${item.protocol}://${item.host}:${item.port}`" @click="openHostInPane(item)">
               <Icon name="drive" :size="14" /><span class="label">{{ item.label }}</span><small>{{ item.protocol.toUpperCase() }}</small>
             </button>
             <div class="host-actions">
@@ -317,17 +359,13 @@ function toggleHost(item: RemoteHost) {
             </div>
           </div>
           <div v-if="expandedHosts[item.id]">
-            <div class="credentials">
-              <input v-model="passwords[item.id]" type="password" autocomplete="off" placeholder="密码（保存在系统凭据库）" :aria-label="`${item.label} 密码`" @keyup.enter="loadHost(item)" />
-              <button title="连接或刷新" @click="loadHost(item)"><Icon name="refresh" :size="13" /></button>
-            </div>
             <p v-if="hostLoading[item.id]" class="state nested">读取中…</p>
             <p v-else-if="hostErrors[item.id]" class="state nested error">{{ hostErrors[item.id] }}</p>
-            <p v-else-if="hostEntries[item.id] && !hostEntries[item.id].length" class="state nested">空目录</p>
+            <p v-else-if="hostEntries[item.id] && !hostEntries[item.id].length" class="state nested">无子目录</p>
             <RemoteTreeNode
-              v-for="entry in hostEntries[item.id] || []" :key="entry" :protocol="item.protocol"
-              :host="item.host" :port="item.port" :username="item.username"
-              :password="passwords[item.id] || ''" :name="entry" :path="`/${entry}`" :depth="2"
+              v-for="entry in hostEntries[item.id] || []" :key="entry.path"
+              :location="{ id: item.id, protocol: item.protocol, host: item.host, port: item.port, username: item.username, label: item.label }"
+              :password="passwords[item.id] || ''" :name="entry.name" :path="entry.path" :depth="2"
             />
           </div>
         </div>
@@ -391,10 +429,11 @@ function toggleHost(item: RemoteHost) {
 .row-main { display: flex; align-items: center; gap: 4px; flex: 1; min-width: 0; height: 100%; padding: 0 6px; text-align: left; color: var(--fg-folder); font-size: 1rem; }
 .row-main span:last-of-type, .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .category-icon { flex: none; color: var(--accent); }
-.host-row .row-main { padding-left: 18px; }
+.host-row .twist { margin-left: 18px; }
 .host-actions { display: flex; align-items: center; gap: 2px; flex: none; }
 .server-row .row-main { padding-left: 18px; }
-.twist { display: flex; align-items: center; justify-content: center; width: 12px; flex: none; color: var(--fg-dim); transition: transform .12s ease; }
+.twist { display: flex; align-items: center; justify-content: center; width: 12px; flex: none; color: var(--fg-dim); cursor: pointer; transition: transform .12s ease; }
+.twist:hover { color: var(--fg); }
 .twist.open { transform: rotate(90deg); }
 .row-main small { margin-left: auto; color: var(--fg-dim); font-size: 0.8333rem; }
 .action, .remove { display: flex; align-items: center; justify-content: center; flex: none; width: 20px; height: 20px; color: var(--fg-dim); border-radius: var(--radius); }
@@ -411,12 +450,10 @@ function toggleHost(item: RemoteHost) {
 .dialog h2 { margin: 0 0 16px; color: var(--fg); font-size: 1.1667rem; font-weight: 600; }
 .dialog-form { display: flex; flex-direction: column; gap: 12px; }
 .dialog-form label { display: flex; flex-direction: column; gap: 5px; color: var(--fg-muted); font-size: 0.9167rem; }
-.dialog-form input, .dialog-form select, .credentials input { min-width: 0; width: 100%; padding: 7px 8px; border: 1px solid var(--border-strong); border-radius: var(--radius); background: var(--bg-input); color: var(--fg); font: inherit; font-size: 1rem; }
+.dialog-form input, .dialog-form select { min-width: 0; width: 100%; padding: 7px 8px; border: 1px solid var(--border-strong); border-radius: var(--radius); background: var(--bg-input); color: var(--fg); font: inherit; font-size: 1rem; }
 .dialog-error { margin: 0; color: var(--danger); font-size: 0.9167rem; overflow-wrap: anywhere; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
 .dialog-actions button { padding: 6px 12px; border: 1px solid var(--border); border-radius: var(--radius); font-size: 0.9167rem; }
 .dialog-actions .secondary { color: var(--fg); background: var(--bg-hover); }
 .dialog-actions .primary { border-color: var(--accent); color: var(--accent-fg); background: var(--accent); }
-.credentials { display: flex; align-items: center; gap: 4px; padding: 4px 6px 4px 30px; }
-.credentials button { display: flex; align-items: center; justify-content: center; flex: none; width: 22px; height: 22px; color: var(--fg-muted); }
 </style>

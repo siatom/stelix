@@ -213,8 +213,10 @@ export const useAiStore = defineStore('ai', () => {
     const tab = pane.activeTab
     const selected = contextToggles.value.selection ? tab?.selected ?? [] : []
     const merged = [...selected, ...manualPaths.value]
+    // 远程（FTP / SFTP）标签的路径不是本地路径，不能作为 AI 的本地操作上下文。
+    const localTab = tab && tab.kind !== 'remote' ? tab : undefined
     return {
-      activePath: contextToggles.value.activeDir ? tab?.path ?? null : null,
+      activePath: contextToggles.value.activeDir ? localTab?.path ?? null : null,
       selected: Array.from(new Set(merged)),
     }
   }

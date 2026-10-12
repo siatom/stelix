@@ -27,8 +27,9 @@ import type {
 export const api = {
   listDir: (path: string) => invoke<DirListing>('list_dir', { path }),
   getRoots: () => invoke<DriveInfo[]>('get_roots'),
-  listRemote: (request: { protocol: 'ftp' | 'sftp'; host: string; port: number; username: string; password: string; path: string }) =>
-    invoke<string[]>('list_remote', { request }),
+  /** 列出 FTP / SFTP 目录（只读），条目带类型 / 大小 / 修改时间。 */
+  listRemoteDir: (request: { protocol: 'ftp' | 'sftp'; host: string; port: number; username: string; password: string; path: string }) =>
+    invoke<DirListing>('list_remote_dir', { request }),
   discoverSmbNeighbors: () => invoke<{ server: string; shares: string[] }[]>('discover_smb_neighbors'),
   listSmbShares: (server: string) => invoke<string[]>('list_smb_shares', { server }),
   listWslDistros: () => invoke<string[]>('list_wsl_distros'),

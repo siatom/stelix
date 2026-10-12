@@ -17,8 +17,10 @@ const activeTab = computed(() => {
   if (!p) return undefined
   return p.tabs.find((t) => t.id === p.activeTabId) ?? p.tabs[0]
 })
-// 搜索结果标签页没有「目录」语义，禁用新建入口。
-const canCreate = computed(() => !!activeTab.value && activeTab.value.kind !== 'search')
+// 搜索结果与远程标签都没有本地「目录」写权限，禁用新建入口。
+const canCreate = computed(
+  () => !!activeTab.value && activeTab.value.kind !== 'search' && activeTab.value.kind !== 'remote',
+)
 
 const modes: { key: ViewMode; icon: IconName; title: string }[] = [
   { key: 'details', icon: 'view-details', title: '详细' },

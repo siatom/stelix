@@ -46,9 +46,10 @@ fn get_roots() -> Vec<DriveInfo> {
     fs_core::get_roots()
 }
 
+/// 列出 FTP / SFTP 目录（只读），条目带类型 / 大小 / 修改时间。
 #[tauri::command]
-async fn list_remote(request: network::RemoteRequest) -> Result<Vec<String>, String> {
-    tauri::async_runtime::spawn_blocking(move || network::list_remote(request))
+async fn list_remote_dir(request: network::RemoteRequest) -> Result<DirListing, String> {
+    tauri::async_runtime::spawn_blocking(move || network::list_remote_dir(request))
         .await
         .map_err(|error| format!("远程读取任务失败: {error}"))?
 }
@@ -540,7 +541,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             list_dir,
             get_roots,
-            list_remote,
+            list_remote_dir,
             discover_smb_neighbors,
             list_smb_shares,
             list_wsl_distros,

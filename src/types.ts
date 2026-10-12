@@ -155,13 +155,27 @@ export interface AiProvider {
 
 // ---- 视图模型（前端专用） ----
 
+/** 一个 FTP / SFTP 连接的连接信息（密码不在此结构中，见 `src/shell/remote.ts`）。 */
+export interface RemoteLocation {
+  /** 侧栏主机的稳定 id（也用于系统凭据库的 service 名） */
+  id: string
+  protocol: 'ftp' | 'sftp'
+  host: string
+  port: number
+  username: string
+  /** 侧栏显示名（用作标签标题） */
+  label: string
+}
+
 export interface TabState {
   id: string
   path: string
-  /** 搜索结果标签页使用的标题和查询词 */
-  kind?: 'files' | 'search'
+  /** 标签页类型：普通目录 / 搜索结果 / 远程（FTP/SFTP）目录 */
+  kind?: 'files' | 'search' | 'remote'
   title?: string
   searchQuery?: string
+  /** 远程标签的连接信息（`kind === 'remote'` 时有效）；`path` 为远程 POSIX 路径 */
+  remote?: RemoteLocation
   entries: FileEntry[]
   loading: boolean
   error: string | null
