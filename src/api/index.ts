@@ -2,8 +2,11 @@ import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import type {
   AiConfig,
+  AiConversation,
   AiContext,
   AiMessage,
+  AiModel,
+  AiProvider,
   AiReply,
   AiToolCall,
   DirListing,
@@ -47,12 +50,20 @@ export const api = {
   indexStatus: () => invoke<IndexStatus>('index_status'),
   searchFiles: (query: SearchQuery) => invoke<SearchHit[]>('search_files', { query }),
 
-  aiChat: (messages: AiMessage[], context: AiContext) =>
-    invoke<AiReply>('ai_chat', { messages, context }),
+  aiChat: (messages: AiMessage[], context: AiContext, requestId: string) =>
+    invoke<AiReply>('ai_chat', { messages, context, requestId }),
+  /** 请求停止某个正在流式生成的回复（按 requestId 匹配）。 */
+  aiChatCancel: (id: string) => invoke<void>('ai_chat_cancel', { id }),
+  /** 拉取某个 Provider 可用的模型列表。 */
+  aiListModels: (provider: AiProvider) => invoke<AiModel[]>('ai_list_models', { provider }),
   aiExecuteTool: (call: AiToolCall, approved: boolean) =>
     invoke<ToolOutcome>('ai_execute_tool', { call, approved }),
   aiConfigGet: () => invoke<AiConfig>('ai_config_get'),
   aiConfigSet: (config: AiConfig) => invoke<void>('ai_config_set', { config }),
+  aiTestConnection: (config: AiConfig) => invoke<string>('ai_test_connection', { config }),
+  aiConversationsList: () => invoke<AiConversation[]>('ai_conversations_list'),
+  aiConversationSave: (conversation: AiConversation) => invoke<void>('ai_conversation_save', { conversation }),
+  aiConversationDelete: (id: string) => invoke<void>('ai_conversation_delete', { id }),
   /** 用大模型把自然语言需求规划为一条定时任务草稿（离线时走规则解析兜底）。 */
   aiPlanTask: (prompt: string, context: AiContext) =>
     invoke<TaskPlanReply>('ai_plan_task', { prompt, context }),
@@ -83,7 +94,6 @@ export const events = {
   onIndexProgress: (cb: (p: unknown) => void) => listen('index:progress', (e) => cb(e.payload)),
   onIndexDone: (cb: (p: unknown) => void) => listen('index:done', (e) => cb(e.payload)),
   onSearchResult: (cb: (p: unknown) => void) => listen('search:result', (e) => cb(e.payload)),
-  onAiToken: (cb: (p: string) => void) => listen('ai:token', (e) => cb(e.payload as string)),
   onFsProgress: (cb: (p: string) => void) => listen('fs:progress', (e) => cb(e.payload as string)),
   /** 定时任务状态变化（新增 / 运行 / 启用状态改变）。 */
   onTaskUpdated: (cb: (id: string) => void) => listen('task:updated', (e) => cb(e.payload as string)),
@@ -93,4 +103,10 @@ export const events = {
   /** 目录大小统计结果（详情视图按需计算）。 */
   onDirSize: (cb: (p: { path: string; size: number }) => void) =>
     listen('fs:dir-size', (e) => cb(e.payload as { path: string; size: number })),
+  /** AI 流式文本增量。 */
+  onAiToken: (cb: (p: { requestId: string; delta: string }) => void) =>
+    listen('ai:token', (e) => cb(e.payload as { requestId: string; delta: string })),
+  /** AI 工具执行步骤提示。 */
+  onAiStep: (cb: (p: { requestId: string; step: string }) => void) =>
+    listen('ai:step', (e) => cb(e.payload as { requestId: string; step: string })),
 }

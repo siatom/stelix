@@ -152,6 +152,37 @@ pub struct AiMessage {
     pub content: String,
 }
 
+/// 本地历史仅保存展示消息，不保存可恢复执行的文件操作。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiChatMessage {
+    pub id: String,
+    pub role: String,
+    pub content: String,
+    pub created_at: i64,
+    pub status: String,
+    pub model: String,
+    pub kind: String,
+    #[serde(default)]
+    pub operation: Option<String>,
+    /// 该轮回复的 token 用量（旧历史文件无此字段）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usage: Option<AiUsage>,
+    /// 该轮回复耗时（毫秒，由前端测量；旧历史文件无此字段）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duration_ms: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiConversation {
+    pub id: String,
+    pub title: String,
+    pub created_at: i64,
+    pub updated_at: i64,
+    pub messages: Vec<AiChatMessage>,
+}
+
 /// AI 工具调用
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -183,6 +214,22 @@ pub struct AiReply {
     /// 需要用户二次确认的写操作（前端弹确认框，确认后调 ai_execute_tool）
     #[serde(default)]
     pub pending_confirm: Option<FsOp>,
+    /// 用户中途停止了生成：`text` 为已收到的部分文本
+    #[serde(default)]
+    pub interrupted: bool,
+    /// 本轮（含工具多轮）累计的 token 用量；模型未返回时为 None
+    #[serde(default)]
+    pub usage: Option<AiUsage>,
+}
+
+/// 一次回复的 token 用量。
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiUsage {
+    #[serde(default)]
+    pub input_tokens: u64,
+    #[serde(default)]
+    pub output_tokens: u64,
 }
 
 /// 工具执行结果
@@ -199,39 +246,107 @@ pub enum ToolOutcome {
     Text(String),
 }
 
-/// AI 配置（OpenAI 兼容）
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// AI 接入配置；Provider 与模型独立管理。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AiConfig {
-    /// 例如 https://api.openai.com/v1
-    #[serde(default = "default_base_url")]
-    pub base_url: String,
     #[serde(default)]
-    pub api_key: String,
-    #[serde(default = "default_model")]
-    pub model: String,
-    /// 关闭时走离线规则解析器
+    pub providers: Vec<AiProvider>,
+    #[serde(default)]
+    pub active_provider_id: String,
+    #[serde(default)]
+    pub active_model_id: String,
     #[serde(default)]
     pub enabled: bool,
 }
 
-fn default_base_url() -> String {
-    "https://api.openai.com/v1".to_string()
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AiProtocol {
+    #[serde(rename = "openai-chat")]
+    OpenaiChat,
+    #[serde(rename = "openai-responses")]
+    OpenaiResponses,
+    #[serde(rename = "anthropic")]
+    Anthropic,
+    #[serde(rename = "gemini")]
+    Gemini,
 }
 
-fn default_model() -> String {
-    "gpt-4o-mini".to_string()
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiProvider {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub vendor: String,
+    pub protocol: AiProtocol,
+    pub base_url: String,
+    #[serde(default)]
+    pub api_key: String,
+    #[serde(default)]
+    pub models: Vec<AiModel>,
 }
 
-impl Default for AiConfig {
-    fn default() -> Self {
-        Self {
-            base_url: default_base_url(),
-            api_key: String::new(),
-            model: default_model(),
-            enabled: false,
-        }
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AiModel {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub vendor: String,
+}
+
+impl AiConfig {
+    pub fn active(&self) -> Result<(&AiProvider, &AiModel), String> {
+        let provider = self
+            .providers
+            .iter()
+            .find(|p| p.id == self.active_provider_id)
+            .ok_or("请选择 AI Provider")?;
+        let model = provider
+            .models
+            .iter()
+            .find(|m| m.id == self.active_model_id)
+            .ok_or("请选择 AI 模型")?;
+        Ok((provider, model))
     }
+
+    pub fn validate(&self) -> Result<(), String> {
+        let mut ids = std::collections::HashSet::new();
+        for provider in &self.providers {
+            if provider.id.trim().is_empty() || !ids.insert(&provider.id) {
+                return Err("Provider 标识不能为空或重复".into());
+            }
+            if provider.name.trim().is_empty() {
+                return Err("Provider 名称不能为空".into());
+            }
+            validate_provider_url(&provider.base_url)?;
+            let mut models = std::collections::HashSet::new();
+            for model in &provider.models {
+                if model.id.trim().is_empty() || !models.insert(&model.id) {
+                    return Err("同一 Provider 的模型 ID 不能为空或重复".into());
+                }
+            }
+        }
+        if self.enabled || !self.active_provider_id.is_empty() || !self.active_model_id.is_empty() {
+            self.active()?;
+        }
+        Ok(())
+    }
+}
+
+/// 校验 Provider 的基础地址为不带凭据/查询/片段的 HTTP(S) 地址。
+pub fn validate_provider_url(base_url: &str) -> Result<(), String> {
+    let url = reqwest::Url::parse(base_url).map_err(|_| "API 地址无效")?;
+    if !matches!(url.scheme(), "http" | "https")
+        || url.host_str().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+    {
+        return Err("API 地址须为 HTTP/HTTPS 基础地址，不能包含凭据、查询参数或片段".into());
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------- 定时任务

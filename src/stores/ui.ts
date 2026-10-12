@@ -113,6 +113,7 @@ export const useUiStore = defineStore('ui', () => {
   const hideFileExtensions = ref(readBool(LS_HIDE_FILE_EXTENSIONS, HIDE_FILE_EXTENSIONS_DEF))
   const activePanel = ref<PanelKey>(readPanel())
   const settingsOpen = ref(false)
+  const settingsTab = ref<'general' | 'index' | 'ai' | 'about'>('general')
   const statusText = ref('就绪')
   const indexTotal = ref(0)
 
@@ -156,7 +157,8 @@ export const useUiStore = defineStore('ui', () => {
     }
   }
 
-  function openSettings() {
+  function openSettings(tab: 'general' | 'index' | 'ai' | 'about' = 'general') {
+    settingsTab.value = tab
     settingsOpen.value = true
   }
 
@@ -310,6 +312,7 @@ export const useUiStore = defineStore('ui', () => {
     hideFileExtensions,
     activePanel,
     settingsOpen,
+    settingsTab,
     statusText,
     indexTotal,
     indexRoots,

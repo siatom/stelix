@@ -254,6 +254,8 @@ export const ICONS = {
     'M6.9 17.1l-1.7 1.7',
   ],
   moon: ['M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9z'],
+  // ---------------------------------------------------------------- 其它
+  stop: ['M6.5 6.5h11v11h-11z'],
 } as const
 
 export type IconName = keyof typeof ICONS

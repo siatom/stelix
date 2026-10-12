@@ -12,6 +12,7 @@ const items: { key: PanelKey; icon: IconName; title: string }[] = [
   { key: 'files', icon: 'folder', title: '文件导航' },
   { key: 'tasks', icon: 'clock', title: '定时任务' },
   { key: 'search', icon: 'search', title: '搜索' },
+  { key: 'ai', icon: 'bot', title: 'AI 助手' },
 ]
 </script>
 
@@ -40,17 +41,6 @@ const items: { key: PanelKey; icon: IconName; title: string }[] = [
     <div class="spacer" />
 
     <div class="divider" />
-    <button
-      type="button"
-      class="activity-btn"
-      :class="{ active: ui.activePanel === 'ai' && !ui.sidebarCollapsed }"
-      title="AI 助手"
-      aria-label="AI 助手"
-      @click="ui.setPanel('ai')"
-    >
-      <Icon name="bot" :size="19" />
-    </button>
-
     <button
       type="button"
       class="activity-btn"

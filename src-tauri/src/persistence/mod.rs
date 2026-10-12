@@ -1,5 +1,7 @@
 //! Configuration and index persistence.
 
+pub mod ai_history;
+
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
@@ -51,7 +53,10 @@ fn fallback_config_dir() -> PathBuf {
 }
 
 fn config_dir() -> PathBuf {
-    CONFIG_DIR.get().cloned().unwrap_or_else(fallback_config_dir)
+    CONFIG_DIR
+        .get()
+        .cloned()
+        .unwrap_or_else(fallback_config_dir)
 }
 
 fn ai_config_path() -> PathBuf {
@@ -303,7 +308,60 @@ pub fn load_ai_config() -> AiConfig {
     let Ok(text) = std::fs::read_to_string(&path) else {
         return AiConfig::default();
     };
-    serde_json::from_str(&text).unwrap_or_default()
+    parse_ai_config(&text).unwrap_or_default()
+}
+
+/// 仅在读取旧配置时迁移单一接入；保存后只保留新的配置结构。
+fn parse_ai_config(text: &str) -> Result<AiConfig, serde_json::Error> {
+    let value: serde_json::Value = serde_json::from_str(text)?;
+    if value.get("providers").is_some() {
+        return serde_json::from_value(value);
+    }
+    let model = value["model"].as_str().unwrap_or("gpt-4o-mini");
+    serde_json::from_value(serde_json::json!({
+        "enabled": value["enabled"].as_bool().unwrap_or(false),
+        "activeProviderId": "legacy", "activeModelId": model,
+        "providers": [{"id":"legacy", "name":"原有 AI 接入", "vendor":"custom",
+            "protocol":"openai-chat",
+            "baseUrl":value["baseUrl"].as_str().unwrap_or("https://api.openai.com/v1"),
+            "apiKey":value["apiKey"].as_str().unwrap_or(""),
+            "models":[{"id":model,"name":model,"vendor":""}]}]
+    }))
+}
+
+#[cfg(test)]
+mod ai_config_tests {
+    use super::*;
+
+    #[test]
+    fn old_config_migrates_and_new_config_roundtrips() {
+        let config = parse_ai_config(r#"{"enabled":true,"baseUrl":"http://localhost:1234/v1","apiKey":"test-key","model":"local-model"}"#).unwrap();
+        let (provider, model) = config.active().unwrap();
+        assert_eq!(provider.api_key, "test-key");
+        assert_eq!(model.id, "local-model");
+        config.validate().unwrap();
+        let saved = serde_json::to_string(&config).unwrap();
+        assert!(serde_json::from_str::<serde_json::Value>(&saved)
+            .unwrap()
+            .get("baseUrl")
+            .is_none());
+        let restored = parse_ai_config(&saved).unwrap();
+        assert_eq!(
+            restored.active().unwrap().0.base_url,
+            "http://localhost:1234/v1"
+        );
+    }
+
+    #[test]
+    fn invalid_selection_and_duplicate_models_are_rejected() {
+        let mut config = parse_ai_config(r#"{"enabled":true,"model":"local-model"}"#).unwrap();
+        config.active_model_id = "missing".into();
+        assert!(config.validate().is_err());
+        config.active_model_id = "local-model".into();
+        let model = config.providers[0].models[0].clone();
+        config.providers[0].models.push(model);
+        assert!(config.validate().is_err());
+    }
 }
 
 pub fn save_ai_config(cfg: &AiConfig) -> Result<(), String> {

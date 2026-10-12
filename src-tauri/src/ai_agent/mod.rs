@@ -3,40 +3,89 @@
 //! 契约（Phase 0 冻结）：
 //! - `AiService::new / config / set_config / chat`
 //! - 自由函数 `execute_tool(call, approved, index)` 供 command 层调用
-//! - 无 API key 时必须走离线规则解析器，保证演示不依赖外部服务
+//! - 关闭 AI 时走离线规则解析器，保证演示不依赖外部服务
 //! - 写操作（Move/Delete/Rename/Mkdir）必须经 `AiReply::pending_confirm` 二次确认
 //!
 //! 本模块实现两条路径：
-//! 1. **真实 LLM**（OpenAI 兼容 `/chat/completions`，非流式）—— 仅当
-//!    `config.enabled && !api_key.is_empty()`；只读工具就地执行并回灌，
+//! 1. **真实 LLM**（四种协议，流式）—— 当 `config.enabled`；
+//!    本地服务允许无密钥，只读工具就地执行并回灌，
 //!    写工具**不执行**，转成 `pending_confirm` 交给前端确认。
-//! 2. **离线规则解析器** —— 无 key / 关闭时启用，用关键词识别中英文指令。
+//! 2. **离线规则解析器** —— 关闭或调用失败时启用，用关键词识别中英文指令。
 
+use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
-use std::time::{Duration, UNIX_EPOCH};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::time::UNIX_EPOCH;
 
-use parking_lot::RwLock;
+mod protocol;
+
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AiTokenPayload {
+    request_id: String,
+    delta: String,
+}
+
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AiStepPayload {
+    request_id: String,
+    step: String,
+}
+
+/// 拉取 Provider 可用的模型列表（供设置页填充模型下拉）。
+pub async fn list_models(provider: AiProvider) -> Result<Vec<AiModel>, String> {
+    protocol::list_models(&provider).await
+}
+
+pub async fn test_connection(config: AiConfig) -> Result<String, String> {
+    config.validate()?;
+    let message = protocol::request(
+        &config,
+        &[json!({"role":"user","content":"只回复 OK"})],
+        None,
+    )
+    .await?;
+    let response: String = message["content"]
+        .as_str()
+        .unwrap_or("")
+        .chars()
+        .take(120)
+        .collect();
+    if response.trim().is_empty() {
+        return Err("模型没有返回文本，连接测试未通过".into());
+    }
+    Ok(format!("连接成功：{response}"))
+}
+
+use parking_lot::{Mutex, RwLock};
 use serde_json::{json, Value};
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 
+use crate::app_core::events;
 use crate::fs_core;
 use crate::index_engine::IndexStore;
 use crate::persistence;
 use crate::state::AppState;
 use crate::types::{
-    AiConfig, AiContext, AiMessage, AiReply, AiToolCall, FileEntry, FsOp, FsOpKind, SearchHit,
-    SearchQuery, TaskAction, TaskDraft, TaskFilters, TaskPlanReply, TaskSchedule, ToolOutcome,
+    AiConfig, AiContext, AiMessage, AiModel, AiProvider, AiReply, AiToolCall, AiUsage, FileEntry,
+    FsOp, FsOpKind, SearchHit, SearchQuery, TaskAction, TaskDraft, TaskFilters, TaskPlanReply,
+    TaskSchedule, ToolOutcome,
 };
 
 pub struct AiService {
     config: RwLock<AiConfig>,
+    /// 按 requestId 登记取消标志，供 `ai_chat_cancel` 中断正在进行的流式请求。
+    cancels: Mutex<HashMap<String, Arc<AtomicBool>>>,
 }
 
 impl AiService {
     pub fn new() -> Self {
         Self {
             config: RwLock::new(persistence::load_ai_config()),
+            cancels: Mutex::new(HashMap::new()),
         }
     }
 
@@ -44,19 +93,29 @@ impl AiService {
         self.config.read().clone()
     }
 
-    pub fn set_config(&self, cfg: AiConfig) {
-        *self.config.write() = cfg.clone();
-        let _ = persistence::save_ai_config(&cfg);
+    /// 请求停止某个正在进行的对话（幂等）。
+    pub fn cancel(&self, request_id: &str) {
+        if let Some(flag) = self.cancels.lock().get(request_id) {
+            flag.store(true, Ordering::Relaxed);
+        }
+    }
+
+    pub fn set_config(&self, cfg: AiConfig) -> Result<(), String> {
+        cfg.validate()?;
+        persistence::save_ai_config(&cfg)?;
+        *self.config.write() = cfg;
+        Ok(())
     }
 
     /// 发起一轮对话。
     ///
-    /// - 若 `config.enabled` 且有 `api_key` → 走 OpenAI 兼容接口；
+    /// - 若 `config.enabled` → 使用当前 Provider 和模型（流式，经 `ai:token` 增量推送）；
     ///   若请求失败则**自动回退**到离线解析器，并在回复头部标注错误原因。
     /// - 否则 → 离线规则解析器。
     pub async fn chat(
         &self,
         app: AppHandle,
+        request_id: String,
         messages: Vec<AiMessage>,
         context: AiContext,
     ) -> Result<AiReply, String> {
@@ -64,10 +123,35 @@ impl AiService {
         // 索引由 WS-A 提供；这里借用 AppState 取出句柄（只在函数内使用）。
         let index = app.state::<AppState>().index.clone();
 
-        if cfg.enabled && !cfg.api_key.trim().is_empty() {
-            match chat_llm(&cfg, &messages, &context, &index).await {
+        if cfg.enabled {
+            let cancel = Arc::new(AtomicBool::new(false));
+            self.cancels
+                .lock()
+                .insert(request_id.clone(), cancel.clone());
+            let _guard = CancelGuard {
+                cancels: &self.cancels,
+                request_id: &request_id,
+            };
+            match chat_llm(
+                &cfg,
+                &messages,
+                &context,
+                &index,
+                &app,
+                &request_id,
+                &cancel,
+            )
+            .await
+            {
                 Ok(reply) => return Ok(reply),
                 Err(e) => {
+                    // 用户主动停止时不回退到离线解析（避免用离线结果覆盖半截回复）。
+                    if cancel.load(Ordering::Relaxed) {
+                        return Ok(AiReply {
+                            interrupted: true,
+                            ..AiReply::default()
+                        });
+                    }
                     let mut r = offline_reply(&messages, &context, &index);
                     r.text = format!("⚠️ LLM 调用失败，已回退到离线模式：{e}\n\n{}", r.text);
                     return Ok(r);
@@ -75,6 +159,18 @@ impl AiService {
             }
         }
         Ok(offline_reply(&messages, &context, &index))
+    }
+}
+
+/// 保证对话结束时注销取消标志，避免注册表泄漏。
+struct CancelGuard<'a> {
+    cancels: &'a Mutex<HashMap<String, Arc<AtomicBool>>>,
+    request_id: &'a str,
+}
+
+impl Drop for CancelGuard<'_> {
+    fn drop(&mut self) {
+        self.cancels.lock().remove(self.request_id);
     }
 }
 
@@ -108,7 +204,7 @@ fn system_prompt(context: &AiContext) -> String {
     format!(
         "你是 Stelix File Manager（星索）的文件管理器智能助手，运行在 Windows 上。\n\
          当前活动目录：{active}\n\
-         当前选中项：{selected}\n\
+         当前上下文（选中或用户附带引用的路径）：{selected}\n\
          可用工具：\n\
          - 只读（可直接调用）：search_files、list_dir、get_metadata\n\
          - 写操作（调用后系统会先请用户确认，不会立即执行）：move_files、delete_files、rename_file、mkdir\n\
@@ -183,19 +279,19 @@ fn tools_schema() -> Value {
     ])
 }
 
-/// 调 OpenAI 兼容接口完成一轮（或多轮）工具编排，返回自然语言总结或待确认写操作。
+/// 使用所选协议完成一轮（或多轮）工具编排，返回总结或待确认写操作。
+///
+/// 文本增量经 `events::AI_TOKEN` 实时推送；工具执行前经 `events::AI_STEP` 提示步骤。
+#[allow(clippy::too_many_arguments)]
 async fn chat_llm(
     cfg: &AiConfig,
     messages: &[AiMessage],
     context: &AiContext,
     index: &IndexStore,
+    app: &AppHandle,
+    request_id: &str,
+    cancel: &AtomicBool,
 ) -> Result<AiReply, String> {
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(60))
-        .build()
-        .map_err(|e| format!("初始化 HTTP 客户端失败：{e}"))?;
-    let url = format!("{}/chat/completions", cfg.base_url.trim_end_matches('/'));
-
     // 注入 system prompt，跳过历史里的 system，避免重复。
     let mut api_messages: Vec<Value> = Vec::new();
     api_messages.push(json!({"role": "system", "content": system_prompt(context)}));
@@ -208,40 +304,49 @@ async fn chat_llm(
 
     let tools = tools_schema();
     let mut last_text = String::new();
+    let mut usage = AiUsage::default();
+    let mut got_usage = false;
+    let mut streamed = String::new();
+
+    let interrupted = |text: String| AiReply {
+        text,
+        interrupted: true,
+        ..AiReply::default()
+    };
 
     // 最多 3 轮，防止模型反复调用工具导致死循环。
     for _round in 0..3 {
-        let body = json!({
-            "model": cfg.model,
-            "messages": api_messages,
-            "tools": tools,
-            "tool_choice": "auto",
-            "stream": false
-        });
-        let resp = client
-            .post(&url)
-            .bearer_auth(cfg.api_key.trim())
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| format!("请求 LLM 失败：{e}"))?;
-
-        let status = resp.status();
-        if !status.is_success() {
-            let text = resp.text().await.unwrap_or_default();
-            let snippet: String = text.chars().take(500).collect();
-            return Err(format!("LLM 返回错误 {status}：{snippet}"));
+        if cancel.load(Ordering::Relaxed) {
+            return Ok(interrupted(std::mem::take(&mut streamed)));
         }
-        let data: Value = resp
-            .json()
-            .await
-            .map_err(|e| format!("解析 LLM 响应失败：{e}"))?;
-        let msg = data
-            .get("choices")
-            .and_then(|c| c.get(0))
-            .and_then(|c| c.get("message"))
-            .cloned()
-            .ok_or_else(|| "LLM 响应缺少 choices[0].message".to_string())?;
+        streamed.clear();
+        let response = {
+            let mut on_delta = |delta: &str| {
+                streamed.push_str(delta);
+                let _ = app.emit(
+                    events::AI_TOKEN,
+                    AiTokenPayload {
+                        request_id: request_id.to_string(),
+                        delta: delta.to_string(),
+                    },
+                );
+            };
+            protocol::stream(cfg, &api_messages, Some(&tools), cancel, &mut on_delta).await
+        };
+        let (msg, round_usage) = response?;
+        if let Some(u) = round_usage {
+            usage.input_tokens += u.input_tokens;
+            usage.output_tokens += u.output_tokens;
+            got_usage = true;
+        }
+        if cancel.load(Ordering::Relaxed) {
+            let partial = if streamed.is_empty() {
+                last_text.clone()
+            } else {
+                streamed.clone()
+            };
+            return Ok(interrupted(partial));
+        }
 
         let content = msg
             .get("content")
@@ -266,6 +371,8 @@ async fn chat_llm(
                 },
                 tool_calls: Vec::new(),
                 pending_confirm: None,
+                interrupted: false,
+                usage: got_usage.then_some(usage),
             });
         }
 
@@ -273,10 +380,18 @@ async fn chat_llm(
         api_messages.push(msg.clone());
 
         let mut pending: Option<FsOp> = None;
+        let mut pending_call: Option<AiToolCall> = None;
         let mut pending_desc = String::new();
-        let mut parsed_calls: Vec<AiToolCall> = Vec::new();
 
         for tc in &tool_calls {
+            if cancel.load(Ordering::Relaxed) {
+                let partial = if streamed.is_empty() {
+                    last_text.clone()
+                } else {
+                    streamed.clone()
+                };
+                return Ok(interrupted(partial));
+            }
             let name = tc
                 .get("function")
                 .and_then(|f| f.get("name"))
@@ -299,13 +414,28 @@ async fn chat_llm(
                 name: name.clone(),
                 args,
             };
-            parsed_calls.push(call.clone());
+
+            let step = match name.as_str() {
+                "search_files" => "正在检索文件",
+                "list_dir" => "正在读取目录",
+                "get_metadata" => "正在读取文件信息",
+                _ if is_write_tool(&name) => "准备执行写操作，请确认",
+                _ => "正在执行工具",
+            };
+            let _ = app.emit(
+                events::AI_STEP,
+                AiStepPayload {
+                    request_id: request_id.to_string(),
+                    step: step.to_string(),
+                },
+            );
 
             if is_write_tool(&name) {
                 match build_fs_op(&call) {
                     Ok((op, desc)) => {
                         // 写操作：不执行，构造 pending_confirm。
                         pending = Some(op);
+                        pending_call = Some(call.clone());
                         pending_desc = desc;
                     }
                     Err(e) => {
@@ -336,8 +466,10 @@ async fn chat_llm(
             let text = format!("{head}\n\n我将执行以下操作，请确认后执行：\n{pending_desc}");
             return Ok(AiReply {
                 text,
-                tool_calls: parsed_calls,
+                tool_calls: pending_call.into_iter().collect(),
                 pending_confirm: Some(op),
+                interrupted: false,
+                usage: got_usage.then_some(usage),
             });
         }
         // 只有只读工具 → 继续下一轮，让模型基于结果生成总结。
@@ -351,6 +483,8 @@ async fn chat_llm(
         },
         tool_calls: Vec::new(),
         pending_confirm: None,
+        interrupted: false,
+        usage: got_usage.then_some(usage),
     })
 }
 
@@ -840,6 +974,7 @@ fn confirm_reply(text: String, op: FsOp) -> AiReply {
         text: format!("{text}\n\n这是写操作，请确认后我再执行。"),
         tool_calls: Vec::new(),
         pending_confirm: Some(op),
+        ..AiReply::default()
     }
 }
 
@@ -1354,18 +1489,19 @@ fn to_vec(a: &[&str]) -> Vec<String> {
 impl AiService {
     /// 把自然语言需求规划为一条定时任务草稿。
     ///
-    /// - 已启用且配置了 api_key → 走 LLM（要求只输出 JSON 规格）；
+    /// - 已启用 → 走当前 Provider 的 LLM（要求只输出 JSON 规格）；
     /// - 否则 / 调用失败 → 离线规则解析兜底。
     ///
     /// 注意：规划只在**创建时**发生；运行时由 `schedule` 模块按规格确定性执行。
     pub async fn plan_task(&self, prompt: String, context: AiContext) -> TaskPlanReply {
         let cfg = self.config();
-        if cfg.enabled && !cfg.api_key.trim().is_empty() {
+        if cfg.enabled {
             match plan_task_llm(&cfg, &prompt, &context).await {
                 Ok(reply) => return reply,
                 Err(e) => {
                     let mut reply = offline_plan_task(&prompt, &context);
-                    reply.text = format!("⚠️ LLM 调用失败，已回退到离线解析：{e}\n\n{}", reply.text);
+                    reply.text =
+                        format!("⚠️ LLM 调用失败，已回退到离线解析：{e}\n\n{}", reply.text);
                     return reply;
                 }
             }
@@ -1380,11 +1516,6 @@ async fn plan_task_llm(
     prompt: &str,
     context: &AiContext,
 ) -> Result<TaskPlanReply, String> {
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(60))
-        .build()
-        .map_err(|e| format!("初始化 HTTP 客户端失败：{e}"))?;
-    let url = format!("{}/chat/completions", cfg.base_url.trim_end_matches('/'));
     let active = context
         .active_path
         .clone()
@@ -1407,36 +1538,13 @@ async fn plan_task_llm(
          4. 未指定目录时使用「当前活动目录」。\n\
          5. 必须至少给出一个筛选条件（extensions / nameContains / minAgeDays / minSizeBytes / maxSizeBytes），否则会被系统拒绝。"
     );
-    let body = json!({
-        "model": cfg.model,
-        "messages": [
-            {"role": "system", "content": system},
-            {"role": "user", "content": prompt}
-        ],
-        "stream": false
-    });
-    let resp = client
-        .post(&url)
-        .bearer_auth(cfg.api_key.trim())
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| format!("请求 LLM 失败：{e}"))?;
-    let status = resp.status();
-    if !status.is_success() {
-        let text = resp.text().await.unwrap_or_default();
-        let snippet: String = text.chars().take(500).collect();
-        return Err(format!("LLM 返回错误 {status}：{snippet}"));
-    }
-    let data: Value = resp
-        .json()
-        .await
-        .map_err(|e| format!("解析 LLM 响应失败：{e}"))?;
-    let content = data
-        .get("choices")
-        .and_then(|c| c.get(0))
-        .and_then(|c| c.get("message"))
-        .and_then(|m| m.get("content"))
+    let messages = vec![
+        json!({"role":"system","content":system}),
+        json!({"role":"user","content":prompt}),
+    ];
+    let message = protocol::request(cfg, &messages, None).await?;
+    let content = message
+        .get("content")
         .and_then(|c| c.as_str())
         .unwrap_or("")
         .to_string();
@@ -2062,7 +2170,10 @@ mod tests {
 
     #[test]
     fn offline_plan_task_builds_draft() {
-        let reply = offline_plan_task("每天 9:00 清理 D:\\下载 里超过 30 天的 .tmp 文件", &ctx("C:\\"));
+        let reply = offline_plan_task(
+            "每天 9:00 清理 D:\\下载 里超过 30 天的 .tmp 文件",
+            &ctx("C:\\"),
+        );
         let draft = reply.draft.expect("应生成草稿");
         assert_eq!(draft.schedule.kind, "daily");
         assert_eq!(draft.action.kind, "delete");

@@ -257,11 +257,22 @@ fn search_files(state: State<'_, AppState>, query: SearchQuery) -> Vec<SearchHit
 async fn ai_chat(
     app: tauri::AppHandle,
     state: State<'_, AppState>,
+    request_id: String,
     messages: Vec<AiMessage>,
     context: AiContext,
 ) -> Result<AiReply, String> {
     let ai = state.ai.clone();
-    ai.chat(app, messages, context).await
+    ai.chat(app, request_id, messages, context).await
+}
+
+#[tauri::command]
+fn ai_chat_cancel(state: State<'_, AppState>, id: String) {
+    state.ai.cancel(&id);
+}
+
+#[tauri::command]
+async fn ai_list_models(provider: AiProvider) -> Result<Vec<AiModel>, String> {
+    ai_agent::list_models(provider).await
 }
 
 #[tauri::command]
@@ -279,8 +290,28 @@ fn ai_config_get(state: State<'_, AppState>) -> AiConfig {
 }
 
 #[tauri::command]
-fn ai_config_set(state: State<'_, AppState>, config: AiConfig) {
-    state.ai.set_config(config);
+fn ai_config_set(state: State<'_, AppState>, config: AiConfig) -> Result<(), String> {
+    state.ai.set_config(config)
+}
+
+#[tauri::command]
+async fn ai_test_connection(config: AiConfig) -> Result<String, String> {
+    ai_agent::test_connection(config).await
+}
+
+#[tauri::command]
+fn ai_conversations_list() -> Result<Vec<AiConversation>, String> {
+    persistence::ai_history::list()
+}
+
+#[tauri::command]
+fn ai_conversation_save(conversation: AiConversation) -> Result<(), String> {
+    persistence::ai_history::save(&conversation)
+}
+
+#[tauri::command]
+fn ai_conversation_delete(id: String) -> Result<(), String> {
+    persistence::ai_history::delete(&id)
 }
 
 /// 用大模型把自然语言需求规划为一条定时任务草稿（离线时走规则解析兜底）。
@@ -527,9 +558,15 @@ pub fn run() {
             index_status,
             search_files,
             ai_chat,
+            ai_chat_cancel,
+            ai_list_models,
             ai_execute_tool,
             ai_config_get,
             ai_config_set,
+            ai_test_connection,
+            ai_conversations_list,
+            ai_conversation_save,
+            ai_conversation_delete,
             ai_plan_task,
             task_list,
             task_save,

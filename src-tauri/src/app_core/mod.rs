@@ -10,14 +10,14 @@ pub mod events {
     pub const INDEX_DONE: &str = "index:done";
 
     // 以下三条是 Phase 0 冻结契约里预留的事件，MVP 阶段尚未 emit：
-    // 检索结果走 search_files 的返回值一次性返回，AI 回复走 ai_chat 的非流式返回，
-    // 文件操作是同步阻塞返回。留作 Phase 2 的流式/进度增强，前端 events 封装已就绪。
+    // 检索结果走 search_files 的返回值一次性返回，文件操作是同步阻塞返回。
     /// 检索结果分批推送（预留）：payload = Vec<SearchHit>
     #[allow(dead_code)]
     pub const SEARCH_RESULT: &str = "search:result";
-    /// AI 流式 token（预留）：payload = String
-    #[allow(dead_code)]
+    /// AI 流式文本增量：payload = { requestId: String, delta: String }
     pub const AI_TOKEN: &str = "ai:token";
+    /// AI 工具执行步骤提示：payload = { requestId: String, step: String }
+    pub const AI_STEP: &str = "ai:step";
     /// 文件操作进度（预留）：payload = String
     #[allow(dead_code)]
     pub const FS_PROGRESS: &str = "fs:progress";

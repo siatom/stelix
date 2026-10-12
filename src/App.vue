@@ -3,6 +3,7 @@
 // 各 workstream 只实现自己被挂载的组件，不要修改本文件的组件树与挂载点。
 import { useUiStore } from './stores/ui'
 import { usePaneStore } from './stores/pane'
+import { useAiStore } from './stores/ai'
 import { events } from './api'
 import { broadcastFsChanged } from './shell/dirWatch'
 import ActivityBar from './components/Sidebar/ActivityBar.vue'
@@ -16,6 +17,7 @@ import { LogicalSize, PhysicalPosition, PhysicalSize } from '@tauri-apps/api/dpi
 
 const ui = useUiStore()
 const paneStore = usePaneStore()
+const aiStore = useAiStore()
 const appWindow = getCurrentWindow()
 const isMaximized = ref(false)
 const titlebarMenu = ref<{ x: number; y: number } | null>(null)
@@ -24,6 +26,8 @@ const titlebarModeHint = ref('')
 let unlistenResize: (() => void) | undefined
 let unlistenFsChanged: (() => void) | undefined
 let unlistenDirSize: (() => void) | undefined
+let unlistenAiToken: (() => void) | undefined
+let unlistenAiStep: (() => void) | undefined
 let titlebarPointer: { x: number; y: number } | null = null
 let actionPosition: PhysicalPosition | null = null
 let actionSize: PhysicalSize | null = null
@@ -166,6 +170,13 @@ onMounted(async () => {
   unlistenDirSize = await events.onDirSize(({ path, size }) => {
     paneStore.applyDirSize(path, size)
   })
+  // AI 流式增量与工具步骤（按 requestId 路由到发起该请求的消息）。
+  unlistenAiToken = await events.onAiToken(({ requestId, delta }) => {
+    aiStore.applyToken(requestId, delta)
+  })
+  unlistenAiStep = await events.onAiStep(({ requestId, step }) => {
+    aiStore.applyStep(requestId, step)
+  })
 })
 
 const SIDEBAR_WIDTH_KEY = 'stelix.sidebarWidth'
@@ -216,6 +227,8 @@ onBeforeUnmount(() => {
   unlistenResize?.()
   unlistenFsChanged?.()
   unlistenDirSize?.()
+  unlistenAiToken?.()
+  unlistenAiStep?.()
   stopTrackingTitlebarDrag()
   window.removeEventListener('mousedown', dismissTitlebarMenu)
   window.removeEventListener('keydown', onTitlebarActionKeydown)

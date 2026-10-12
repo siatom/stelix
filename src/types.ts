@@ -75,6 +75,27 @@ export interface AiMessage {
   content: string
 }
 
+export interface AiChatMessage extends AiMessage {
+  id: string
+  createdAt: number
+  status: 'pending' | 'complete' | 'error' | 'interrupted'
+  model: string
+  kind: 'message' | 'operation'
+  operation?: 'pending' | 'completed' | 'cancelled' | 'expired' | 'error' | null
+  /** 该轮回复的 token 用量（旧记录无此字段） */
+  usage?: AiUsage | null
+  /** 该轮回复耗时（毫秒，旧记录无此字段） */
+  durationMs?: number | null
+}
+
+export interface AiConversation {
+  id: string
+  title: string
+  createdAt: number
+  updatedAt: number
+  messages: AiChatMessage[]
+}
+
 export interface AiToolCall {
   id: string
   name: string
@@ -90,6 +111,15 @@ export interface AiReply {
   text: string
   toolCalls: AiToolCall[]
   pendingConfirm?: FsOp | null
+  /** 用户中途停止了生成，text 为已收到的部分 */
+  interrupted: boolean
+  usage?: AiUsage | null
+}
+
+/** 一次回复的 token 用量。 */
+export interface AiUsage {
+  inputTokens: number
+  outputTokens: number
 }
 
 export type ToolOutcome =
@@ -99,10 +129,28 @@ export type ToolOutcome =
   | { kind: 'text'; payload: string }
 
 export interface AiConfig {
+  enabled: boolean
+  providers: AiProvider[]
+  activeProviderId: string
+  activeModelId: string
+}
+
+export type AiProtocol = 'openai-chat' | 'openai-responses' | 'anthropic' | 'gemini'
+
+export interface AiModel {
+  id: string
+  name: string
+  vendor: string
+}
+
+export interface AiProvider {
+  id: string
+  name: string
+  vendor: string
+  protocol: AiProtocol
   baseUrl: string
   apiKey: string
-  model: string
-  enabled: boolean
+  models: AiModel[]
 }
 
 // ---- 视图模型（前端专用） ----

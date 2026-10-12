@@ -21,7 +21,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
         <header class="dialog-head">
           <div>
             <h2 id="settings-title">设置</h2>
-            <p>管理索引、界面显示和启动行为</p>
+            <p>管理界面、文件索引与 AI 大模型接入</p>
           </div>
           <button type="button" class="close-btn" title="关闭设置" aria-label="关闭设置" @click="ui.closeSettings()">
             <Icon name="x" :size="16" />
@@ -49,8 +49,8 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 .settings-dialog {
   display: flex;
   flex-direction: column;
-  width: min(860px, 100%);
-  max-height: min(820px, 100%);
+  width: min(960px, 100%);
+  height: min(780px, 100%);
   background: var(--bg-panel);
   border: 1px solid var(--border-strong);
   border-radius: calc(var(--radius) * 1.5);
@@ -88,28 +88,13 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   color: var(--fg);
 }
 .dialog-body {
+  flex: 1;
   min-height: 0;
-  padding: 20px 22px;
-  overflow: auto;
+  overflow: hidden;
 }
 .dialog-body :deep(.settings-panel) {
   min-height: 0;
 }
-.dialog-body :deep(.settings-scroll) {
-  display: grid;
-  grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
-  grid-template-areas:
-    'roots view'
-    'roots startup'
-    'error error';
-  align-items: start;
-  gap: 16px;
-  overflow: visible;
-}
-.dialog-body :deep(.settings-scroll > .card:nth-child(1)) { grid-area: roots; }
-.dialog-body :deep(.settings-scroll > .card:nth-child(2)) { grid-area: view; }
-.dialog-body :deep(.settings-scroll > .card:nth-child(3)) { grid-area: startup; }
-.dialog-body :deep(.settings-scroll > .error) { grid-area: error; }
 .dialog-body :deep(.card) {
   border-radius: var(--radius-lg);
 }
@@ -123,10 +108,5 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 @media (max-width: 680px) {
   .settings-backdrop { padding: 12px; }
   .settings-dialog { max-height: 100%; }
-  .dialog-body { padding: 14px; }
-  .dialog-body :deep(.settings-scroll) {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-areas: 'roots' 'view' 'startup' 'error';
-  }
 }
 </style>
