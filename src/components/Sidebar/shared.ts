@@ -79,7 +79,7 @@ export function loadFavorites(): QuickLocation[] {
       )
       .map((x) => ({
         label: x.label || x.path,
-        icon: (x.icon || 'star') as IconName,
+        icon: 'folder' as IconName,
         path: x.path,
       }))
   } catch {
@@ -100,7 +100,7 @@ export function addFavorite(path: string): boolean {
   const items = loadFavorites()
   if (items.some((item) => item.path === path)) return false
   const label = basename(path) || path
-  saveFavorites([...items, { label, icon: 'star', path }])
+  saveFavorites([...items, { label, icon: 'folder', path }])
   return true
 }
 

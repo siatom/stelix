@@ -232,7 +232,7 @@ onBeforeUnmount(() => {
     <section class="nav-section">
       <div class="nav-head">
         <button class="nav-toggle" :aria-expanded="sections.system" @click="sections.system = !sections.system">
-          <Icon name="chevron-right" :size="11" :class="{ open: sections.system }" /><span class="nav-title">常用位置</span>
+          <Icon name="chevron-right" :size="11" :class="{ open: sections.system }" /><Icon name="home" class="section-icon system" :size="14" /><span class="nav-title">常用位置</span>
         </button>
       </div>
       <div v-if="sections.system && locLoading" class="state">加载中…</div>
@@ -249,7 +249,7 @@ onBeforeUnmount(() => {
     <section class="nav-section">
       <div class="nav-head">
         <button class="nav-toggle" :aria-expanded="sections.favorites" @click="sections.favorites = !sections.favorites">
-          <Icon name="chevron-right" :size="11" :class="{ open: sections.favorites }" /><span class="nav-title">收藏</span>
+          <Icon name="chevron-right" :size="11" :class="{ open: sections.favorites }" /><Icon name="folder" class="section-icon favorites" :size="14" /><span class="nav-title">收藏</span>
         </button>
       </div>
       <div v-if="sections.favorites && !favorites.length" class="state">暂无收藏，可从窗格工具栏添加当前目录</div>
@@ -266,7 +266,7 @@ onBeforeUnmount(() => {
           @pointerup="finishFavoriteDrag"
           @pointercancel="finishFavoriteDrag"
         >
-          <span class="ico"><Icon :name="fav.icon" :size="14" /></span>
+          <span class="ico favorite-ico"><Icon name="folder" :size="14" /></span>
           <span class="label">{{ fav.label }}</span>
           <button class="del" title="移除收藏" @click.stop="removeFavorite(fav.path)">
             <Icon name="x" :size="11" />
@@ -301,7 +301,7 @@ onBeforeUnmount(() => {
     <section class="nav-section">
       <div class="nav-head">
         <button class="nav-toggle" :aria-expanded="sections.computer" @click="sections.computer = !sections.computer">
-          <Icon name="chevron-right" :size="11" :class="{ open: sections.computer }" /><span class="nav-title">此电脑</span>
+          <Icon name="chevron-right" :size="11" :class="{ open: sections.computer }" /><Icon name="monitor" class="section-icon computer" :size="14" /><span class="nav-title">此电脑</span>
         </button>
         <button class="mini" title="刷新驱动器和 WSL 实例" :disabled="loading || wslLoading" @click="refreshComputer">
           <Icon name="refresh" :size="13" />
@@ -340,7 +340,7 @@ onBeforeUnmount(() => {
     <section class="nav-section">
       <div class="nav-head">
         <button class="nav-toggle" :aria-expanded="sections.network" @click="sections.network = !sections.network">
-          <Icon name="chevron-right" :size="11" :class="{ open: sections.network }" /><span class="nav-title">网络</span>
+          <Icon name="chevron-right" :size="11" :class="{ open: sections.network }" /><Icon name="network" class="section-icon network" :size="14" /><span class="nav-title">网络</span>
         </button>
       </div>
       <NetworkPanel v-show="sections.network" />
@@ -372,6 +372,14 @@ onBeforeUnmount(() => {
   color: var(--fg-muted);
   letter-spacing: 0.04em;
 }
+.section-icon {
+  flex: none;
+  margin-left: 2px;
+}
+.section-icon.system { color: #e5a22b; }
+.section-icon.favorites { color: var(--ico-folder); }
+.section-icon.computer { color: #4f83e8; }
+.section-icon.network { color: #16a085; }
 .nav-toggle {
   display: flex;
   align-items: center;
