@@ -17,7 +17,7 @@ const props = withDefaults(
     ext: string | null
     size?: number
   }>(),
-  { size: 16 },
+  { size: 20 },
 )
 
 // computed：虚拟滚动的行会被复用（key 为索引），path 变化时需要重新取图标。
