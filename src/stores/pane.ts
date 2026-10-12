@@ -15,6 +15,8 @@ import { normalizePath, setWatchSource } from '../shell/dirWatch'
 let tabSeq = 0
 const PANE_PATHS_KEY = 'stelix.panePaths'
 const PANE_LAYOUT_KEY = 'stelix.paneLayout'
+/** 文件夹大小看门狗的重试间隔（毫秒）。 */
+const DIR_SIZE_RETRY_MS = 800
 
 interface SavedPaneLayout {
   activePaneId?: 'left' | 'right'
@@ -159,6 +161,10 @@ export const usePaneStore = defineStore('pane', () => {
    * 这些标签在收到目录变更时跳过自动刷新，避免打断正在进行的输入。
    */
   const editingTabId = ref<string | null>(null)
+  /** 文件夹递归大小缓存（path -> 字节），由详情视图按需请求后回填。 */
+  const folderSizes = ref<Record<string, number>>({})
+  /** 各窗格详情视图当前可见的文件夹路径（聚合后去抖请求，只算可见行）。 */
+  const visibleDirs = ref<Record<string, string[]>>({})
 
   let initialized = false
   let pathsReady = false
@@ -394,6 +400,10 @@ export const usePaneStore = defineStore('pane', () => {
     const tab = activeTabOf(pane)
     if (!tab) return
     await load(tab)
+    // 手动刷新是「深层变更」唯一确定的观测时机（notify 只监听被打开目录的直接子项，
+    // 深层删除不会触发事件），因此在这里让该目录子树的大小缓存失效并重算；
+    // 普通导航不做此失效，避免每次进目录都重走大目录。
+    if (!tab.error) invalidateDirSizes([tab.path])
   }
 
   /**
@@ -430,6 +440,134 @@ export const usePaneStore = defineStore('pane', () => {
       }
     }
     await Promise.all(jobs)
+  }
+
+  // ---- 文件夹大小统计（详情视图按需，仅可见行） ----
+
+  let dirSizeTimer: ReturnType<typeof setTimeout> | null = null
+
+  /**
+   * 自愈看门狗：只要有「可见但还没拿到大小」的文件夹，就周期性地重新请求。
+   *
+   * 事件回填是一次性握手 —— 首次请求的结果事件若在前端注册监听之前到达
+   * （启动时 `paneStore.init()` 的加载早于 `App.vue` 的监听注册）就会被丢弃，
+   * 且不会自动重发，表现为大小永久留空。后端对结果有缓存、对在途有去重，
+   * 重复请求的代价极低，故用轮询兜底（全部拿到后自动停止）。
+   */
+  let dirSizeWatchdog: ReturnType<typeof setInterval> | null = null
+
+  /** 当前所有窗格需要统计的文件夹并集。 */
+  function wantedDirs(): string[] {
+    const set = new Set<string>()
+    for (const paths of Object.values(visibleDirs.value)) {
+      for (const path of paths) set.add(path)
+    }
+    return Array.from(set)
+  }
+
+  /** 可见但尚无大小的文件夹（看门狗的驱动条件）。 */
+  function missingDirs(): string[] {
+    return wantedDirs().filter((path) => folderSizes.value[path] === undefined)
+  }
+
+  function stopDirSizeWatchdog() {
+    if (dirSizeWatchdog !== null) {
+      clearInterval(dirSizeWatchdog)
+      dirSizeWatchdog = null
+    }
+  }
+
+  /** 依据「是否仍有缺失」启停看门狗。 */
+  function syncDirSizeWatchdog() {
+    if (!missingDirs().length) {
+      stopDirSizeWatchdog()
+      return
+    }
+    if (dirSizeWatchdog !== null) return
+    dirSizeWatchdog = setInterval(() => {
+      const paths = wantedDirs()
+      if (!paths.length) {
+        stopDirSizeWatchdog()
+        return
+      }
+      void api.dirSizeRequest(paths).catch(() => {})
+    }, DIR_SIZE_RETRY_MS)
+  }
+
+  /**
+   * 去抖后把「当前可见的文件夹集合」整体上报后端（后端按此集合取消已滚出视口的遍历）。
+   *
+   * `allowEmpty=false` 时跳过空集合的上报：失效流程可能早于详情视图上报可见行，
+   * 此时若把空集合发给后端会取消在途遍历、而后续又不会重新上报 → 大小永久留空。
+   */
+  function flushDirSizeRequest(immediate = false, allowEmpty = true) {
+    if (dirSizeTimer !== null) {
+      clearTimeout(dirSizeTimer)
+      dirSizeTimer = null
+    }
+    const run = () => {
+      dirSizeTimer = null
+      const paths = wantedDirs()
+      if (!paths.length && !allowEmpty) return
+      void api.dirSizeRequest(paths).catch(() => {})
+    }
+    if (immediate) run()
+    else dirSizeTimer = setTimeout(run, 120)
+  }
+
+  /** 某窗格详情视图上报当前可见的文件夹路径（内容未变则不重复请求）。 */
+  function setVisibleDirs(paneId: string, paths: string[]) {
+    const prev = visibleDirs.value[paneId]
+    if (prev && prev.length === paths.length && prev.every((p, i) => p === paths[i])) return
+    visibleDirs.value[paneId] = paths
+    flushDirSizeRequest()
+    syncDirSizeWatchdog()
+  }
+
+  /** 应用后端回填的文件夹大小。 */
+  function applyDirSize(path: string, size: number) {
+    folderSizes.value[path] = size
+    // 还有缺失就保持看门狗运行，全部拿到后自动停止。
+    syncDirSizeWatchdog()
+  }
+
+  /** 去尾部路径分隔符并小写（Windows 路径大小写不敏感）。 */
+  function normPath(p: string): string {
+    return p.replace(/[\\/]+$/, '').toLowerCase()
+  }
+
+  /** child 是否等于 ancestor，或位于其之下（含分隔符边界）。 */
+  function underPath(child: string, ancestor: string): boolean {
+    if (!child || !ancestor) return false
+    if (child === ancestor) return true
+    if (!child.startsWith(ancestor)) return false
+    const rest = child.slice(ancestor.length)
+    return rest.startsWith('\\') || rest.startsWith('/')
+  }
+
+  /**
+   * 目录内容变化：失效受影响目录的大小缓存并立即重算可见项。
+   *
+   * 命中范围与后端 `dir_size::invalidate` 一致 —— 变化目录 D 的**自身 / 祖先 / 后代**：
+   * 后代被牵连是因为监视器只上报被监听目录的子项变化，深层变更会以「被监听目录自身」
+   * 的路径上报，此时其后代目录的大小同样需要重算。
+   */
+  function invalidateDirSizes(dirs: string[]) {
+    if (!dirs.length) return
+    const changed = dirs.map(normPath).filter(Boolean)
+    if (!changed.length) return
+    for (const key of Object.keys(folderSizes.value)) {
+      const k = normPath(key)
+      if (changed.some((d) => underPath(k, d) || underPath(d, k))) {
+        delete folderSizes.value[key]
+      }
+    }
+    void api
+      .dirSizeInvalidate(dirs)
+      .then(() => flushDirSizeRequest(true, false))
+      .catch(() => {})
+    // 缓存刚被清空，重新拉起看门狗直到全部重算完成。
+    syncDirSizeWatchdog()
   }
 
   /** 导航到某文件所在目录并选中它（搜索结果 / AI 定位用） */
@@ -555,6 +693,12 @@ export const usePaneStore = defineStore('pane', () => {
     }
   }
 
+  /** 排序用的条目大小：文件用自身大小，文件夹用统计值（未算出按 -1，排在已知项之后）。 */
+  function sortSize(entry: FileEntry): number {
+    if (!entry.isDir) return entry.size
+    return folderSizes.value[entry.path] ?? -1
+  }
+
   /** 本地过滤 + 排序（目录始终在前） */
   function entriesFor(tab: TabState): FileEntry[] {
     const q = tab.filter.trim().toLowerCase()
@@ -565,7 +709,7 @@ export const usePaneStore = defineStore('pane', () => {
       let cmp = 0
       switch (tab.sortKey) {
         case 'size':
-          cmp = a.size - b.size
+          cmp = sortSize(a) - sortSize(b)
           break
         case 'modified':
           cmp = a.modified - b.modified
@@ -744,6 +888,10 @@ export const usePaneStore = defineStore('pane', () => {
     clipboard,
     revealTarget,
     editingTabId,
+    folderSizes,
+    setVisibleDirs,
+    applyDirSize,
+    invalidateDirSizes,
     navigate,
     navigateTo,
     load,

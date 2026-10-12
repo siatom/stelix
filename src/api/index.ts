@@ -69,6 +69,11 @@ export const api = {
   /** 全量设置需要监听的目录集合（幂等；后端只接受本地盘符目录）。 */
   watchDirsSet: (paths: string[]) => invoke<void>('watch_dirs_set', { paths }),
 
+  /** 请求一批目录的递归内部大小（只上报详情视图当前可见的目录）；结果经 `fs:dir-size` 事件回填。 */
+  dirSizeRequest: (paths: string[]) => invoke<void>('dir_size_request', { paths }),
+  /** 使一批目录的大小缓存失效（目录内容变化时调用），下次请求会重新遍历。 */
+  dirSizeInvalidate: (paths: string[]) => invoke<void>('dir_size_invalidate', { paths }),
+
   autostartGet: () => invoke<boolean>('autostart_get'),
   autostartSet: (enabled: boolean) => invoke<void>('autostart_set', { enabled }),
 }
@@ -85,4 +90,7 @@ export const events = {
   /** 目录内容变更（后端 250ms 防抖后上报受影响的目录列表）。 */
   onFsChanged: (cb: (p: { dirs: string[] }) => void) =>
     listen('fs:changed', (e) => cb(e.payload as { dirs: string[] })),
+  /** 目录大小统计结果（详情视图按需计算）。 */
+  onDirSize: (cb: (p: { path: string; size: number }) => void) =>
+    listen('fs:dir-size', (e) => cb(e.payload as { path: string; size: number })),
 }

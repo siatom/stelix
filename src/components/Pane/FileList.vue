@@ -418,6 +418,7 @@ onBeforeUnmount(() => {
   document.removeEventListener('keydown', onKey)
   window.removeEventListener('keydown', onGlobalKey)
   window.removeEventListener(FAVORITES_CHANGED_EVENT, syncFavorites)
+  paneStore.setVisibleDirs(props.paneId, [])
 })
 
 // ---- 工具栏「新建」请求 ----
@@ -462,6 +463,33 @@ const emptyByProtect = computed(
 const emptyByFilter = computed(
   () => hasEntries.value && rows.value.length === 0 && !!props.tab.filter.trim(),
 )
+
+// ---- 详情视图：文件夹大小按需统计（仅可见行） ----
+
+/** 详情视图当前可见的文件夹路径（虚拟滚动，通常仅十几行）。 */
+const visibleDirPaths = computed(() => {
+  if (viewMode.value !== 'details') return []
+  const list = rows.value
+  const out: string[] = []
+  for (const item of virtualizer.value.getVirtualItems()) {
+    const entry = list[item.index]
+    if (entry?.isDir) out.push(entry.path)
+  }
+  return out
+})
+
+watch(
+  visibleDirPaths,
+  (paths) => paneStore.setVisibleDirs(props.paneId, paths),
+  { immediate: true },
+)
+
+/** 大小列文案：文件夹用统计出的递归大小（尚未算出则留空）。 */
+function sizeText(entry: FileEntry): string {
+  if (!entry.isDir) return formatSize(entry.size)
+  const size = paneStore.folderSizes[entry.path]
+  return size === undefined ? '' : formatSize(size)
+}
 
 interface DragPayload {
   paneId: string
@@ -614,7 +642,7 @@ function onDrop(ev: DragEvent) {
             </span>
             <span v-else class="nm" :title="rows[vi.index].path">{{ ui.displayFileName(rows[vi.index].name, rows[vi.index].isDir) }}</span>
             <template v-if="viewMode === 'details'">
-              <span class="size">{{ formatSize(rows[vi.index].size, rows[vi.index].isDir) }}</span>
+              <span class="size">{{ sizeText(rows[vi.index]) }}</span>
               <span class="time">{{ formatTime(rows[vi.index].modified) }}</span>
               <span class="type">{{ typeLabel(rows[vi.index]) }}</span>
             </template>          </div>
