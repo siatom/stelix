@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // 全局搜索栏（Everything 式，走索引引擎）（WS-D）
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useSearchStore } from '../stores/search'
 import { usePaneStore } from '../stores/pane'
 import { useUiStore } from '../stores/ui'
@@ -13,7 +13,20 @@ const ui = useUiStore()
 const text = ref('')
 const scope = ref<'global' | 'current'>(ui.searchScope)
 const open = ref(false)
+const inputEl = ref<HTMLInputElement | null>(null)
 const activeTab = computed(() => paneStore.activeTab)
+
+/** 聚焦输入框（等 Vue flush 后再 focus，避免面板刚挂载时 ref 尚未就绪） */
+function focusInput() {
+  void nextTick(() => inputEl.value?.focus())
+}
+
+/** 消费一次性聚焦标记：为真则聚焦并清除 */
+function consumeFocusRequest() {
+  if (!ui.searchFocusPending) return
+  ui.searchFocusPending = false
+  focusInput()
+}
 
 // 索引状态（统一在此展示：条目数 / 已扫描 / 状态）
 const indexText = computed(() =>
@@ -97,8 +110,12 @@ watch(
     text.value = ''
     search.clear()
     setScope('current')
+    consumeFocusRequest()
   },
 )
+
+// 面板重新挂载（如收起后经搜索入口再次打开）时也要聚焦
+onMounted(consumeFocusRequest)
 
 function onEnter() {
   if (scope.value === 'current') return
@@ -118,6 +135,7 @@ onBeforeUnmount(() => {
         <button :class="{ on: scope === 'current' }" @click="setScope('current')">当前目录</button>
       </div>
       <input
+        ref="inputEl"
         v-model="text"
         :placeholder="scope === 'global' ? '全局搜索…（支持 ext:pdf  size:>100mb）' : '搜索当前 panel 目录…'"
         spellcheck="false"

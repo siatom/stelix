@@ -128,6 +128,8 @@ export const useUiStore = defineStore('ui', () => {
   const activePanel = ref<PanelKey>(readPanel())
   const searchScope = ref<'global' | 'current'>('global')
   const searchCurrentRequest = ref(0)
+  /** 一次性标记：下一次搜索面板挂载/响应时应聚焦输入框（消费后清除） */
+  const searchFocusPending = ref(false)
   const settingsOpen = ref(false)
   const settingsTab = ref<'general' | 'index' | 'ai' | 'about'>('general')
   const statusText = ref('就绪')
@@ -162,6 +164,8 @@ export const useUiStore = defineStore('ui', () => {
     } else {
       activePanel.value = panel
       sidebarCollapsed.value = false
+      // 打开搜索面板时聚焦输入框（图标栏、命令面板、右键「搜索此文件夹」统一走这条）
+      if (panel === 'search') searchFocusPending.value = true
     }
     persistSidebar()
   }
@@ -169,6 +173,7 @@ export const useUiStore = defineStore('ui', () => {
   function openCurrentDirectorySearch() {
     searchScope.value = 'current'
     searchCurrentRequest.value += 1
+    searchFocusPending.value = true
     activePanel.value = 'search'
     sidebarCollapsed.value = false
     persistSidebar()
@@ -369,6 +374,7 @@ export const useUiStore = defineStore('ui', () => {
     activePanel,
     searchScope,
     searchCurrentRequest,
+    searchFocusPending,
     settingsOpen,
     settingsTab,
     statusText,
