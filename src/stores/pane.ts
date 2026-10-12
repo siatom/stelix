@@ -165,6 +165,10 @@ export const usePaneStore = defineStore('pane', () => {
   const folderSizes = ref<Record<string, number>>({})
   /** 各窗格详情视图当前可见的文件夹路径（聚合后去抖请求，只算可见行）。 */
   const visibleDirs = ref<Record<string, string[]>>({})
+  /** 文件列表「原地展开」：tabId → 已展开的目录路径集合。 */
+  const expandedDirs = ref<Record<string, string[]>>({})
+  /** 「原地展开」时懒加载的子项缓存：目录路径 → 子项列表。 */
+  const dirChildren = ref<Record<string, FileEntry[]>>({})
 
   let initialized = false
   let pathsReady = false
@@ -254,6 +258,13 @@ export const usePaneStore = defineStore('pane', () => {
     { flush: 'sync' },
   )
 
+  // 被「原地展开」的目录也纳入监听：外部变更时刷新其缓存的子项。
+  watch(
+    () => Array.from(new Set(Object.values(expandedDirs.value).flat())),
+    (paths) => setWatchSource('expanded', paths),
+    { flush: 'sync' },
+  )
+
   function snapshot(tab: TabState): HistoryItem {
     return {
       path: tab.path,
@@ -325,6 +336,8 @@ export const usePaneStore = defineStore('pane', () => {
     tab.kind = 'files'
     tab.title = undefined
     tab.searchQuery = undefined
+    // 进入其它目录：折叠该标签内原地展开的子树（展开态属于旧目录）。
+    if (tab.path !== path) clearExpand(tab.id)
     tab.path = path
     if (pushHistory) recordHistory(tab)
     await load(tab)
@@ -439,6 +452,8 @@ export const usePaneStore = defineStore('pane', () => {
         jobs.push(reloadQuiet(tab))
       }
     }
+    // 该目录若正被原地展开，同步刷新其缓存的子项。
+    jobs.push(refreshCachedChildren(dir))
     await Promise.all(jobs)
   }
 
@@ -570,6 +585,59 @@ export const usePaneStore = defineStore('pane', () => {
     syncDirSizeWatchdog()
   }
 
+  // ---- 文件列表「原地展开」（不进入目录即展开其子项） ----
+
+  /** 某目录是否已在指定标签内展开。 */
+  function isExpanded(tabId: string, path: string): boolean {
+    return expandedDirs.value[tabId]?.includes(path) ?? false
+  }
+
+  /**
+   * 展开 / 折叠某目录。展开时懒加载其子项（首次读取后缓存）。
+   * 读取失败（权限 / 目录已被删除）时回滚展开态并提示。
+   */
+  async function toggleExpand(tabId: string, path: string) {
+    const cur = expandedDirs.value[tabId] ?? []
+    if (cur.includes(path)) {
+      expandedDirs.value = { ...expandedDirs.value, [tabId]: cur.filter((p) => p !== path) }
+      return
+    }
+    expandedDirs.value = { ...expandedDirs.value, [tabId]: [...cur, path] }
+    if (dirChildren.value[path]) return
+    try {
+      const listing = await api.listDir(path)
+      dirChildren.value = { ...dirChildren.value, [path]: listing.entries }
+    } catch (e) {
+      const now = expandedDirs.value[tabId] ?? []
+      expandedDirs.value = { ...expandedDirs.value, [tabId]: now.filter((p) => p !== path) }
+      setStatus(`无法展开：${String(e)}`)
+    }
+  }
+
+  /** 折叠指定标签的全部展开项（进入其它目录 / 关闭标签时调用）。 */
+  function clearExpand(tabId: string) {
+    if (!expandedDirs.value[tabId]) return
+    const next = { ...expandedDirs.value }
+    delete next[tabId]
+    expandedDirs.value = next
+  }
+
+  /**
+   * 目录内容变化时刷新其已缓存的子项（原地展开的子节点）。
+   * 未展开 / 未缓存过的目录直接跳过。
+   */
+  async function refreshCachedChildren(dir: string) {
+    const target = normPath(dir)
+    const key = Object.keys(dirChildren.value).find((k) => normPath(k) === target)
+    if (!key) return
+    try {
+      const listing = await api.listDir(dir)
+      dirChildren.value = { ...dirChildren.value, [key]: listing.entries }
+    } catch {
+      /* 目录可能刚被删除，静默忽略 */
+    }
+  }
+
   /** 导航到某文件所在目录并选中它（搜索结果 / AI 定位用） */
   async function reveal(path: string) {
     const pane = activePane.value
@@ -639,6 +707,7 @@ export const usePaneStore = defineStore('pane', () => {
     if (idx < 0) return
     pane.tabs.splice(idx, 1)
     delete histories.value[tabId]
+    clearExpand(tabId)
     if (pane.activeTabId === tabId) {
       pane.activeTabId = pane.tabs[Math.max(0, idx - 1)].id
     }
@@ -892,6 +961,11 @@ export const usePaneStore = defineStore('pane', () => {
     setVisibleDirs,
     applyDirSize,
     invalidateDirSizes,
+    expandedDirs,
+    dirChildren,
+    isExpanded,
+    toggleExpand,
+    clearExpand,
     navigate,
     navigateTo,
     load,

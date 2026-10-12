@@ -41,9 +41,39 @@ const DRAG_PREFIX = 'stelix:'
 const viewMode = computed(() => paneStore.panes.find((p) => p.id === props.paneId)?.viewMode ?? 'details')
 // 先取 store 的过滤+排序结果，再按「隐藏受保护的操作系统文件」剔除（Explorer 语义：hidden && system）
 const allRows = computed(() => paneStore.entriesFor(props.tab))
-const rows = computed(() =>
-  ui.hideProtected ? allRows.value.filter((e) => !(e.hidden && e.system)) : allRows.value,
-)
+/** 「隐藏受保护的操作系统文件」开关：顶层与原地展开的子项都按同一规则过滤。 */
+function filterProtected(entries: FileEntry[]): FileEntry[] {
+  return ui.hideProtected ? entries.filter((e) => !(e.hidden && e.system)) : entries
+}
+const rows = computed(() => filterProtected(allRows.value))
+
+/** 展平后的展示行：条目 + 缩进层级 + 是否已展开。 */
+interface TreeRow {
+  entry: FileEntry
+  depth: number
+  expanded: boolean
+}
+
+/**
+ * 把「当前标签内已展开的目录」就地展开成一维列表，供虚拟滚动渲染。
+ * 子项来自 store 的懒加载缓存（点击三角时才读取该目录）。
+ */
+const treeRows = computed<TreeRow[]>(() => {
+  const out: TreeRow[] = []
+  const walk = (entries: FileEntry[], depth: number) => {
+    for (const entry of entries) {
+      const expanded = entry.isDir && paneStore.isExpanded(props.tab.id, entry.path)
+      out.push({ entry, depth, expanded })
+      if (expanded) {
+        const kids = paneStore.dirChildren[entry.path]
+        if (kids && kids.length) walk(filterProtected(kids), depth + 1)
+      }
+    }
+  }
+  walk(rows.value, 0)
+  return out
+})
+
 const iconRows = computed(() => rows.value.slice(0, ICON_CAP))
 
 const scrollRef = ref<HTMLElement | null>(null)
@@ -52,11 +82,19 @@ const virtualizer = useVirtualizer(
   computed(() => {
     const rowH = ui.fileRowHeight
     return {
-      count: rows.value.length,
+      count: treeRows.value.length,
       getScrollElement: () => scrollRef.value,
       estimateSize: () => rowH,
       overscan: 12,
     }
+  }),
+)
+
+/** 当前可见的虚拟行：把虚拟项映射回树行，模板里少写一层索引。 */
+const virtualRows = computed(() =>
+  virtualizer.value.getVirtualItems().flatMap((vi) => {
+    const row = treeRows.value[vi.index]
+    return row ? [{ key: vi.key, start: vi.start, size: vi.size, index: vi.index, row }] : []
   }),
 )
 
@@ -93,7 +131,7 @@ function onClick(ev: MouseEvent, index: number, entry: FileEntry) {
   if (ev.shiftKey && anchor >= 0) {
     const a = Math.min(anchor, index)
     const b = Math.max(anchor, index)
-    const paths = rows.value.slice(a, b + 1).map((e) => e.path)
+    const paths = treeRows.value.slice(a, b + 1).map((r) => r.entry.path)
     props.tab.selected = ev.ctrlKey || ev.metaKey ? Array.from(new Set([...props.tab.selected, ...paths])) : paths
   } else if (ev.ctrlKey || ev.metaKey) {
     paneStore.toggleSelect(props.tab, entry.path)
@@ -175,7 +213,9 @@ function focusEdit(attempt = 0) {
 
 /** 进入某条目的行内重命名 */
 function startRename(path: string) {
-  const entry = rows.value.find((e) => e.path === path) ?? props.tab.entries.find((e) => e.path === path)
+  const entry =
+    treeRows.value.find((r) => r.entry.path === path)?.entry ??
+    props.tab.entries.find((e) => e.path === path)
   if (!entry) return
   const name = entry.name
   let selEnd = name.length
@@ -185,7 +225,7 @@ function startRename(path: string) {
   }
   editing.value = { mode: 'rename', path, name, selStart: 0, selEnd }
   if (viewMode.value !== 'icons') {
-    const idx = rows.value.findIndex((e) => e.path === path)
+    const idx = treeRows.value.findIndex((r) => r.entry.path === path)
     if (idx >= 0) virtualizer.value.scrollToIndex(idx, { align: 'auto' })
   }
   focusEdit()
@@ -438,7 +478,7 @@ watch(
   () => paneStore.revealTarget,
   (t) => {
     if (!t || t.tabId !== props.tab.id) return
-    const idx = rows.value.findIndex((e) => e.path === t.path)
+    const idx = treeRows.value.findIndex((r) => r.entry.path === t.path)
     if (idx >= 0 && viewMode.value !== 'icons') {
       virtualizer.value.scrollToIndex(idx, { align: 'center' })
     }
@@ -466,14 +506,13 @@ const emptyByFilter = computed(
 
 // ---- 详情视图：文件夹大小按需统计（仅可见行） ----
 
-/** 详情视图当前可见的文件夹路径（虚拟滚动，通常仅十几行）。 */
+/** 详情视图当前可见的文件夹路径（虚拟滚动，通常仅十几行；含原地展开的子项）。 */
 const visibleDirPaths = computed(() => {
   if (viewMode.value !== 'details') return []
-  const list = rows.value
   const out: string[] = []
   for (const item of virtualizer.value.getVirtualItems()) {
-    const entry = list[item.index]
-    if (entry?.isDir) out.push(entry.path)
+    const row = treeRows.value[item.index]
+    if (row?.entry.isDir) out.push(row.entry.path)
   }
   return out
 })
@@ -573,7 +612,6 @@ function onDrop(ev: DragEvent) {
     <!-- 详细 / 列表视图（虚拟滚动） -->
     <template v-else-if="viewMode !== 'icons'">
       <div v-if="viewMode === 'details'" class="header">
-        <span class="col-ico" />
         <button class="col name" @click="paneStore.toggleSort(tab, 'name')">
           名称 <Icon v-if="tab.sortKey === 'name'" :name="tab.sortAsc ? 'chevron-up' : 'chevron-down'" :size="11" />
         </button>
@@ -589,63 +627,82 @@ function onDrop(ev: DragEvent) {
       </div>
 
       <div v-if="editingCreate && editing" class="inline-new" :class="{ file: editing.mode === 'createFile' }">
-        <span class="ico">
-          <FileIcon v-if="editing.mode === 'mkdir'" :path="tab.path" :is-dir="true" :ext="null" :size="14" />
-          <Icon v-else name="file" :size="14" />
-        </span>
-        <span class="nm">
-          <input
-            v-model="editing.name"
-            class="inline-edit"
-            spellcheck="false"
-            @keydown.enter.stop.prevent="commitEdit"
-            @keydown.esc.stop.prevent="cancelEdit"
-            @blur="commitEdit"
-            @click.stop
-          />
+        <span class="name-cell">
+          <span class="twisty placeholder" />
+          <span class="ico">
+            <FileIcon v-if="editing.mode === 'mkdir'" :path="tab.path" :is-dir="true" :ext="null" :size="18" />
+            <Icon v-else name="file" :size="18" />
+          </span>
+          <span class="nm">
+            <input
+              v-model="editing.name"
+              class="inline-edit"
+              spellcheck="false"
+              @keydown.enter.stop.prevent="commitEdit"
+              @keydown.esc.stop.prevent="cancelEdit"
+              @blur="commitEdit"
+              @click.stop
+            />
+          </span>
         </span>
       </div>
 
       <div ref="scrollRef" class="fl-scroll" @click.self="clearSelection">
         <div class="fl-inner" :style="{ height: `${virtualizer.getTotalSize()}px` }">
           <div
-            v-for="vi in virtualizer.getVirtualItems()"
-            :key="String(vi.key)"
+            v-for="vr in virtualRows"
+            :key="String(vr.key)"
             class="row"
             :draggable="!editing"
-            :class="{ selected: tab.selected.includes(rows[vi.index].path), dir: rows[vi.index].isDir }"
-            :style="{ height: `${vi.size}px`, transform: `translateY(${vi.start}px)` }"
-            @click="onClick($event, vi.index, rows[vi.index])"
-            @dblclick="onDblClick(rows[vi.index])"
-            @contextmenu="openCtx($event, rows[vi.index])"
-            @dragstart="onDragStart($event, rows[vi.index])"
+            :class="{ selected: tab.selected.includes(vr.row.entry.path), dir: vr.row.entry.isDir }"
+            :style="{ height: `${vr.size}px`, transform: `translateY(${vr.start}px)` }"
+            @click="onClick($event, vr.index, vr.row.entry)"
+            @dblclick="onDblClick(vr.row.entry)"
+            @contextmenu="openCtx($event, vr.row.entry)"
+            @dragstart="onDragStart($event, vr.row.entry)"
           >
-            <span class="ico" :class="`k-${fileKind(rows[vi.index])}`">
-              <FileIcon
-                :path="rows[vi.index].path"
-                :is-dir="rows[vi.index].isDir"
-                :ext="rows[vi.index].ext"
-                :size="14"
-              />
-            </span>
-            <span v-if="editing && editing.mode === 'rename' && editing.path === rows[vi.index].path" class="nm">
-              <input
-                v-model="editing.name"
-                class="inline-edit"
-                spellcheck="false"
-                @keydown.enter.stop.prevent="commitEdit"
-                @keydown.esc.stop.prevent="cancelEdit"
-                @blur="commitEdit"
-                @click.stop
+            <span class="name-cell">
+              <span v-if="vr.row.depth" class="indent" :style="{ width: `${vr.row.depth * 14}px` }" />
+              <button
+                v-if="vr.row.entry.isDir"
+                class="twisty"
+                :class="{ expanded: vr.row.expanded }"
+                :title="vr.row.expanded ? '折叠' : '展开'"
+                :aria-label="vr.row.expanded ? '折叠' : '展开'"
+                @click.stop="paneStore.toggleExpand(tab.id, vr.row.entry.path)"
                 @dblclick.stop
-              />
+              >
+                <Icon :name="vr.row.expanded ? 'chevron-down' : 'chevron-right'" :size="12" />
+              </button>
+              <span v-else class="twisty placeholder" />
+              <span class="ico" :class="`k-${fileKind(vr.row.entry)}`">
+                <FileIcon
+                  :path="vr.row.entry.path"
+                  :is-dir="vr.row.entry.isDir"
+                  :ext="vr.row.entry.ext"
+                  :size="18"
+                />
+              </span>
+              <span v-if="editing && editing.mode === 'rename' && editing.path === vr.row.entry.path" class="nm">
+                <input
+                  v-model="editing.name"
+                  class="inline-edit"
+                  spellcheck="false"
+                  @keydown.enter.stop.prevent="commitEdit"
+                  @keydown.esc.stop.prevent="cancelEdit"
+                  @blur="commitEdit"
+                  @click.stop
+                  @dblclick.stop
+                />
+              </span>
+              <span v-else class="nm" :title="vr.row.entry.path">{{ ui.displayFileName(vr.row.entry.name, vr.row.entry.isDir) }}</span>
             </span>
-            <span v-else class="nm" :title="rows[vi.index].path">{{ ui.displayFileName(rows[vi.index].name, rows[vi.index].isDir) }}</span>
             <template v-if="viewMode === 'details'">
-              <span class="size">{{ sizeText(rows[vi.index]) }}</span>
-              <span class="time">{{ formatTime(rows[vi.index].modified) }}</span>
-              <span class="type">{{ typeLabel(rows[vi.index]) }}</span>
-            </template>          </div>
+              <span class="size">{{ sizeText(vr.row.entry) }}</span>
+              <span class="time">{{ formatTime(vr.row.entry.modified) }}</span>
+              <span class="type">{{ typeLabel(vr.row.entry) }}</span>
+            </template>
+          </div>
         </div>
       </div>
     </template>
@@ -654,8 +711,8 @@ function onDrop(ev: DragEvent) {
     <div v-else class="icons-scroll" @click.self="clearSelection">
       <div v-if="editingCreate && editing" class="icon-cell" :class="{ dir: editing.mode === 'mkdir' }">
         <span class="icon-big" :class="editing.mode === 'mkdir' ? 'k-folder' : 'k-file'">
-          <FileIcon v-if="editing.mode === 'mkdir'" :path="tab.path" :is-dir="true" :ext="null" :size="30" />
-          <Icon v-else name="file" :size="30" />
+          <FileIcon v-if="editing.mode === 'mkdir'" :path="tab.path" :is-dir="true" :ext="null" :size="38" />
+          <Icon v-else name="file" :size="38" />
         </span>
         <span class="icon-name">
           <input
@@ -683,7 +740,7 @@ function onDrop(ev: DragEvent) {
           @dragstart="onDragStart($event, entry)"
         >
           <span class="icon-big" :class="`k-${fileKind(entry)}`">
-            <FileIcon :path="entry.path" :is-dir="entry.isDir" :ext="entry.ext" :size="30" />
+            <FileIcon :path="entry.path" :is-dir="entry.isDir" :ext="entry.ext" :size="38" />
           </span>
           <span v-if="editing && editing.mode === 'rename' && editing.path === entry.path" class="icon-name">
             <input
@@ -804,15 +861,12 @@ function onDrop(ev: DragEvent) {
 /* 表头 */
 .header {
   display: grid;
-  grid-template-columns: 22px 1fr 90px 140px 90px;
+  grid-template-columns: 1fr 90px 140px 90px;
   height: 24px;
   padding-left: 8px;
   background: var(--bg-panel);
   border-bottom: 1px solid var(--border);
   flex: none;
-}
-.header .col-ico {
-  display: block;
 }
 .header .col {
   text-align: left;
@@ -821,6 +875,10 @@ function onDrop(ev: DragEvent) {
   color: var(--fg-muted);
   white-space: nowrap;
   overflow: hidden;
+}
+/* 「名称」左移与文件名的文字对齐（让开 三角 + 图标 的位置） */
+.header .col.name {
+  padding-left: 38px;
 }
 .header .col:hover {
   color: var(--fg);
@@ -844,7 +902,7 @@ function onDrop(ev: DragEvent) {
 /* 行内「新建文件夹」输入行（表头之下、列表之上） */
 .inline-new {
   display: grid;
-  grid-template-columns: 22px 1fr 90px 140px 90px;
+  grid-template-columns: 1fr 90px 140px 90px;
   align-items: center;
   height: var(--file-row-h);
   padding-left: 8px;
@@ -854,13 +912,14 @@ function onDrop(ev: DragEvent) {
   border-bottom: 1px solid var(--border);
 }
 .file-list.list .inline-new {
-  grid-template-columns: 22px 1fr;
+  grid-template-columns: 1fr;
 }
 .inline-new .ico {
   display: flex;
   align-items: center;
   justify-content: center;
   color: var(--ico-folder);
+  flex: none;
 }
 .inline-new.file .ico {
   color: var(--ico-file);
@@ -885,7 +944,7 @@ function onDrop(ev: DragEvent) {
   left: 0;
   width: 100%;
   display: grid;
-  grid-template-columns: 22px 1fr 90px 140px 90px;
+  grid-template-columns: 1fr 90px 140px 90px;
   align-items: center;
   padding-left: 8px;
   font-size: 1rem;
@@ -899,12 +958,44 @@ function onDrop(ev: DragEvent) {
 .row.selected {
   background: var(--bg-selected);
 }
+/* 名称单元格：缩进占位 + 展开三角 + 图标 + 名称（整体随层级右移，其余列保持对齐） */
+.name-cell {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  overflow: hidden;
+}
+.name-cell .indent {
+  flex: none;
+}
+.name-cell .twisty {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--radius-sm);
+  color: var(--fg-dim);
+  cursor: pointer;
+}
+.name-cell .twisty:hover {
+  background: var(--bg-selected);
+  color: var(--fg);
+}
+.name-cell .twisty.placeholder {
+  visibility: hidden;
+}
 .row .ico {
   display: flex;
   align-items: center;
   justify-content: center;
+  flex: none;
 }
 .row .nm {
+  flex: 1 1 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -923,7 +1014,7 @@ function onDrop(ev: DragEvent) {
 
 /* 列表视图：隐藏后三列 */
 .file-list.list .row {
-  grid-template-columns: 22px 1fr;
+  grid-template-columns: 1fr;
 }
 
 /* 图标视图 */
@@ -935,15 +1026,15 @@ function onDrop(ev: DragEvent) {
 }
 .icons-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
-  gap: 6px;
+  grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+  gap: 8px;
 }
 .icon-cell {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
-  padding: 8px 4px;
+  gap: 6px;
+  padding: 8px 6px;
   border-radius: var(--radius);
   cursor: default;
   text-align: center;
@@ -958,9 +1049,9 @@ function onDrop(ev: DragEvent) {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 44px;
-  height: 44px;
-  border-radius: 13px;
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
   background: color-mix(in srgb, currentColor 13%, var(--bg-panel));
   transition: transform 120ms ease, background-color 120ms ease;
 }
