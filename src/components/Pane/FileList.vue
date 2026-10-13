@@ -6,6 +6,7 @@ import { openPath } from '@tauri-apps/plugin-opener'
 import type { FileEntry, TabState } from '../../types'
 import { usePaneStore } from '../../stores/pane'
 import { useUiStore } from '../../stores/ui'
+import { match, isCapturingShortcut } from '../../stores/shortcuts'
 import { api } from '../../api'
 import { basename, dirname, fileIcon, fileKind, formatSize, formatTime, joinPath, typeLabel } from './utils'
 import Icon from '../icons/Icon.vue'
@@ -558,41 +559,53 @@ function isEditableTarget(t: EventTarget | null): boolean {
 }
 
 function onGlobalKey(ev: KeyboardEvent) {
+  if (isCapturingShortcut()) return // 正在设置里捕获新键位，不要触发文件操作
   if (isEditableTarget(ev.target)) return
   if (paneStore.activePaneId !== props.paneId) return // 左右窗格只处理一次
-  if (!isLocal.value) return // 远程标签只读：不响应 Ctrl+C/X/V、F2、Delete
 
-  const key = ev.key.toLowerCase()
-  const ctrl = ev.ctrlKey || ev.metaKey
+  const id = match(ev)
+  if (!id) return
 
-  if (ctrl && !ev.shiftKey && !ev.altKey) {
-    if (key === 'c' || key === 'x') {
-      const sel = props.tab.selected
-      if (!sel.length) return // 无选中项静默忽略
-      paneStore.setClipboard(key === 'c' ? 'copy' : 'move', [...sel])
-      ev.preventDefault()
-      return
-    }
-    if (key === 'v') {
-      ev.preventDefault()
-      void paneStore.pasteInto(props.paneId, props.tab.path)
-      return
-    }
+  // 标签页操作对本地 / 搜索 / 远程标签都适用。
+  if (id === 'close-tab') {
+    ev.preventDefault()
+    paneStore.closeTab(props.paneId, props.tab.id)
+    return
   }
-
-  if (key === 'f2' && !ctrl && !ev.altKey && !ev.shiftKey) {
-    if (props.tab.selected.length === 1) {
-      ev.preventDefault()
-      startRename(props.tab.selected[0])
-    }
+  if (id === 'new-tab') {
+    ev.preventDefault()
+    paneStore.addTab(props.paneId)
     return
   }
 
-  if (key === 'delete' && !ctrl && !ev.altKey && !ev.shiftKey) {
-    if (props.tab.selected.length) {
+  // 以下为文件操作：远程标签只读、搜索结果标签无目录语义，均不响应。
+  if (!isLocal.value) return
+
+  switch (id) {
+    case 'copy':
+    case 'cut': {
+      const sel = props.tab.selected
+      if (!sel.length) return // 无选中项静默忽略
+      paneStore.setClipboard(id === 'copy' ? 'copy' : 'move', [...sel])
       ev.preventDefault()
-      emit('delete', [...props.tab.selected])
+      return
     }
+    case 'paste':
+      ev.preventDefault()
+      void paneStore.pasteInto(props.paneId, props.tab.path)
+      return
+    case 'rename':
+      if (props.tab.selected.length === 1) {
+        ev.preventDefault()
+        startRename(props.tab.selected[0])
+      }
+      return
+    case 'delete':
+      if (props.tab.selected.length) {
+        ev.preventDefault()
+        emit('delete', [...props.tab.selected])
+      }
+      return
   }
 }
 

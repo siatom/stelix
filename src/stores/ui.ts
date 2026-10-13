@@ -1,10 +1,14 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { api, events } from '../api'
+import { resetAllShortcuts } from './shortcuts'
 import type { IndexProgress } from '../types'
 
 /** 左侧栏面板类型 */
 export type PanelKey = 'files' | 'tasks' | 'search' | 'ai'
+
+/** 设置面板分类 */
+export type SettingsTab = 'general' | 'index' | 'shortcuts' | 'ai' | 'about'
 
 /** 主题模式 */
 export type ThemeMode = 'system' | 'dark' | 'light'
@@ -131,7 +135,7 @@ export const useUiStore = defineStore('ui', () => {
   /** 一次性标记：下一次搜索面板挂载/响应时应聚焦输入框（消费后清除） */
   const searchFocusPending = ref(false)
   const settingsOpen = ref(false)
-  const settingsTab = ref<'general' | 'index' | 'ai' | 'about'>('general')
+  const settingsTab = ref<SettingsTab>('general')
   const statusText = ref('就绪')
   const indexTotal = ref(0)
 
@@ -188,7 +192,7 @@ export const useUiStore = defineStore('ui', () => {
     }
   }
 
-  function openSettings(tab: 'general' | 'index' | 'ai' | 'about' = 'general') {
+  function openSettings(tab: SettingsTab = 'general') {
     settingsTab.value = tab
     settingsOpen.value = true
   }
@@ -288,7 +292,7 @@ export const useUiStore = defineStore('ui', () => {
     }
   }
 
-  /** 恢复「视图」相关设置的默认值（不含索引根目录 / 开机自启动等系统级设置） */
+  /** 恢复「视图 / 快捷键」相关设置的默认值（不含索引根目录 / 开机自启动等系统级设置） */
   function resetViewDefaults() {
     try {
       localStorage.removeItem(LS_FONT_SIZE)
@@ -312,6 +316,7 @@ export const useUiStore = defineStore('ui', () => {
     applySidebarFontSize(sidebarFontSize.value)
     applyFileFontSize(fileFontSize.value)
     applyRowHeights(sidebarRowHeight.value, fileRowHeight.value)
+    resetAllShortcuts()
   }
 
   function displayFileName(name: string, isDir: boolean): string {

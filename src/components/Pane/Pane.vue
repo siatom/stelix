@@ -2,6 +2,7 @@
 // 单个窗格 = 标签栏 + 内嵌工具栏 + 面包屑 + 文件列表（虚拟滚动）（WS-D）
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { usePaneStore } from '../../stores/pane'
+import { isCapturingShortcut } from '../../stores/shortcuts'
 import { basename } from './utils'
 import TabBar from './TabBar.vue'
 import PaneToolbar from './PaneToolbar.vue'
@@ -48,6 +49,7 @@ const errorMsg = ref<string | null>(null)
 const busy = ref(false)
 
 function handleDeleteDialogKeydown(event: KeyboardEvent) {
+  if (isCapturingShortcut()) return // 设置里正在捕获新键位
   if (!deleteDialog.value || event.key !== 'Enter' || event.isComposing) return
   event.preventDefault()
   event.stopPropagation()

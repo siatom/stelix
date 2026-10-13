@@ -6,6 +6,7 @@ import { usePaneStore } from './stores/pane'
 import { useAiStore } from './stores/ai'
 import { events } from './api'
 import { broadcastFsChanged } from './shell/dirWatch'
+import { match, isCapturingShortcut } from './stores/shortcuts'
 import ActivityBar from './components/Sidebar/ActivityBar.vue'
 import SidebarPanel from './components/Sidebar/SidebarPanel.vue'
 import DualPane from './components/Pane/DualPane.vue'
@@ -90,7 +91,8 @@ function closeTitlebarMenu() {
 }
 
 function onAltF4(event: KeyboardEvent) {
-  if (!event.altKey || event.key !== 'F4') return
+  if (isCapturingShortcut()) return // 正在设置里捕获新键位，不要真的关窗
+  if (match(event) !== 'close-window') return
   event.preventDefault()
   event.stopPropagation()
   closeTitlebarMenu()
