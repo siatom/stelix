@@ -5,7 +5,6 @@ import type { AiChatMessage, AiConfig, AiConversation, AiMessage, AiToolCall, Fs
 import { usePaneStore } from './pane'
 import { useUiStore } from './ui'
 
-const ACTIVE_KEY = 'stelix.ai.activeConversation'
 const CONTEXT_KEY = 'stelix.ai.context'
 
 type ContextToggles = { activeDir: boolean; selection: boolean }
@@ -83,10 +82,6 @@ export const useAiStore = defineStore('ai', () => {
     }
   }
 
-  function rememberActive() {
-    try { localStorage.setItem(ACTIVE_KEY, activeId.value) } catch { /* 选择状态不影响本地历史保存 */ }
-  }
-
   async function persist(conversation: AiConversation): Promise<boolean> {
     const snapshot = JSON.parse(JSON.stringify(conversation)) as AiConversation
     const write = saveQueue.then(() => api.aiConversationSave(snapshot))
@@ -119,14 +114,12 @@ export const useAiStore = defineStore('ai', () => {
     const conversation: AiConversation = { id: crypto.randomUUID(), title: '新对话', createdAt: now, updatedAt: now, messages: [] }
     conversations.value.push(conversation)
     activeId.value = conversation.id
-    rememberActive()
   }
 
   function selectConversation(id: string) {
     if (executing.value || historyMutating.value || !conversations.value.some(c => c.id === id) || id === activeId.value) return
     expirePending()
     activeId.value = id
-    rememberActive()
   }
 
   async function loadHistory() {
@@ -146,12 +139,10 @@ export const useAiStore = defineStore('ai', () => {
             if (message.operation === 'pending') message.operation = 'expired'
           }
         }
-        let savedId = ''
-        try { savedId = localStorage.getItem(ACTIVE_KEY) ?? '' } catch { /* 使用最近对话 */ }
-        activeId.value = conversations.value.find(c => c.id === savedId)?.id ?? history.value[0]?.id ?? ''
         historyLoaded = true
         historyError.value = null
-        if (!activeId.value) newConversation()
+        // 每次打开 AI 助手都从「新对话」开始；历史对话仍可在「历史对话」列表里选择。
+        newConversation()
       } catch (e) { historyError.value = `读取历史对话失败：${String(e)}` }
       finally { historyLoading.value = false; historyPromise = null }
     })()
@@ -196,7 +187,6 @@ export const useAiStore = defineStore('ai', () => {
           historyMutating.value = false
           newConversation()
         }
-        rememberActive()
       }
       return true
     } catch (e) { historyError.value = `删除历史对话失败：${String(e)}`; return false }

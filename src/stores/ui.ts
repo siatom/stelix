@@ -18,7 +18,6 @@ const LS_THEME = 'stelix.theme'
 const LS_HIDE_PROTECTED = 'stelix.hideProtected'
 const LS_HIDE_FILE_EXTENSIONS = 'stelix.hideFileExtensions'
 const LS_SIDEBAR_COLLAPSED = 'stelix.sidebarCollapsed'
-const LS_ACTIVE_PANEL = 'stelix.activePanel'
 const LS_FONT_SIZE = 'stelix.fontSize'
 const LS_SIDEBAR_FONT_SIZE = 'stelix.sidebarFontSize'
 const LS_FILE_FONT_SIZE = 'stelix.fileFontSize'
@@ -66,15 +65,6 @@ function readBool(key: string, fallback: boolean): boolean {
     return v === null ? fallback : v === '1'
   } catch {
     return fallback
-  }
-}
-
-function readPanel(): PanelKey {
-  try {
-    const saved = localStorage.getItem(LS_ACTIVE_PANEL)
-    return saved === 'tasks' || saved === 'search' || saved === 'ai' ? saved : 'files'
-  } catch {
-    return 'files'
   }
 }
 
@@ -129,7 +119,8 @@ export const useUiStore = defineStore('ui', () => {
   const resolvedTheme = computed(() => theme.value === 'system' ? systemTheme() : theme.value)
   const hideProtected = ref(readBool(LS_HIDE_PROTECTED, HIDE_PROTECTED_DEF))
   const hideFileExtensions = ref(readBool(LS_HIDE_FILE_EXTENSIONS, HIDE_FILE_EXTENSIONS_DEF))
-  const activePanel = ref<PanelKey>(readPanel())
+  // 每次启动都落在「文件导航」面板（不持久化上次停留的面板）
+  const activePanel = ref<PanelKey>('files')
   const searchScope = ref<'global' | 'current'>('global')
   const searchCurrentRequest = ref(0)
   /** 一次性标记：下一次搜索面板挂载/响应时应聚焦输入框（消费后清除） */
@@ -187,7 +178,6 @@ export const useUiStore = defineStore('ui', () => {
   function persistSidebar() {
     try {
       localStorage.setItem(LS_SIDEBAR_COLLAPSED, sidebarCollapsed.value ? '1' : '0')
-      localStorage.setItem(LS_ACTIVE_PANEL, activePanel.value)
     } catch {
       /* ignore */
     }
