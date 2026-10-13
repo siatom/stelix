@@ -181,6 +181,8 @@ export interface TabState {
   error: string | null
   /** 当前目录内的本地过滤词 */
   filter: string
+  /** 当前目录内的类型筛选（searchFilters 分类 key；null/缺省 = 全部） */
+  typeFilter?: string | null
   sortKey: 'name' | 'path' | 'size' | 'modified' | 'ext'
   sortAsc: boolean
   selected: string[]

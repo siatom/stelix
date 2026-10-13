@@ -1,7 +1,8 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { api } from '../api'
 import type { SearchHit, SearchQuery } from '../types'
+import { categoryOf } from '../searchFilters'
 
 /** 全局检索状态 —— 由 **WS-D (feat/ui-panes)** 实现。 */
 export const useSearchStore = defineStore('search', () => {
@@ -10,17 +11,32 @@ export const useSearchStore = defineStore('search', () => {
   const searching = ref(false)
   const elapsedMs = ref(0)
   const error = ref<string | null>(null)
+  /** 类型筛选（searchFilters 分类 key；null = 全部）。跨范围保持。 */
+  const typeKey = ref<string | null>(null)
+  const typeLabel = computed(() => categoryOf(typeKey.value)?.label ?? null)
+
+  /** 类型筛选 → 查询字段（文件夹 → isDir；其余 → 扩展名白名单） */
+  function typeFields(): Pick<SearchQuery, 'isDir' | 'ext'> {
+    const cat = categoryOf(typeKey.value)
+    if (!cat) return {}
+    return cat.isDir ? { isDir: true } : { ext: cat.exts }
+  }
+
+  function setType(key: string | null) {
+    typeKey.value = key === 'all' ? null : key
+  }
 
   async function run(text?: string) {
     if (text !== undefined) query.value = text
     const trimmed = query.value.trim()
-    if (!trimmed) {
+    // 无关键词且无类型筛选时清空；只有类型筛选（空关键词）也照常查询
+    if (!trimmed && !categoryOf(typeKey.value)) {
       hits.value = []
       elapsedMs.value = 0
       error.value = null
       return
     }
-    const q: SearchQuery = { text: trimmed, limit: 500 }
+    const q: SearchQuery = { text: trimmed, limit: 500, ...typeFields() }
     searching.value = true
     error.value = null
     const t0 = performance.now()
@@ -41,5 +57,5 @@ export const useSearchStore = defineStore('search', () => {
     error.value = null
   }
 
-  return { query, hits, searching, elapsedMs, error, run, clear }
+  return { query, hits, searching, elapsedMs, error, typeKey, typeLabel, setType, run, clear }
 })

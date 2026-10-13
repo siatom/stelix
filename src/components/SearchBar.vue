@@ -4,6 +4,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useSearchStore } from '../stores/search'
 import { usePaneStore } from '../stores/pane'
 import { useUiStore } from '../stores/ui'
+import { SEARCH_CATEGORIES } from '../searchFilters'
 import Icon from './icons/Icon.vue'
 
 const search = useSearchStore()
@@ -41,8 +42,16 @@ const indexTitle = computed(
 watch(
   () => [scope.value, paneStore.activePaneId, activeTab.value?.id],
   ([mode]) => {
-    paneStore.panes.forEach((pane) => pane.tabs.forEach((tab) => (tab.filter = '')))
-    if (mode === 'current' && activeTab.value) activeTab.value.filter = text.value
+    paneStore.panes.forEach((pane) =>
+      pane.tabs.forEach((tab) => {
+        tab.filter = ''
+        tab.typeFilter = null
+      }),
+    )
+    if (mode === 'current' && activeTab.value) {
+      activeTab.value.filter = text.value
+      activeTab.value.typeFilter = search.typeKey
+    }
   },
 )
 
@@ -53,7 +62,8 @@ let resultTabId: string | undefined
 
 async function runGlobalSearch(value: string) {
   const trimmed = value.trim()
-  if (!trimmed) return
+  // 无关键词时，只要选了类型筛选也照常查询（仅按条件过滤）
+  if (!trimmed && !search.typeKey) return
   const currentRequest = ++requestId
   await search.run(trimmed)
   if (currentRequest !== requestId || scope.value !== 'global') return
@@ -61,7 +71,18 @@ async function runGlobalSearch(value: string) {
     ui.statusText = `搜索失败：${search.error}`
     return
   }
-  resultTabId = paneStore.showSearchResults(trimmed, search.hits, resultTabId)
+  const title = search.typeLabel ? `搜索结果 · ${search.typeLabel}` : '搜索结果'
+  resultTabId = paneStore.showSearchResults(trimmed, search.hits, resultTabId, title)
+}
+
+/** 点击类型标签：再次点击已选中的回到「全部」 */
+async function setType(key: string) {
+  search.setType(search.typeKey === key || key === 'all' ? null : key)
+  if (scope.value === 'current') {
+    if (activeTab.value) activeTab.value.typeFilter = search.typeKey
+    return
+  }
+  await runGlobalSearch(text.value)
 }
 
 function onInput() {
@@ -81,7 +102,11 @@ function onInput() {
 function clearAll() {
   requestId += 1
   text.value = ''
-  if (scope.value === 'current' && activeTab.value) activeTab.value.filter = ''
+  search.setType(null)
+  if (scope.value === 'current' && activeTab.value) {
+    activeTab.value.filter = ''
+    activeTab.value.typeFilter = null
+  }
   search.clear()
   open.value = false
 }
@@ -93,11 +118,19 @@ function setScope(next: 'global' | 'current') {
   if (next === 'current') {
     requestId += 1
     search.clear()
-    if (activeTab.value) activeTab.value.filter = text.value
+    if (activeTab.value) {
+      activeTab.value.filter = text.value
+      activeTab.value.typeFilter = search.typeKey
+    }
     open.value = false
   } else {
-    paneStore.panes.forEach((pane) => pane.tabs.forEach((tab) => (tab.filter = '')))
-    if (text.value.trim()) {
+    paneStore.panes.forEach((pane) =>
+      pane.tabs.forEach((tab) => {
+        tab.filter = ''
+        tab.typeFilter = null
+      }),
+    )
+    if (text.value.trim() || search.typeKey) {
       open.value = true
       void runGlobalSearch(text.value)
     }
@@ -145,9 +178,24 @@ onBeforeUnmount(() => {
         @keyup.esc="open = false"
       />
       <span v-if="scope === 'global' && search.searching" class="spinner" />
-      <span v-else-if="scope === 'global' && text" class="meta">{{ search.hits.length }} 项</span>
+      <span v-else-if="scope === 'global' && (text || search.typeKey)" class="meta">{{ search.hits.length }} 项</span>
       <button v-if="text" class="clear" title="清空" @click="clearAll">
         <Icon name="x" :size="13" />
+      </button>
+    </div>
+
+    <div class="type-filter" role="group" aria-label="按文件类型筛选">
+      <span class="type-label">类型</span>
+      <button
+        v-for="c in SEARCH_CATEGORIES"
+        :key="c.key"
+        class="chip"
+        :class="{ on: (search.typeKey ?? 'all') === c.key }"
+        :aria-pressed="(search.typeKey ?? 'all') === c.key"
+        :title="c.key === 'all' ? '不按类型筛选' : `只显示${c.label}`"
+        @click="setType(c.key)"
+      >
+        {{ c.label }}
       </button>
     </div>
 
@@ -221,6 +269,41 @@ onBeforeUnmount(() => {
   font-size: 0.9167em;
   color: var(--fg-dim);
   white-space: nowrap;
+}
+
+/* ---- 类型筛选标签 ---- */
+.type-filter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 8px;
+  border-bottom: 1px solid var(--border);
+}
+.type-filter .type-label {
+  flex: none;
+  margin-right: 2px;
+  font-size: 0.9167em;
+  color: var(--fg-dim);
+}
+.type-filter .chip {
+  flex: none;
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 0.9167em;
+  color: var(--fg-muted);
+  white-space: nowrap;
+}
+.type-filter .chip:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+.type-filter .chip.on {
+  background: var(--bg-active);
+  border-color: transparent;
+  color: var(--accent);
 }
 .clear {
   display: flex;
