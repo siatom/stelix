@@ -903,12 +903,45 @@ export const usePaneStore = defineStore('pane', () => {
     })
   }
 
+  /** 由被拒绝的路径重建一个「只针对这些路径」的重试操作。 */
+  function buildRetryOp(op: FsOp, denied: string[]): FsOp {
+    if (op.op === 'mkdir' || op.op === 'createFile') {
+      // 新建类没有 sources，失败路径就是 target。
+      return { op: op.op, target: denied[0] }
+    }
+    // 删除 / 重命名 / 移动 / 复制：沿用原 target，只把 sources 收窄为被拒绝项，
+    // 避免对已成功的项重复执行（那会误报「路径不存在」）。
+    return { op: op.op, sources: denied, target: op.target }
+  }
+
   async function runFs(paneId: string, op: FsOp): Promise<FsOpResult> {
     let result: FsOpResult
     try {
       result = await api.fsOperation(op)
-      if (!result.ok) setStatus(`操作失败：${result.errors.join('; ')}`)
-      else setStatus('操作已完成')
+      const denied = result.denied
+      if (!result.ok && denied?.length) {
+        // 权限不足 → 向系统发起 UAC 提权，以管理员身份只重试失败的那部分。
+        setStatus('需要管理员权限，正在请求提权…')
+        try {
+          result = await api.fsOperationElevated(buildRetryOp(op, denied))
+          if (!result.ok) setStatus(`操作失败：${result.errors.join('; ')}`)
+          else setStatus('操作已完成（管理员权限）')
+        } catch (e) {
+          const msg = String(e)
+          if (msg.includes('取消')) {
+            // 用户主动取消提权 → 不当作错误（不弹红色错误条），仅状态栏提示。
+            setStatus('已取消提权，操作未执行')
+            result = { ok: true, errors: [] }
+          } else {
+            setStatus(`提权失败：${msg}`)
+            result = { ok: false, errors: [msg] }
+          }
+        }
+      } else if (!result.ok) {
+        setStatus(`操作失败：${result.errors.join('; ')}`)
+      } else {
+        setStatus('操作已完成')
+      }
     } catch (e) {
       result = { ok: false, errors: [String(e)] }
       setStatus(`操作失败：${String(e)}`)

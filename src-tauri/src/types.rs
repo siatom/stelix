@@ -141,6 +141,13 @@ pub struct FsOpResult {
     pub ok: bool,
     #[serde(default)]
     pub errors: Vec<String>,
+    /// 因「拒绝访问」（Windows `ERROR_ACCESS_DENIED` = `os error 5`）失败的路径。
+    ///
+    /// 前端据此发起 UAC 提权，并且**只重试这些路径**（已成功的项不重复执行）。
+    /// Delete/Rename/Copy/Move 记的是失败的源路径；Mkdir/CreateFile 记的是 target。
+    /// 其它错误（文件被占用 32 / 目录非空 145 / 权限不足 1314 等）**不**进入此列表。
+    #[serde(default)]
+    pub denied: Vec<String>,
 }
 
 /// AI 对话消息

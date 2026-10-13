@@ -190,6 +190,8 @@ fn drive_space(root: &str) -> (u64, u64) {
 /// 以保持冻结契约不变。
 pub fn execute(op: &FsOp) -> FsOpResult {
     let mut errors: Vec<String> = Vec::new();
+    // 因「拒绝访问」失败的路径：前端据此发起 UAC 提权重试。
+    let mut denied: Vec<String> = Vec::new();
     match op.op {
         FsOpKind::Mkdir => match op.target.as_deref() {
             None => errors.push("Mkdir 缺少 target".into()),
@@ -202,6 +204,9 @@ pub fn execute(op: &FsOp) -> FsOpResult {
                     // 同名已存在：显式报错，避免 create_dir_all 静默成功而无任何反馈。
                     errors.push(format!("已存在同名项：{t}"));
                 } else if let Err(e) = fs::create_dir_all(t) {
+                    if is_access_denied(&e) {
+                        denied.push(t.to_string());
+                    }
                     errors.push(format!("新建目录失败 {t}: {e}"));
                 }
             }
@@ -219,6 +224,9 @@ pub fn execute(op: &FsOp) -> FsOpResult {
                     if let Some(parent) = p.parent() {
                         if !parent.as_os_str().is_empty() && !parent.exists() {
                             if let Err(e) = fs::create_dir_all(parent) {
+                                if is_access_denied(&e) {
+                                    denied.push(t.to_string());
+                                }
                                 errors.push(format!(
                                     "创建目标目录失败 {}: {e}",
                                     parent.display()
@@ -226,12 +234,16 @@ pub fn execute(op: &FsOp) -> FsOpResult {
                                 return FsOpResult {
                                     ok: false,
                                     errors,
+                                    denied,
                                 };
                             }
                         }
                     }
                     // create_new：目标已存在时返回错误（前面已判存在，这里是兜底）。
                     if let Err(e) = fs::OpenOptions::new().create_new(true).write(true).open(p) {
+                        if is_access_denied(&e) {
+                            denied.push(t.to_string());
+                        }
                         errors.push(format!("新建文件失败 {t}: {e}"));
                     }
                 }
@@ -257,6 +269,9 @@ pub fn execute(op: &FsOp) -> FsOpResult {
                 }
                 // MVP：直接物理删除（未接入回收站，见文件头）。
                 if let Err(e) = remove_path(p) {
+                    if is_access_denied(&e) {
+                        denied.push(src.clone());
+                    }
                     errors.push(format!("删除失败 {src}: {e}"));
                 }
             }
@@ -266,6 +281,7 @@ pub fn execute(op: &FsOp) -> FsOpResult {
                 return FsOpResult {
                     ok: false,
                     errors: vec!["Rename 缺少 target".into()],
+                    denied,
                 };
             };
             if op.sources.is_empty() {
@@ -291,12 +307,18 @@ pub fn execute(op: &FsOp) -> FsOpResult {
                 if let Some(parent) = dest.parent() {
                     if !parent.as_os_str().is_empty() && !parent.exists() {
                         if let Err(e) = fs::create_dir_all(parent) {
+                            if is_access_denied(&e) {
+                                denied.push(src.clone());
+                            }
                             errors.push(format!("创建目标目录失败 {}: {e}", parent.display()));
                             continue;
                         }
                     }
                 }
                 if let Err(e) = fs::rename(sp, &dest) {
+                    if is_access_denied(&e) {
+                        denied.push(src.clone());
+                    }
                     errors.push(format!("重命名失败 {src} -> {}: {e}", dest.display()));
                 }
             }
@@ -306,6 +328,7 @@ pub fn execute(op: &FsOp) -> FsOpResult {
                 return FsOpResult {
                     ok: false,
                     errors: vec!["Copy/Move 缺少 target".into()],
+                    denied,
                 };
             };
             if op.sources.is_empty() {
@@ -334,6 +357,9 @@ pub fn execute(op: &FsOp) -> FsOpResult {
                     continue;
                 }
                 if let Err(e) = fs::create_dir_all(tdir) {
+                    if is_access_denied(&e) {
+                        denied.push(src.clone());
+                    }
                     errors.push(format!("创建目标目录失败 {target_dir}: {e}"));
                     continue;
                 }
@@ -344,6 +370,9 @@ pub fn execute(op: &FsOp) -> FsOpResult {
                     move_path(sp, &dest)
                 };
                 if let Err(e) = r {
+                    if is_access_denied(&e) {
+                        denied.push(src.clone());
+                    }
                     errors.push(format!("操作失败 {src}: {e}"));
                 }
             }
@@ -352,7 +381,17 @@ pub fn execute(op: &FsOp) -> FsOpResult {
     FsOpResult {
         ok: errors.is_empty(),
         errors,
+        denied,
     }
+}
+
+/// 是否为 Windows「拒绝访问」错误（`ERROR_ACCESS_DENIED` = `os error 5`）。
+///
+/// 只有此错误才值得 UAC 提权重试。其它容易混淆的错误码都**不**映射为 5，故不会被误判：
+/// 文件被占用 `ERROR_SHARING_VIOLATION`(32)、目录非空 `ERROR_DIR_NOT_EMPTY`(145)、
+/// 权限不足 `ERROR_PRIVILEGE_NOT_HELD`(1314)、网络拒绝 `WSAEACCES`(10013)。
+fn is_access_denied(e: &std::io::Error) -> bool {
+    e.raw_os_error() == Some(5)
 }
 
 // ---------------------------------------------------------------- 内部工具
@@ -498,5 +537,37 @@ mod tests {
         let res = execute(&op(FsOpKind::Mkdir, &target));
         assert!(!res.ok);
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn only_access_denied_counts_as_elevatable() {
+        // 只有 ERROR_ACCESS_DENIED(5) 值得提权重试。
+        assert!(is_access_denied(&std::io::Error::from_raw_os_error(5)));
+        // 文件被占用 / 目录非空 / 权限不足 / 网络拒绝：都不该触发提权。
+        for code in [32, 145, 1314, 10013] {
+            assert!(
+                !is_access_denied(&std::io::Error::from_raw_os_error(code)),
+                "错误码 {code} 不应判定为可提权"
+            );
+        }
+        // 非 OS 错误（无错误码）同样不提权。
+        assert!(!is_access_denied(&std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "x"
+        )));
+    }
+
+    #[test]
+    fn result_serializes_denied_field() {
+        let res = execute(&FsOp {
+            op: FsOpKind::Delete,
+            sources: vec![String::new()],
+            target: None,
+        });
+        let json = serde_json::to_string(&res).unwrap();
+        assert!(json.contains("\"denied\""), "序列化结果应含 denied 字段: {json}");
+        // 普通失败（源路径为空）不进入 denied。
+        assert!(!res.ok);
+        assert!(res.denied.is_empty());
     }
 }

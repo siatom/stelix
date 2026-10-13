@@ -40,6 +40,8 @@ export const api = {
   getRemotePassword: (hostId: string) => invoke<string | null>('get_remote_password', { hostId }),
   deleteRemotePassword: (hostId: string) => invoke<void>('delete_remote_password', { hostId }),
   fsOperation: (op: FsOp) => invoke<FsOpResult>('fs_operation', { op }),
+  /** 提权执行一次因权限不足失败的文件操作（Windows UAC）。 */
+  fsOperationElevated: (op: FsOp) => invoke<FsOpResult>('fs_operation_elevated', { op }),
   setFileClipboard: (paths: string[], moveFiles: boolean) =>
     invoke<void>('set_file_clipboard', { paths, moveFiles }),
   getFileClipboard: () => invoke<{ paths: string[]; moveFiles: boolean } | null>('get_file_clipboard'),

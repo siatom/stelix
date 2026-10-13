@@ -68,6 +68,8 @@ export interface FsOp {
 export interface FsOpResult {
   ok: boolean
   errors: string[]
+  /** 因权限不足（Windows ERROR_ACCESS_DENIED）失败的路径；用于发起 UAC 提权重试。 */
+  denied?: string[]
 }
 
 export interface AiMessage {

@@ -8,6 +8,7 @@ mod app_core;
 mod clipboard;
 mod credentials;
 mod dir_size;
+mod elevate;
 mod feedback;
 mod fs_core;
 mod index_engine;
@@ -102,6 +103,18 @@ async fn delete_remote_password(host_id: String) -> Result<(), String> {
 #[tauri::command]
 fn fs_operation(op: FsOp) -> FsOpResult {
     fs_core::execute(&op)
+}
+
+/// 提权执行一次因权限不足失败的文件操作（Windows UAC）。
+///
+/// 前端在 `fs_operation` 返回非空 `denied` 时调用：内部用 `ShellExecuteExW(runas)`
+/// 拉起本程序的一个提权子进程完成操作，主程序始终保持普通权限。
+/// `async` + `spawn_blocking`：等待提权子进程时不会阻塞 UI 线程。
+#[tauri::command]
+async fn fs_operation_elevated(op: FsOp) -> Result<FsOpResult, String> {
+    tauri::async_runtime::spawn_blocking(move || elevate::run_elevated_fs_op(&op))
+        .await
+        .map_err(|error| format!("提权任务失败: {error}"))?
 }
 
 /// 取文件 / 文件夹的 Windows 系统图标，返回 `data:image/png;base64,...`。
@@ -496,6 +509,14 @@ fn setup_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
 
 // ---------------------------------------------------------------- 入口
 
+/// 提权子进程入口：命令行含提权开关时执行一次文件操作并写结果，返回退出码。
+///
+/// 返回 `None` 表示普通启动，应继续走 [`run`]。**必须在 `run()` 之前调用**，
+/// 否则提权子进程会创建单实例互斥体 / 窗口 / WebView2，与主实例冲突。
+pub fn try_run_elevated_helper() -> Option<i32> {
+    elevate::try_run_elevated_helper()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let context = tauri::generate_context!();
@@ -520,6 +541,8 @@ pub fn run() {
         .manage(AppState::new())
         .setup(|app| {
             setup_tray(app.handle())?;
+            // 清扫提权临时目录里上次遗留的残留文件（进程被杀时可能留下）。
+            elevate::sweep_stale_temp();
             // 窗口以 visible:false 创建：先切到最大化态再显示，
             // 避免出现「先默认尺寸、后最大化」的可见跳变。
             // 由开机自启拉起时（带 --autostart）不显示窗口，静默驻留托盘。
@@ -569,6 +592,7 @@ pub fn run() {
             get_remote_password,
             delete_remote_password,
             fs_operation,
+            fs_operation_elevated,
             get_file_icon,
             set_file_clipboard,
             get_file_clipboard,
