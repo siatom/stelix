@@ -4,7 +4,7 @@ import vue from "@vitejs/plugin-vue";
 import process from "node:process";
 // @ts-expect-error type error without @types/node package
 import { execFileSync } from "node:child_process";
-import packageJson from "./package.json";
+import packageJson from "./package.json" with { type: "json" };
 const host = process.env.TAURI_DEV_HOST;
 let commitId = "unknown";
 try {
