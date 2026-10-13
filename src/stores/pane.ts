@@ -845,6 +845,11 @@ export const usePaneStore = defineStore('pane', () => {
       if (a.isDir !== b.isDir) return a.isDir ? -1 : 1
       let cmp = 0
       switch (tab.sortKey) {
+        case 'path':
+          // 按所在目录排序（同一目录内按名称），用于搜索结果页的「路径」列。
+          cmp = dirname(a.path).localeCompare(dirname(b.path), 'zh-Hans-CN', { numeric: true, sensitivity: 'base' })
+          if (cmp === 0) cmp = a.name.localeCompare(b.name, 'zh-Hans-CN', { numeric: true, sensitivity: 'base' })
+          break
         case 'size':
           cmp = sortSize(a) - sortSize(b)
           break
