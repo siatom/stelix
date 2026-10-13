@@ -14,6 +14,8 @@ export const useSearchStore = defineStore('search', () => {
   /** 类型筛选（searchFilters 分类 key；null = 全部）。跨范围保持。 */
   const typeKey = ref<string | null>(null)
   const typeLabel = computed(() => categoryOf(typeKey.value)?.label ?? null)
+  /** 是否已执行过一次查询（用于只在有结果时才展示命中数） */
+  const searched = ref(false)
 
   /** 类型筛选 → 查询字段（文件夹 → isDir；其余 → 扩展名白名单） */
   function typeFields(): Pick<SearchQuery, 'isDir' | 'ext'> {
@@ -34,9 +36,11 @@ export const useSearchStore = defineStore('search', () => {
       hits.value = []
       elapsedMs.value = 0
       error.value = null
+      searched.value = false
       return
     }
     const q: SearchQuery = { text: trimmed, limit: 500, ...typeFields() }
+    searched.value = true
     searching.value = true
     error.value = null
     const t0 = performance.now()
@@ -55,7 +59,8 @@ export const useSearchStore = defineStore('search', () => {
     query.value = ''
     hits.value = []
     error.value = null
+    searched.value = false
   }
 
-  return { query, hits, searching, elapsedMs, error, typeKey, typeLabel, setType, run, clear }
+  return { query, hits, searching, elapsedMs, error, typeKey, typeLabel, searched, setType, run, clear }
 })

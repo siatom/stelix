@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // 全局搜索栏（Everything 式，走索引引擎）（WS-D）
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useSearchStore } from '../stores/search'
 import { usePaneStore } from '../stores/pane'
 import { useUiStore } from '../stores/ui'
@@ -41,21 +41,16 @@ const indexTitle = computed(
 
 watch(
   () => [scope.value, paneStore.activePaneId, activeTab.value?.id],
-  ([mode]) => {
+  () => {
+    // 切换标签 / 窗格 / 范围时清掉旧的目录过滤，避免串台；新的过滤等「搜索」/Enter 再应用
     paneStore.panes.forEach((pane) =>
       pane.tabs.forEach((tab) => {
         tab.filter = ''
         tab.typeFilter = null
       }),
     )
-    if (mode === 'current' && activeTab.value) {
-      activeTab.value.filter = text.value
-      activeTab.value.typeFilter = search.typeKey
-    }
   },
 )
-
-let timer: ReturnType<typeof setTimeout> | null = null
 
 let requestId = 0
 let resultTabId: string | undefined
@@ -75,28 +70,9 @@ async function runGlobalSearch(value: string) {
   resultTabId = paneStore.showSearchResults(trimmed, search.hits, resultTabId, title)
 }
 
-/** 点击类型标签：再次点击已选中的回到「全部」 */
-async function setType(key: string) {
+/** 点击类型标签：只改选择，结果等「搜索」/ Enter 再更新；再次点击已选中的回到「全部」 */
+function setType(key: string) {
   search.setType(search.typeKey === key || key === 'all' ? null : key)
-  if (scope.value === 'current') {
-    if (activeTab.value) activeTab.value.typeFilter = search.typeKey
-    return
-  }
-  await runGlobalSearch(text.value)
-}
-
-function onInput() {
-  if (scope.value === 'current') {
-    requestId += 1
-    if (activeTab.value) activeTab.value.filter = text.value
-    search.clear()
-    open.value = false
-    return
-  }
-  if (!text.value.trim()) requestId += 1
-  open.value = true
-  if (timer) clearTimeout(timer)
-  timer = setTimeout(() => void runGlobalSearch(text.value), 150)
 }
 
 function clearAll() {
@@ -115,26 +91,15 @@ function setScope(next: 'global' | 'current') {
   if (scope.value === next) return
   scope.value = next
   ui.searchScope = next
-  if (next === 'current') {
-    requestId += 1
-    search.clear()
-    if (activeTab.value) {
-      activeTab.value.filter = text.value
-      activeTab.value.typeFilter = search.typeKey
-    }
-    open.value = false
-  } else {
-    paneStore.panes.forEach((pane) =>
-      pane.tabs.forEach((tab) => {
-        tab.filter = ''
-        tab.typeFilter = null
-      }),
-    )
-    if (text.value.trim() || search.typeKey) {
-      open.value = true
-      void runGlobalSearch(text.value)
-    }
-  }
+  requestId += 1
+  search.clear()
+  paneStore.panes.forEach((pane) =>
+    pane.tabs.forEach((tab) => {
+      tab.filter = ''
+      tab.typeFilter = null
+    }),
+  )
+  open.value = false
 }
 
 watch(
@@ -143,6 +108,11 @@ watch(
     text.value = ''
     search.clear()
     setScope('current')
+    // 已经在「当前目录」范围时 setScope 会提前返回，这里补一次过滤清理
+    if (activeTab.value) {
+      activeTab.value.filter = ''
+      activeTab.value.typeFilter = null
+    }
     consumeFocusRequest()
   },
 )
@@ -150,14 +120,19 @@ watch(
 // 面板重新挂载（如收起后经搜索入口再次打开）时也要聚焦
 onMounted(consumeFocusRequest)
 
-function onEnter() {
-  if (scope.value === 'current') return
-  void runGlobalSearch(text.value)
+/** 「搜索」按钮与 Enter 共用的提交入口 */
+async function submit() {
+  if (scope.value === 'current') {
+    requestId += 1
+    if (activeTab.value) {
+      activeTab.value.filter = text.value
+      activeTab.value.typeFilter = search.typeKey
+    }
+    search.clear()
+    return
+  }
+  await runGlobalSearch(text.value)
 }
-
-onBeforeUnmount(() => {
-  if (timer) clearTimeout(timer)
-})
 </script>
 
 <template>
@@ -172,15 +147,22 @@ onBeforeUnmount(() => {
         v-model="text"
         :placeholder="scope === 'global' ? '全局搜索…（支持 ext:pdf  size:>100mb）' : '搜索当前 panel 目录…'"
         spellcheck="false"
-        @input="onInput"
         @focus="open = true"
-        @keyup.enter="onEnter"
+        @keyup.enter="submit"
         @keyup.esc="open = false"
       />
       <span v-if="scope === 'global' && search.searching" class="spinner" />
-      <span v-else-if="scope === 'global' && (text || search.typeKey)" class="meta">{{ search.hits.length }} 项</span>
+      <span v-else-if="scope === 'global' && search.searched" class="meta">{{ search.hits.length }} 项</span>
       <button v-if="text" class="clear" title="清空" @click="clearAll">
         <Icon name="x" :size="13" />
+      </button>
+      <button
+        class="go"
+        title="搜索（Enter）"
+        :disabled="scope === 'global' && !text.trim() && !search.typeKey"
+        @click="submit"
+      >
+        搜索
       </button>
     </div>
 
@@ -269,6 +251,30 @@ onBeforeUnmount(() => {
   font-size: 0.9167em;
   color: var(--fg-dim);
   white-space: nowrap;
+}
+/* 搜索按钮：整行，显式触发查询（输入 / 选类型都不再实时生效） */
+.go {
+  flex: 1 1 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  color: var(--accent-fg);
+  font-size: 0.9167em;
+  white-space: nowrap;
+}
+.go:hover:not(:disabled) {
+  filter: brightness(0.9);
+}
+.go:disabled {
+  background: var(--bg-active);
+  border-color: var(--border);
+  color: var(--fg-dim);
+  cursor: default;
 }
 
 /* ---- 类型筛选标签 ---- */
