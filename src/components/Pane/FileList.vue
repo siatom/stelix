@@ -751,7 +751,7 @@ function onDrop(ev: DragEvent) {
   <div
     ref="rootRef"
     class="file-list"
-    :class="viewMode"
+    :class="[viewMode, { search: isSearch }]"
     @mousedown="onRootMouseDown"
     @dragover.prevent="onDragOver"
     @drop.prevent="onDrop"
@@ -789,6 +789,9 @@ function onDrop(ev: DragEvent) {
       <div v-if="viewMode === 'details'" class="header">
         <button class="col name" @click="paneStore.toggleSort(tab, 'name')">
           名称 <Icon v-if="tab.sortKey === 'name'" :name="tab.sortAsc ? 'chevron-up' : 'chevron-down'" :size="11" />
+        </button>
+        <button v-if="isSearch" class="col path" @click="paneStore.toggleSort(tab, 'path')">
+          路径 <Icon v-if="tab.sortKey === 'path'" :name="tab.sortAsc ? 'chevron-up' : 'chevron-down'" :size="11" />
         </button>
         <button class="col size" @click="paneStore.toggleSort(tab, 'size')">
           大小 <Icon v-if="tab.sortKey === 'size'" :name="tab.sortAsc ? 'chevron-up' : 'chevron-down'" :size="11" />
@@ -876,6 +879,9 @@ function onDrop(ev: DragEvent) {
               <span v-else class="nm" :title="vr.row.entry.path">{{ ui.displayFileName(vr.row.entry.name, vr.row.entry.isDir) }}</span>
             </span>
             <template v-if="viewMode === 'details'">
+              <span v-if="isSearch" class="path" :title="dirname(vr.row.entry.path)">
+                {{ dirname(vr.row.entry.path) }}
+              </span>
               <span class="size">{{ sizeText(vr.row.entry) }}</span>
               <span class="time">{{ formatTime(vr.row.entry.modified) }}</span>
               <span class="type">{{ typeLabel(vr.row.entry) }}</span>
@@ -1091,6 +1097,11 @@ function onDrop(ev: DragEvent) {
   color: var(--accent);
   vertical-align: -0.1em;
 }
+/* 搜索结果：名称列后新增「路径」列（表头与行同步扩为 5 列；名称列需容纳图标与缩进，故略宽） */
+.file-list.search:not(.list) .header,
+.file-list.search:not(.list) .row {
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr) 90px 140px 90px;
+}
 
 /* 虚拟滚动 */
 .fl-scroll {
@@ -1208,12 +1219,17 @@ function onDrop(ev: DragEvent) {
 }
 .row .size,
 .row .time,
-.row .type {
+.row .type,
+.row .path {
   padding: 0 6px;
   color: var(--fg-muted);
   font-size: 0.9583em;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+/* 路径列（仅搜索结果）：允许收缩，宽度不足时尾部省略 */
+.row .path {
+  min-width: 0;
 }
 
 /* 列表视图：隐藏后三列 */
