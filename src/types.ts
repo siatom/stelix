@@ -265,3 +265,27 @@ export interface TaskPreview {
   samples: string[]
   truncated: boolean
 }
+
+/** 意见反馈提交请求（版本 / commit 由前端注入）。 */
+export interface FeedbackRequest {
+  /** 反馈类型：Bug / 功能建议 / 其它 */
+  kind: string
+  title: string
+  description: string
+  appVersion: string
+  commit: string
+}
+
+/** 反馈提交结果：新建 issue 的编号与网页链接。 */
+export interface FeedbackCreated {
+  number: string
+  url: string
+}
+
+/** gitee CLI 的可用性与登录状态。 */
+export interface FeedbackAuth {
+  cliFound: boolean
+  loggedIn: boolean
+  user?: string | null
+  message: string
+}

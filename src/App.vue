@@ -12,6 +12,7 @@ import SidebarPanel from './components/Sidebar/SidebarPanel.vue'
 import DualPane from './components/Pane/DualPane.vue'
 import CommandPalette from './components/CommandPalette.vue'
 import SettingsDialog from './components/SettingsDialog.vue'
+import FeedbackDialog from './components/FeedbackDialog.vue'
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { LogicalSize, PhysicalPosition, PhysicalSize } from '@tauri-apps/api/dpi'
@@ -306,6 +307,7 @@ onBeforeUnmount(() => {
 
     <CommandPalette />
     <SettingsDialog />
+    <FeedbackDialog />
   </div>
 </template>
 

@@ -136,6 +136,7 @@ export const useUiStore = defineStore('ui', () => {
   const searchFocusPending = ref(false)
   const settingsOpen = ref(false)
   const settingsTab = ref<SettingsTab>('general')
+  const feedbackOpen = ref(false)
   const statusText = ref('就绪')
   const indexTotal = ref(0)
 
@@ -199,6 +200,14 @@ export const useUiStore = defineStore('ui', () => {
 
   function closeSettings() {
     settingsOpen.value = false
+  }
+
+  function openFeedback() {
+    feedbackOpen.value = true
+  }
+
+  function closeFeedback() {
+    feedbackOpen.value = false
   }
 
   function setTheme(mode: ThemeMode) {
@@ -382,6 +391,7 @@ export const useUiStore = defineStore('ui', () => {
     searchFocusPending,
     settingsOpen,
     settingsTab,
+    feedbackOpen,
     statusText,
     indexTotal,
     indexRoots,
@@ -392,6 +402,8 @@ export const useUiStore = defineStore('ui', () => {
     openCurrentDirectorySearch,
     openSettings,
     closeSettings,
+    openFeedback,
+    closeFeedback,
     setTheme,
     toggleTheme,
     setFontSize,
