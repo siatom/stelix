@@ -134,8 +134,7 @@ async function confirmDelete() {
   min-width: 0;
   min-height: 0;
   background: var(--bg-app);
-  border: 1px solid var(--border);
-  border-radius: 0;
+  /* 不加描边：与侧栏靠背景深浅区分，与对侧窗格靠 DualPane 的 1px 分割线区分 */
   position: relative;
   overflow: hidden;
 }

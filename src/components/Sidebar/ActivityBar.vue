@@ -90,7 +90,10 @@ const items: { key: PanelKey; icon: IconName; title: string }[] = [
   z-index: 2;
   width: var(--activity-bar-w);
   height: 100%;
-  background: var(--bg-panel);
+  /* 与侧边栏同色，构成一整条左侧栏；靠背景深浅与主区区分 */
+  --bg-hover: var(--sidebar-hover);
+  --bg-active: var(--sidebar-active);
+  background: var(--sidebar-bg);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -112,7 +115,7 @@ const items: { key: PanelKey; icon: IconName; title: string }[] = [
   font-size: 1.8333rem;
   font-weight: 700;
   white-space: nowrap;
-  background: var(--bg-panel);
+  background: var(--sidebar-bg);
 }
 .brand.collapsed {
   width: var(--activity-bar-w);

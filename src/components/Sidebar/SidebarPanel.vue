@@ -52,11 +52,11 @@ const showHead = computed(() => ui.activePanel !== 'ai')
   height: 100%;
   /* 侧边栏字号基准：内部组件一律用 em 相对它，设置面板的「侧边栏字体大小」才生效 */
   font-size: var(--sidebar-font-size);
-  background: var(--bg-panel);
-  border: 1px solid var(--border);
-  border-top: 0;
-  border-left: 0;
-  border-radius: 0;
+  /* 与主区靠背景深浅区分（不留间隙、不加描边）；侧栏内部一律跟随侧栏底色 */
+  --bg-panel: var(--sidebar-bg);
+  --bg-hover: var(--sidebar-hover);
+  --bg-active: var(--sidebar-active);
+  background: var(--sidebar-bg);
   display: flex;
   flex-direction: column;
   overflow: hidden;

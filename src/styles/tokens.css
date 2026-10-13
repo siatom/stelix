@@ -33,6 +33,11 @@
   --pane-title-bg: var(--bg-panel);
   --pane-title-bg-active: #263b50;
 
+  /* 左侧图标栏 + 侧边栏底色：比主区更深，靠深浅区分（不留间隙、不用描边） */
+  --sidebar-bg: #171717;
+  --sidebar-hover: #2f2f2f;
+  --sidebar-active: #343434;
+
   --border: #303030;
   --border-strong: #484848;
 
@@ -83,6 +88,10 @@
   --bg-selected: #eeeeee;
   --bg-input: #ffffff;
   --pane-title-bg-active: #e3edf9;
+
+  --sidebar-bg: #f7f7f7;
+  --sidebar-hover: #ececec;
+  --sidebar-active: #e2e2e2;
 
   --border: #ededed;
   --border-strong: #d8d8d8;

@@ -113,7 +113,8 @@ button:disabled {
 .app-root {
   display: grid;
   grid-template-columns: auto auto 1fr;
-  column-gap: 2px;
+  /* 侧栏与主区之间不留间隙，改用背景深浅区分（见 --sidebar-bg） */
+  column-gap: 0;
   /* minmax(0, 1fr)：首行不允许被内容撑高（否则文件多时会把状态栏顶出视口） */
   grid-template-rows: 32px minmax(0, 1fr);
   grid-template-areas:
@@ -131,7 +132,6 @@ button:disabled {
   grid-area: sidebar;
   min-height: 0;
   padding: 40px 0 8px;
-  margin-left: -2px;
 }
 .area-main {
   grid-area: main;
