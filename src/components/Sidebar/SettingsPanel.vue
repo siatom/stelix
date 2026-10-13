@@ -6,6 +6,7 @@ import { usePaneStore } from '../../stores/pane'
 import { useUiStore } from '../../stores/ui'
 import Icon from '../icons/Icon.vue'
 import AiSettings from './AiSettings.vue'
+import ShortcutsSettings from './ShortcutsSettings.vue'
 
 const pane = usePaneStore()
 const ui = useUiStore()
@@ -14,6 +15,7 @@ const commitId = __COMMIT_ID__
 const tabs = [
   { id: 'general', label: '常规', icon: 'settings' },
   { id: 'index', label: '文件索引', icon: 'folder' },
+  { id: 'shortcuts', label: '快捷键', icon: 'command' },
   { id: 'ai', label: 'AI 大模型', icon: 'sparkles' },
   { id: 'about', label: '关于', icon: 'info' },
 ] as const
@@ -123,6 +125,7 @@ onMounted(() => {
     <div class="settings-scroll">
       <h2 class="page-title">{{ tabs.find(tab => tab.id === ui.settingsTab)?.label }}</h2>
       <AiSettings v-show="ui.settingsTab === 'ai'" />
+      <ShortcutsSettings v-show="ui.settingsTab === 'shortcuts'" />
       <section v-show="ui.settingsTab === 'index'" class="card">
         <header class="card-head">索引根目录</header>
         <div class="card-body">

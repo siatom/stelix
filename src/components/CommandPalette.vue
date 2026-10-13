@@ -4,6 +4,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { api } from '../api'
 import { usePaneStore } from '../stores/pane'
 import { useUiStore } from '../stores/ui'
+import { formatCombo, match, combos, isCapturingShortcut } from '../stores/shortcuts'
 import { resolveSystemLocations } from './Sidebar/shared'
 import type { QuickLocation } from './Sidebar/shared'
 
@@ -69,13 +70,13 @@ function buildCommands(locations: QuickLocation[]) {
     {
       id: 'new-tab',
       label: '新建标签页',
-      hint: 'Ctrl+T',
+      hint: formatCombo(combos.value['new-tab']),
       run: () => pane.addTab(pane.activePaneId),
     },
     {
       id: 'close-tab',
       label: '关闭当前标签页',
-      hint: 'Ctrl+W',
+      hint: formatCombo(combos.value['close-tab']),
       run: () => {
         const tab = pane.activeTab
         if (tab) pane.closeTab(pane.activePaneId, tab.id)
@@ -123,7 +124,8 @@ async function runAt(index: number) {
 }
 
 function onKeydown(e: KeyboardEvent) {
-  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+  if (isCapturingShortcut()) return // 捕获新键位时不响应应用快捷键
+  if (match(e) === 'command-palette') {
     e.preventDefault()
     toggle()
     return
@@ -134,9 +136,14 @@ function onKeydown(e: KeyboardEvent) {
   }
 }
 
+let quickLocations: QuickLocation[] = []
+
 watch(query, () => {
   activeIndex.value = 0
 })
+
+// 快捷键改键后，命令条上的提示文案同步刷新。
+watch(combos, () => buildCommands(quickLocations), { deep: true })
 
 watch(activeIndex, async () => {
   await nextTick()
@@ -145,7 +152,8 @@ watch(activeIndex, async () => {
 
 onMounted(async () => {
   window.addEventListener('keydown', onKeydown)
-  buildCommands(await resolveSystemLocations())
+  quickLocations = await resolveSystemLocations()
+  buildCommands(quickLocations)
 })
 
 onUnmounted(() => {

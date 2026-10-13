@@ -7,7 +7,14 @@
  *   以便复制、粘贴、拼写检查等编辑操作；其余区域一律屏蔽。
  * - 快捷键：屏蔽刷新、打印、查看源码、开发者工具、缩放、查找、历史前进/后退等
  *   浏览器行为；不触碰 Ctrl+C/V/X/A/Z/Y 等文本编辑组合键，避免影响正常输入。
+ *
+ * ⚠ 与本表的关系（应用内快捷键注册表）：`stores/shortcuts.ts` 里的条目**优先于**本表。
+ * 若某组合当前是应用内快捷键（或用户正在设置面板里「按下新键位」），本表只
+ * `preventDefault()` 阻止浏览器默认行为、**不** `stopPropagation()`，让事件照常
+ * 抵达应用层处理器。用户把快捷键改走之后，原组合会自动回落为本表的浏览器级屏蔽。
  */
+
+import { isCapturingShortcut, isRegisteredShortcut } from '../stores/shortcuts'
 
 /** 允许保留原生右键菜单的元素选择器。 */
 const CONTEXT_MENU_ALLOWLIST = 'input, textarea, [contenteditable=""], [contenteditable="true"], [data-native-context-menu]'
@@ -71,9 +78,36 @@ function onContextMenu(e: MouseEvent): void {
   e.preventDefault()
 }
 
+/** 该事件是否命中浏览器级屏蔽组合（供「应用快捷键优先」分支决定要不要阻止默认行为）。 */
+function matchesBlockedCombo(e: KeyboardEvent): boolean {
+  const key = e.key.toLowerCase()
+  const ctrl = e.ctrlKey || e.metaKey
+  for (const combo of BLOCKED_COMBOS) {
+    if (combo.key !== key) continue
+    if (Boolean(combo.ctrl) !== ctrl) continue
+    if (Boolean(combo.shift) !== e.shiftKey) continue
+    if (Boolean(combo.alt) !== e.altKey) continue
+    return true
+  }
+  return false
+}
+
 function onKeyDown(e: KeyboardEvent): void {
   const key = e.key.toLowerCase()
   const ctrl = e.ctrlKey || e.metaKey
+
+  // 「按下新键位」捕获态：放行所有按键到设置面板，只阻止浏览器级默认行为。
+  if (isCapturingShortcut()) {
+    if (matchesBlockedCombo(e) || (BLOCKED_KEYS.has(key) && !ctrl && !e.altKey)) e.preventDefault()
+    return
+  }
+
+  // 应用内快捷键优先：只拦浏览器默认行为，放行到应用层。
+  // （用户可把快捷键改到 BLOCKED_COMBOS / BLOCKED_KEYS 里的键位，此时以用户的绑定为准。）
+  if (isRegisteredShortcut(e) && !isEditable(e.target)) {
+    if (matchesBlockedCombo(e) || (BLOCKED_KEYS.has(key) && !ctrl && !e.altKey)) e.preventDefault()
+    return
+  }
 
   // 输入框内：放行纯文本编辑键，其余浏览器组合键照常屏蔽。
   if (isEditable(e.target)) {
