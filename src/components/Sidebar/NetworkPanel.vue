@@ -426,7 +426,7 @@ function toggleHost(item: RemoteHost) {
 .network-tree { display: flex; flex-direction: column; gap: 3px; }
 .tree-row { display: flex; align-items: center; height: var(--sidebar-row-h); border-radius: var(--radius); }
 .tree-row:hover { background: var(--bg-hover); }
-.row-main { display: flex; align-items: center; gap: 4px; flex: 1; min-width: 0; height: 100%; padding: 0 6px; text-align: left; color: var(--fg-folder); font-size: 1rem; }
+.row-main { display: flex; align-items: center; gap: 4px; flex: 1; min-width: 0; height: 100%; padding: 0 6px; text-align: left; color: var(--fg-folder); font-size: 1em; }
 .row-main span:last-of-type, .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .category-icon { flex: none; }
 .category-icon :deep(path) { fill: currentColor; }
@@ -439,25 +439,25 @@ function toggleHost(item: RemoteHost) {
 .twist { display: flex; align-items: center; justify-content: center; width: 12px; flex: none; color: var(--fg-dim); cursor: pointer; transition: transform .12s ease; }
 .twist:hover { color: var(--fg); }
 .twist.open { transform: rotate(90deg); }
-.row-main small { margin-left: auto; color: var(--fg-dim); font-size: 0.8333rem; }
+.row-main small { margin-left: auto; color: var(--fg-dim); font-size: 0.8333em; }
 .action, .remove { display: flex; align-items: center; justify-content: center; flex: none; width: 20px; height: 20px; color: var(--fg-dim); border-radius: var(--radius); }
 .action:hover, .remove:hover { background: var(--bg-active); color: var(--fg); }
 .action:disabled { opacity: .4; cursor: default; }
 .share-node { position: relative; }
 .share-remove { position: absolute; right: 1px; top: 1px; }
-.state { margin: 3px 6px 5px 30px; font-size: 0.9167rem; color: var(--fg-dim); overflow-wrap: anywhere; }
+.state { margin: 3px 6px 5px 30px; font-size: 0.9167em; color: var(--fg-dim); overflow-wrap: anywhere; }
 .state.nested { margin-left: 42px; }
 .state.manual-label { margin-top: 6px; }
 .state.error { color: var(--danger); }
 .dialog-backdrop { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 20px; background: rgb(0 0 0 / 45%); }
 .dialog { width: min(420px, 100%); max-height: min(85vh, 720px); overflow: auto; padding: 18px; border: 1px solid var(--border-strong); border-radius: 10px; background: var(--bg-panel); box-shadow: var(--shadow-lg); }
-.dialog h2 { margin: 0 0 16px; color: var(--fg); font-size: 1.1667rem; font-weight: 600; }
+.dialog h2 { margin: 0 0 16px; color: var(--fg); font-size: 1.1667em; font-weight: 600; }
 .dialog-form { display: flex; flex-direction: column; gap: 12px; }
-.dialog-form label { display: flex; flex-direction: column; gap: 5px; color: var(--fg-muted); font-size: 0.9167rem; }
-.dialog-form input, .dialog-form select { min-width: 0; width: 100%; padding: 7px 8px; border: 1px solid var(--border-strong); border-radius: var(--radius); background: var(--bg-input); color: var(--fg); font: inherit; font-size: 1rem; }
-.dialog-error { margin: 0; color: var(--danger); font-size: 0.9167rem; overflow-wrap: anywhere; }
+.dialog-form label { display: flex; flex-direction: column; gap: 5px; color: var(--fg-muted); font-size: 0.9167em; }
+.dialog-form input, .dialog-form select { min-width: 0; width: 100%; padding: 7px 8px; border: 1px solid var(--border-strong); border-radius: var(--radius); background: var(--bg-input); color: var(--fg); font: inherit; font-size: 1em; }
+.dialog-error { margin: 0; color: var(--danger); font-size: 0.9167em; overflow-wrap: anywhere; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
-.dialog-actions button { padding: 6px 12px; border: 1px solid var(--border); border-radius: var(--radius); font-size: 0.9167rem; }
+.dialog-actions button { padding: 6px 12px; border: 1px solid var(--border); border-radius: var(--radius); font-size: 0.9167em; }
 .dialog-actions .secondary { color: var(--fg); background: var(--bg-hover); }
 .dialog-actions .primary { border-color: var(--accent); color: var(--accent-fg); background: var(--accent); }
 </style>

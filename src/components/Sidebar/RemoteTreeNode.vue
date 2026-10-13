@@ -95,11 +95,11 @@ function openInPane() {
 <style scoped>
 .row { display: flex; align-items: center; gap: 4px; height: var(--sidebar-row-h); padding-right: 6px; border-radius: var(--radius); }
 .row:hover { background: var(--bg-hover); }
-.row-main { display: flex; align-items: center; gap: 4px; flex: 1; min-width: 0; height: 100%; text-align: left; color: var(--fg-folder); font-size: 1rem; }
+.row-main { display: flex; align-items: center; gap: 4px; flex: 1; min-width: 0; height: 100%; text-align: left; color: var(--fg-folder); font-size: 1em; }
 .twist { display: flex; align-items: center; justify-content: center; width: 12px; flex: none; color: var(--fg-dim); cursor: pointer; transition: transform .12s ease; }
 .twist:hover { color: var(--fg); }
 .twist.open { transform: rotate(90deg); }
 .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.state { margin: 3px 4px 3px 28px; color: var(--fg-dim); font-size: 0.9167rem; overflow-wrap: anywhere; }
+.state { margin: 3px 4px 3px 28px; color: var(--fg-dim); font-size: 0.9167em; overflow-wrap: anywhere; }
 .error { color: var(--danger); }
 </style>

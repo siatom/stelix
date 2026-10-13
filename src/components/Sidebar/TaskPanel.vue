@@ -181,7 +181,7 @@ onMounted(async () => {
   border: 1px solid var(--border-strong);
   background: var(--bg-elevated);
   color: var(--fg);
-  font-size: 1rem;
+  font-size: 1em;
 }
 .new-btn:hover {
   background: var(--bg-hover);
@@ -191,14 +191,14 @@ onMounted(async () => {
 .state {
   margin: 0;
   padding: 4px 6px;
-  font-size: 0.9167rem;
+  font-size: 0.9167em;
   line-height: 1.5;
   color: var(--fg-dim);
 }
 .err {
   margin: 0;
   padding: 4px 6px;
-  font-size: 0.9167rem;
+  font-size: 0.9167em;
   color: var(--danger);
 }
 .task-list {
@@ -226,7 +226,7 @@ onMounted(async () => {
 .ti-name {
   flex: 1;
   min-width: 0;
-  font-size: 1rem;
+  font-size: 1em;
   font-weight: 600;
   color: var(--fg);
   white-space: nowrap;
@@ -242,7 +242,7 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  font-size: 0.875rem;
+  font-size: 0.875em;
   color: var(--fg-muted);
 }
 .ti-when {
@@ -272,7 +272,7 @@ onMounted(async () => {
   padding: 2px 8px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  font-size: 0.875rem;
+  font-size: 0.875em;
   color: var(--fg-muted);
 }
 .ti-btn:hover:not(:disabled) {

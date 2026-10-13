@@ -348,14 +348,14 @@ function formatSize(bytes: number): string {
   padding: 0 6px;
   border-radius: var(--radius-sm);
   color: var(--fg-muted);
-  font-size: 1rem;
+  font-size: 1em;
 }
 .te-back:hover {
   color: var(--fg);
   background: var(--bg-hover);
 }
 .te-title {
-  font-size: 1.0833rem;
+  font-size: 1.0833em;
   font-weight: 600;
   color: var(--fg);
 }
@@ -380,7 +380,7 @@ function formatSize(bytes: number): string {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 1rem;
+  font-size: 1em;
   font-weight: 600;
   color: var(--fg);
 }
@@ -389,7 +389,7 @@ function formatSize(bytes: number): string {
   flex-direction: column;
   align-items: stretch;
   gap: 6px;
-  font-size: 0.9167rem;
+  font-size: 0.9167em;
   color: var(--fg-muted);
 }
 .te-field > span {
@@ -407,7 +407,7 @@ function formatSize(bytes: number): string {
   background: var(--bg-input);
   color: var(--fg);
   font-family: inherit;
-  font-size: 1rem;
+  font-size: 1em;
   outline: none;
   transition: border-color var(--t-fast), box-shadow var(--t-fast);
 }
@@ -449,7 +449,7 @@ function formatSize(bytes: number): string {
   min-height: 80px;
   resize: vertical;
   font-family: inherit;
-  font-size: 1rem;
+  font-size: 1em;
   line-height: 1.6;
   color: var(--fg);
   background: var(--bg-input);
@@ -472,7 +472,7 @@ function formatSize(bytes: number): string {
   border-radius: var(--radius-sm);
   background: var(--bg-input);
   color: var(--fg-muted);
-  font-size: 1rem;
+  font-size: 1em;
   transition: background var(--t-fast), border-color var(--t-fast);
 }
 .te-btn:hover:not(:disabled) {
@@ -485,7 +485,7 @@ function formatSize(bytes: number): string {
 }
 .te-btn.sm {
   min-height: 30px;
-  font-size: 0.9167rem;
+  font-size: 0.9167em;
 }
 .te-btn.primary {
   background: var(--accent);
@@ -507,7 +507,7 @@ function formatSize(bytes: number): string {
 }
 .te-hint {
   margin: 0;
-  font-size: 0.875rem;
+  font-size: 0.875em;
   line-height: 1.45;
   color: var(--fg-dim);
   white-space: pre-wrap;
@@ -518,7 +518,7 @@ function formatSize(bytes: number): string {
   padding: 5px 6px;
   border: 1px solid var(--danger);
   border-radius: var(--radius);
-  font-size: 0.875rem;
+  font-size: 0.875em;
   line-height: 1.45;
   color: var(--danger);
   word-break: break-word;
@@ -535,7 +535,7 @@ function formatSize(bytes: number): string {
   background: var(--bg-hover);
 }
 .te-preview li {
-  font-size: 0.8333rem;
+  font-size: 0.8333em;
   color: var(--fg-muted);
   white-space: nowrap;
   overflow: hidden;

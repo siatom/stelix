@@ -57,22 +57,22 @@ async function onLink(event: MouseEvent) {
 <style scoped>
 .chat-message { flex: none; min-width: 0; padding: 12px 0; }
 .chat-message + .chat-message { border-top: 1px solid var(--border); }
-.message-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; font-size: 0.8333rem; color: var(--fg-dim); }
+.message-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; font-size: 0.8333em; color: var(--fg-dim); }
 .speaker { display: flex; align-items: center; gap: 5px; font-weight: 600; color: var(--fg-muted); }
-.message-content { font-size: 1.0417rem; line-height: 1.7; overflow-wrap: anywhere; user-select: text; }
+.message-content { font-size: 1.0417em; line-height: 1.7; overflow-wrap: anywhere; user-select: text; }
 .user-content { padding: 9px 11px; border-radius: var(--radius); background: var(--bg-hover); white-space: pre-wrap; }
-.message-model { margin-top: 7px; font-size: 0.75rem; color: var(--fg-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.message-model { margin-top: 7px; font-size: 0.75em; color: var(--fg-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .message-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 7px; }
-.message-actions button { display: flex; align-items: center; gap: 4px; padding: 3px 5px; border-radius: 5px; font-size: 0.8333rem; color: var(--fg-dim); }
+.message-actions button { display: flex; align-items: center; gap: 4px; padding: 3px 5px; border-radius: 5px; font-size: 0.8333em; color: var(--fg-dim); }
 .message-actions button:hover { background: var(--bg-hover); color: var(--fg); }
 .failed .message-content { color: var(--danger); }
-.interrupted { font-size: 0.8333rem; color: var(--fg-dim); }
+.interrupted { font-size: 0.8333em; color: var(--fg-dim); }
 .operation .message-content { padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-hover); }
-.operation-status { margin-top: 7px; font-size: 0.8333rem; color: var(--fg-dim); }
+.operation-status { margin-top: 7px; font-size: 0.8333em; color: var(--fg-dim); }
 .operation-status.pending { color: var(--warn); }
 .operation-status.completed { color: var(--ok); }
 .operation-status.error { color: var(--danger); }
-.pending { display: flex; align-items: center; gap: 8px; min-height: 32px; font-size: 0.9167rem; color: var(--fg-muted); }
+.pending { display: flex; align-items: center; gap: 8px; min-height: 32px; font-size: 0.9167em; color: var(--fg-muted); }
 .thinking-dots { display: flex; gap: 3px; }
 .thinking-dots i { width: 4px; height: 4px; border-radius: 50%; background: currentColor; animation: pulse 1.2s ease-in-out infinite; }
 .thinking-dots i:nth-child(2) { animation-delay: 0.15s; }
@@ -82,14 +82,14 @@ async function onLink(event: MouseEvent) {
 .markdown :deep(> :first-child) { margin-top: 0; }
 .markdown :deep(> :last-child) { margin-bottom: 0; }
 .markdown :deep(p) { margin: 0.6em 0; }
-.markdown :deep(h1), .markdown :deep(h2), .markdown :deep(h3), .markdown :deep(h4) { margin: 1em 0 0.5em; font-size: 1.0833rem; line-height: 1.5; }
+.markdown :deep(h1), .markdown :deep(h2), .markdown :deep(h3), .markdown :deep(h4) { margin: 1em 0 0.5em; font-size: 1.0833em; line-height: 1.5; }
 .markdown :deep(ul), .markdown :deep(ol) { margin: 0.6em 0; padding-left: 1.5em; }
 .markdown :deep(li) { margin: 0.3em 0; }
-.markdown :deep(code) { padding: 1px 4px; border-radius: 4px; background: var(--bg-hover); font-family: var(--mono); font-size: 0.9167rem; }
+.markdown :deep(code) { padding: 1px 4px; border-radius: 4px; background: var(--bg-hover); font-family: var(--mono); font-size: 0.9167em; }
 .markdown :deep(pre) { max-width: 100%; overflow-x: auto; margin: 10px 0; padding: 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-hover); white-space: pre; }
 .markdown :deep(pre code) { padding: 0; background: transparent; }
 .markdown :deep(blockquote) { margin: 8px 0; padding-left: 10px; border-left: 2px solid var(--border-strong); color: var(--fg-muted); }
-.markdown :deep(table) { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; font-size: 0.9167rem; }
+.markdown :deep(table) { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; font-size: 0.9167em; }
 .markdown :deep(th), .markdown :deep(td) { padding: 6px 8px; border: 1px solid var(--border-strong); white-space: nowrap; }
 .markdown :deep(a) { color: var(--fg); text-decoration: underline; text-underline-offset: 3px; }
 .markdown :deep(hr) { border: 0; border-top: 1px solid var(--border); }

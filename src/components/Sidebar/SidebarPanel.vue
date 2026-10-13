@@ -50,6 +50,8 @@ const showHead = computed(() => ui.activePanel !== 'ai')
 .sidebar-panel {
   width: var(--sidebar-w);
   height: 100%;
+  /* 侧边栏字号基准：内部组件一律用 em 相对它，设置面板的「侧边栏字体大小」才生效 */
+  font-size: var(--sidebar-font-size);
   background: var(--bg-panel);
   border: 1px solid var(--border);
   border-top: 0;
@@ -64,7 +66,7 @@ const showHead = computed(() => ui.activePanel !== 'ai')
   display: flex;
   align-items: center;
   padding: 0 10px;
-  font-size: 1.1667rem;
+  font-size: 1.1667em;
   font-weight: 700;
   color: var(--fg);
   border-bottom: 1px solid transparent;

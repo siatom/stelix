@@ -1019,7 +1019,7 @@ function onDrop(ev: DragEvent) {
   justify-content: center;
   gap: 6px;
   color: var(--fg-dim);
-  font-size: 1rem;
+  font-size: 1em;
   padding: 20px;
   text-align: center;
 }
@@ -1075,7 +1075,7 @@ function onDrop(ev: DragEvent) {
 .header .col {
   text-align: left;
   padding: 0 6px;
-  font-size: 0.9167rem;
+  font-size: 0.9167em;
   color: var(--fg-muted);
   white-space: nowrap;
   overflow: hidden;
@@ -1111,7 +1111,7 @@ function onDrop(ev: DragEvent) {
   height: var(--file-row-h);
   padding-left: 8px;
   flex: none;
-  font-size: 1rem;
+  font-size: 1em;
   background: var(--bg-hover);
   border-bottom: 1px solid var(--border);
 }
@@ -1135,7 +1135,7 @@ function onDrop(ev: DragEvent) {
   height: 20px;
   padding: 0 4px;
   font: inherit;
-  font-size: 1rem;
+  font-size: 1em;
   color: var(--fg);
   background: var(--bg-input);
   border: 1px solid var(--accent);
@@ -1151,7 +1151,7 @@ function onDrop(ev: DragEvent) {
   grid-template-columns: 1fr 90px 140px 90px;
   align-items: center;
   padding-left: 8px;
-  font-size: 1rem;
+  font-size: 1em;
   color: var(--fg);
   cursor: default;
   white-space: nowrap;
@@ -1211,7 +1211,7 @@ function onDrop(ev: DragEvent) {
 .row .type {
   padding: 0 6px;
   color: var(--fg-muted);
-  font-size: 0.9583rem;
+  font-size: 0.9583em;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -1266,7 +1266,7 @@ function onDrop(ev: DragEvent) {
   background: transparent;
 }
 .icon-name {
-  font-size: 1rem;
+  font-size: 1em;
   color: var(--fg);
   max-width: 100%;
   overflow: hidden;
@@ -1279,7 +1279,7 @@ function onDrop(ev: DragEvent) {
 .cap-hint {
   margin: 12px 0 4px;
   text-align: center;
-  font-size: 0.9167rem;
+  font-size: 0.9167em;
   color: var(--fg-dim);
 }
 
@@ -1303,7 +1303,7 @@ function onDrop(ev: DragEvent) {
   text-align: left;
   padding: 5px 8px;
   border-radius: var(--radius);
-  font-size: 1.0417rem;
+  font-size: 1.0417em;
   color: var(--fg);
 }
 .ctx-menu button :deep(svg) {
@@ -1315,7 +1315,7 @@ function onDrop(ev: DragEvent) {
   padding-left: 16px;
   color: var(--fg-dim);
   font: inherit;
-  font-size: 0.9167rem;
+  font-size: 0.9167em;
 }
 .ctx-menu button.danger :deep(svg) {
   color: var(--danger);

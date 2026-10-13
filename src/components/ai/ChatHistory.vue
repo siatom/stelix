@@ -76,31 +76,31 @@ async function remove(id: string) {
 <style scoped>
 .chat-history { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 12px; padding: 12px; }
 .history-search { display: flex; align-items: center; gap: 7px; padding: 0 9px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); color: var(--fg-dim); }
-.history-search input { width: 100%; min-width: 0; height: 34px; padding: 0; border: 0; background: transparent; font-size: 0.9167rem; }
+.history-search input { width: 100%; min-width: 0; height: 34px; padding: 0; border: 0; background: transparent; font-size: 0.9167em; }
 .history-search:focus-within { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
 .history-search input:focus { outline: none; box-shadow: none; }
 .history-list { flex: 1; min-height: 0; overflow: auto; }
 .history-group + .history-group { margin-top: 18px; }
-.history-group h3 { margin: 0 0 7px 4px; font-size: 0.8333rem; font-weight: 500; color: var(--fg-dim); }
+.history-group h3 { margin: 0 0 7px 4px; font-size: 0.8333em; font-weight: 500; color: var(--fg-dim); }
 .history-item { position: relative; margin-bottom: 6px; border: 1px solid transparent; border-radius: var(--radius-sm); }
 .history-item:hover { background: var(--bg-hover); }
 .history-item.active { background: var(--bg-active); }
 .conversation-main { display: flex; flex-direction: column; gap: 5px; width: 100%; padding: 10px 12px; padding-right: 54px; text-align: left; }
-.conversation-name { max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--fg); font-size: 1rem; font-weight: 500; }
-.conversation-snippet { max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--fg-muted); font-size: 0.875rem; }
-.conversation-date { color: var(--fg-dim); font-size: 0.75rem; }
+.conversation-name { max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--fg); font-size: 1em; font-weight: 500; }
+.conversation-snippet { max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--fg-muted); font-size: 0.875em; }
+.conversation-date { color: var(--fg-dim); font-size: 0.75em; }
 .history-actions { position: absolute; top: 8px; right: 5px; display: flex; gap: 1px; }
 .history-actions button { display: flex; align-items: center; justify-content: center; width: 22px; height: 24px; color: var(--fg-dim); border-radius: 4px; }
 .history-actions button:hover:not(:disabled) { color: var(--fg); background: var(--bg-selected); }
-.history-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: var(--fg-dim); font-size: 0.9167rem; text-align: center; line-height: 1.6; }
+.history-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: var(--fg-dim); font-size: 0.9167em; text-align: center; line-height: 1.6; }
 .history-empty p { margin: 0; color: var(--fg-muted); }
-.history-empty span { font-size: 0.8333rem; }
-.history-hint { margin: 0; color: var(--fg-dim); font-size: 0.8333rem; line-height: 1.5; }
+.history-empty span { font-size: 0.8333em; }
+.history-hint { margin: 0; color: var(--fg-dim); font-size: 0.8333em; line-height: 1.5; }
 .rename-form { padding: 10px; }
-.rename-form input { width: 100%; min-width: 0; border-radius: 6px; font-size: 0.9167rem; }
+.rename-form input { width: 100%; min-width: 0; border-radius: 6px; font-size: 0.9167em; }
 .rename-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 8px; }
-.rename-actions button, .delete-confirm button { padding: 4px 8px; border: 1px solid var(--border-strong); border-radius: 6px; font-size: 0.8333rem; }
-.delete-confirm { padding: 0 10px 10px; font-size: 0.875rem; }
+.rename-actions button, .delete-confirm button { padding: 4px 8px; border: 1px solid var(--border-strong); border-radius: 6px; font-size: 0.8333em; }
+.delete-confirm { padding: 0 10px 10px; font-size: 0.875em; }
 .delete-confirm p { margin: 0 0 8px; color: var(--fg-muted); }
 .delete-confirm div { display: flex; justify-content: flex-end; gap: 6px; }
 .danger { color: var(--danger); }

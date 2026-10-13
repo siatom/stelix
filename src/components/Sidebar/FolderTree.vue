@@ -394,7 +394,7 @@ onBeforeUnmount(() => {
   margin-bottom: 4px;
 }
 .nav-title {
-  font-size: 1rem;
+  font-size: 1em;
   color: var(--fg-muted);
   letter-spacing: 0.04em;
 }
@@ -475,7 +475,7 @@ onBeforeUnmount(() => {
 .penguin-scarf { fill: #4f83e8; }
 .penguin-beak,
 .penguin-foot { fill: #e08a2e; }
-.wsl-name { color: var(--fg-folder); font-size: 1rem; }
+.wsl-name { color: var(--fg-folder); font-size: 1em; }
 .nav-list {
   list-style: none;
   margin: 0;
@@ -535,7 +535,7 @@ onBeforeUnmount(() => {
 .system-ico.system-windows { color: #67c7e8; }
 .label {
   flex: 1;
-  font-size: 1rem;
+  font-size: 1em;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -543,7 +543,7 @@ onBeforeUnmount(() => {
 .count {
   flex: none;
   color: var(--fg-dim);
-  font-size: 0.8333rem;
+  font-size: 0.8333em;
 }
 .del {
   flex: none;
@@ -561,7 +561,7 @@ onBeforeUnmount(() => {
 }
 .state {
   padding: 4px 6px;
-  font-size: 0.9167rem;
+  font-size: 0.9167em;
   color: var(--fg-dim);
 }
 .state.err {

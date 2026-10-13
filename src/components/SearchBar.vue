@@ -210,7 +210,7 @@ onBeforeUnmount(() => {
   padding: 0 8px;
   border-radius: 999px;
   color: var(--fg-muted);
-  font-size: 0.9167rem;
+  font-size: 0.9167em;
   white-space: nowrap;
 }
 .scope-switch button.on {
@@ -218,7 +218,7 @@ onBeforeUnmount(() => {
   color: var(--accent);
 }
 .meta {
-  font-size: 0.9167rem;
+  font-size: 0.9167em;
   color: var(--fg-dim);
   white-space: nowrap;
 }
@@ -256,7 +256,7 @@ onBeforeUnmount(() => {
   padding: 0 10px;
   border-top: 1px solid var(--border);
   background: var(--bg-panel);
-  font-size: 0.9167rem;
+  font-size: 0.9167em;
   color: var(--fg-muted);
   overflow: hidden;
 }
