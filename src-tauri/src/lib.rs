@@ -8,6 +8,7 @@ mod app_core;
 mod clipboard;
 mod credentials;
 mod dir_size;
+mod feedback;
 mod fs_core;
 mod index_engine;
 mod network;
@@ -388,6 +389,24 @@ fn dir_size_invalidate(state: State<'_, AppState>, paths: Vec<String>) {
     state.dir_sizes.invalidate(&paths);
 }
 
+// ---------------------------------------------------------------- 意见反馈
+
+/// 检查本机 gitee CLI 是否可用并已登录（供反馈表单提示）。
+#[tauri::command]
+async fn feedback_auth_status() -> Result<FeedbackAuth, String> {
+    tauri::async_runtime::spawn_blocking(feedback::auth_status)
+        .await
+        .map_err(|error| format!("反馈状态检查任务失败: {error}"))
+}
+
+/// 通过本机 gitee CLI 把反馈提交为 Gitee issue，返回 issue 编号与链接。
+#[tauri::command]
+async fn feedback_submit(request: FeedbackRequest) -> Result<FeedbackCreated, String> {
+    tauri::async_runtime::spawn_blocking(move || feedback::submit(&request))
+        .await
+        .map_err(|error| format!("反馈提交任务失败: {error}"))?
+}
+
 // ---------------------------------------------------------------- 开机自启动
 
 /// 开机自启动（Windows 走 `HKCU\...\Run` 注册表项，由 tauri-plugin-autostart 管理）。
@@ -579,6 +598,8 @@ pub fn run() {
             watch_dirs_set,
             dir_size_request,
             dir_size_invalidate,
+            feedback_auth_status,
+            feedback_submit,
             autostart_get,
             autostart_set,
         ])

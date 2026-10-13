@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 左侧图标导航栏：文件导航 / 定时任务 + AI 助手开关
+// 左侧图标导航栏：文件导航 / 定时任务 / 搜索 / AI 助手，底部为意见反馈 / 设置 / 主题 / 收起侧边栏
 import { useUiStore } from '../../stores/ui'
 import type { PanelKey } from '../../stores/ui'
 import Icon from '../icons/Icon.vue'
@@ -41,6 +41,17 @@ const items: { key: PanelKey; icon: IconName; title: string }[] = [
     <div class="spacer" />
 
     <div class="divider" />
+    <button
+      type="button"
+      class="activity-btn"
+      :class="{ active: ui.feedbackOpen }"
+      title="意见反馈"
+      aria-label="意见反馈"
+      @click="ui.openFeedback()"
+    >
+      <Icon name="megaphone" :size="19" />
+    </button>
+
     <button
       type="button"
       class="activity-btn"

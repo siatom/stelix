@@ -482,3 +482,42 @@ pub struct TaskPreview {
     #[serde(default)]
     pub truncated: bool,
 }
+
+/// 意见反馈提交请求（前端表单 + 前端注入的版本 / commit）。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FeedbackRequest {
+    /// 反馈类型（Bug / 功能建议 / 其它）
+    pub kind: String,
+    pub title: String,
+    pub description: String,
+    /// 应用版本（前端 `__APP_VERSION__`）
+    #[serde(default)]
+    pub app_version: String,
+    /// 构建 commit（前端 `__COMMIT_ID__`）
+    #[serde(default)]
+    pub commit: String,
+}
+
+/// 反馈提交结果（新建 issue 的编号与网页链接）。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FeedbackCreated {
+    pub number: String,
+    pub url: String,
+}
+
+/// gitee CLI 的可用性与登录状态，供反馈表单提示。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FeedbackAuth {
+    /// 是否找到 gitee CLI
+    pub cli_found: bool,
+    /// 是否已登录
+    pub logged_in: bool,
+    /// 登录用户名
+    #[serde(default)]
+    pub user: Option<String>,
+    /// 面向用户的中文提示（含安装 / 登录指引）
+    pub message: String,
+}
