@@ -197,17 +197,8 @@ pub fn matches(entry: &FileEntry, query: &SearchQuery) -> bool {
     matches_with_terms(entry, query, &entry.name.to_lowercase(), &terms)
 }
 
-/// Matches a query using a caller-cached lowercase name to avoid allocating it
-/// once for filtering and again for scoring on every search.
-pub fn matches_with_name(entry: &FileEntry, query: &SearchQuery, name_lower: &str) -> bool {
-    let terms: Vec<String> = query
-        .text
-        .split_whitespace()
-        .map(str::to_lowercase)
-        .collect();
-    matches_with_terms(entry, query, name_lower, &terms)
-}
-
+/// 与 [`matches`] 等价，但接收调用方缓存的小写文件名与已切分的关键词，
+/// 避免每次检索为「过滤」和「打分」各分配一次 lowercased 名称。
 pub fn matches_with_terms(
     entry: &FileEntry,
     query: &SearchQuery,
@@ -274,21 +265,18 @@ pub fn matches_with_terms(
 }
 
 /// 相关度打分，越大越靠前：
-/// 完全相等 > 主干名相等 > 前缀 > 子串 > 仅条件命中
+/// 完全相等 > 主干名相等 > 前缀 > 子串 > 仅条件命中。
+///
+/// 打分只看小写文件名与归一化关键词，不需要 [`FileEntry`] 的其它字段。
 pub fn score(entry: &FileEntry, query: &SearchQuery) -> i32 {
-    score_with_name(entry, query, &entry.name.to_lowercase())
+    score_with_normalized_query(
+        query,
+        &entry.name.to_lowercase(),
+        &query.text.trim().to_lowercase(),
+    )
 }
 
-pub fn score_with_name(entry: &FileEntry, query: &SearchQuery, name: &str) -> i32 {
-    score_with_normalized_query(entry, query, name, &query.text.trim().to_lowercase())
-}
-
-pub fn score_with_normalized_query(
-    entry: &FileEntry,
-    query: &SearchQuery,
-    name: &str,
-    needle: &str,
-) -> i32 {
+pub fn score_with_normalized_query(query: &SearchQuery, name: &str, needle: &str) -> i32 {
     let text = query.text.trim();
     if text.is_empty() {
         return 0;

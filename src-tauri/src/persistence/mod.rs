@@ -100,7 +100,7 @@ pub fn load_index_cache_into(
 ) -> Option<Vec<IndexJournal>> {
     entries.clear();
     if index_cache_path().exists() {
-        if let Ok(mut connection) = open_index_db() {
+        if let Ok(connection) = open_index_db() {
             let stored_roots = connection
                 .query_row(
                     "SELECT value FROM cache_meta WHERE key = 'roots'",

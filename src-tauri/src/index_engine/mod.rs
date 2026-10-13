@@ -461,7 +461,6 @@ impl IndexStore {
             }
             let hit = SearchHit {
                 score: search_engine::score_with_normalized_query(
-                    entry,
                     query,
                     name_lower,
                     &normalized_query,
