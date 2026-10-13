@@ -496,10 +496,25 @@ async function searchFolder(entry: FileEntry) {
   closeCtx()
 }
 
+/**
+ * 右键菜单的作用目标：点中的条目若落在多选集合内，则作用于整个多选，
+ * 否则只作用于该条目（与资源管理器一致）。空白处右键的合成条目不在选中集内，
+ * 因此仍只作用于当前目录本身。
+ */
+function ctxPaths(): string[] {
+  const c = ctx.value
+  if (!c) return []
+  const sel = props.tab.selected
+  return sel.length > 1 && sel.includes(c.entry.path) ? [...sel] : [c.entry.path]
+}
+
+/** 右键菜单里批量操作要显示的项数（1 表示单条，不额外提示）。 */
+const ctxTargetCount = computed(() => ctxPaths().length)
+
 function copyToClipboard(op: 'copy' | 'move') {
   const c = ctx.value
   if (!c) return
-  paneStore.setClipboard(op, [c.entry.path])
+  paneStore.setClipboard(op, ctxPaths())
   closeCtx()
 }
 
@@ -989,12 +1004,12 @@ function onDrop(ev: DragEvent) {
       <button v-if="ctx.entry.isDir && isLocal" @click="openInTerminal(ctx.entry)"><Icon name="terminal" :size="14" />在终端打开</button>
       <template v-if="isLocal">
         <div class="sep" />
-        <button @click="copyToClipboard('copy')"><Icon name="copy" :size="14" /><span>复制</span><kbd>Ctrl+C</kbd></button>
-        <button @click="copyToClipboard('move')"><Icon name="arrow-right" :size="14" /><span>剪切</span><kbd>Ctrl+X</kbd></button>
+        <button @click="copyToClipboard('copy')"><Icon name="copy" :size="14" /><span>复制{{ ctxTargetCount > 1 ? ` (${ctxTargetCount} 项)` : '' }}</span><kbd>Ctrl+C</kbd></button>
+        <button @click="copyToClipboard('move')"><Icon name="arrow-right" :size="14" /><span>剪切{{ ctxTargetCount > 1 ? ` (${ctxTargetCount} 项)` : '' }}</span><kbd>Ctrl+X</kbd></button>
         <button @click="paste"><Icon name="folder-open" :size="14" /><span>粘贴到此目录</span><kbd>Ctrl+V</kbd></button>
         <div class="sep" />
         <button @click="startRename(ctx.entry.path); closeCtx()"><Icon name="pencil" :size="14" /><span>重命名</span><kbd>F2</kbd></button>
-        <button class="danger" @click="emit('delete', [ctx.entry.path]); closeCtx()"><Icon name="trash" :size="14" /><span>删除</span><kbd>Delete</kbd></button>
+        <button class="danger" @click="emit('delete', ctxPaths()); closeCtx()"><Icon name="trash" :size="14" /><span>删除{{ ctxTargetCount > 1 ? ` (${ctxTargetCount} 项)` : '' }}</span><kbd>Delete</kbd></button>
       </template>
       <div class="sep" />
       <button @click="copyFileName"><Icon name="file" :size="14" />复制文件名</button>
