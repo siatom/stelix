@@ -660,12 +660,21 @@ watch(
 )
 
 const hasEntries = computed(() => props.tab.entries.length > 0)
-// 因「隐藏受保护的操作系统文件」而被清空的目录（无文本过滤时）
+// 因「隐藏受保护的操作系统文件」而被清空的目录（无文本过滤与类型筛选时）
 const emptyByProtect = computed(
-  () => hasEntries.value && rows.value.length === 0 && !props.tab.filter.trim() && ui.hideProtected,
+  () =>
+    hasEntries.value &&
+    rows.value.length === 0 &&
+    !props.tab.filter.trim() &&
+    !props.tab.typeFilter &&
+    ui.hideProtected,
 )
+// 因过滤词 / 类型筛选而被清空的目录
 const emptyByFilter = computed(
-  () => hasEntries.value && rows.value.length === 0 && !!props.tab.filter.trim(),
+  () =>
+    hasEntries.value &&
+    rows.value.length === 0 &&
+    (!!props.tab.filter.trim() || !!props.tab.typeFilter),
 )
 const emptyText = computed(() =>
   props.tab.kind === 'search' ? '没有找到匹配项' : isRemote.value ? '远程目录为空' : '此目录为空',
@@ -781,7 +790,7 @@ function onDrop(ev: DragEvent) {
     </div>
     <div v-else-if="emptyByFilter && !editingCreate" class="state">
       <Icon name="search" :size="30" class="big-ico" />
-      <p>没有匹配「{{ tab.filter }}」的条目</p>
+      <p>{{ tab.filter.trim() ? `没有匹配「${tab.filter}」的条目` : '没有符合类型筛选的条目' }}</p>
     </div>
 
     <!-- 详细 / 列表视图（虚拟滚动） -->

@@ -5,6 +5,7 @@ import { api } from '../api'
 import type { DirListing, FileEntry, FsOp, FsOpResult, PaneState, RemoteLocation, SearchHit, TabState, ViewMode } from '../types'
 import { useUiStore } from './ui'
 import { dirname } from '../components/Pane/utils'
+import { matchesTypeFilter } from '../searchFilters'
 import { normalizePath, setWatchSource } from '../shell/dirWatch'
 import { remoteDirname, resolveRemotePassword } from '../shell/remote'
 
@@ -735,14 +736,19 @@ export const usePaneStore = defineStore('pane', () => {
   }
 
   /** 在活动窗格创建搜索结果标签；后续同一次输入只更新该标签。 */
-  function showSearchResults(query: string, hits: SearchHit[], tabId?: string): string | undefined {
+  function showSearchResults(
+    query: string,
+    hits: SearchHit[],
+    tabId?: string,
+    title = '搜索结果',
+  ): string | undefined {
     const pane = activePane.value
     if (!pane) return undefined
     const existing = tabId ? pane.tabs.find((tab) => tab.id === tabId) : undefined
     if (existing) {
       existing.kind = 'search'
       existing.searchQuery = query
-      existing.title = '搜索结果'
+      existing.title = title
       existing.entries = hits.map((hit) => hit.entry)
       existing.loading = false
       existing.error = null
@@ -756,7 +762,7 @@ export const usePaneStore = defineStore('pane', () => {
     const tab = makeTab(activeTabOf(pane)?.path ?? fallbackHome)
     tab.kind = 'search'
     tab.searchQuery = query
-    tab.title = '搜索结果'
+    tab.title = title
     tab.entries = hits.map((hit) => hit.entry)
     pane.tabs.push(tab)
     pane.activeTabId = tab.id
@@ -789,6 +795,7 @@ export const usePaneStore = defineStore('pane', () => {
     tab.searchQuery = src.searchQuery
     tab.remote = src.remote
     tab.filter = src.filter
+    tab.typeFilter = src.typeFilter
     tab.sortKey = src.sortKey
     tab.sortAsc = src.sortAsc
     if (!src.loading && !src.error) tab.entries = src.entries
@@ -839,7 +846,9 @@ export const usePaneStore = defineStore('pane', () => {
   /** 本地过滤 + 排序（目录始终在前） */
   function entriesFor(tab: TabState): FileEntry[] {
     const q = tab.filter.trim().toLowerCase()
-    const list = q ? tab.entries.filter((e) => e.name.toLowerCase().includes(q)) : tab.entries.slice()
+    const list = tab.entries.filter(
+      (e) => (!q || e.name.toLowerCase().includes(q)) && matchesTypeFilter(e, tab.typeFilter),
+    )
     const dir = tab.sortAsc ? 1 : -1
     list.sort((a, b) => {
       if (a.isDir !== b.isDir) return a.isDir ? -1 : 1

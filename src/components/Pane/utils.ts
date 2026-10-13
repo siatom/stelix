@@ -73,9 +73,17 @@ export type FileKind =
   | 'file'
 
 const KIND_BY_EXT: Record<string, FileKind> = {}
+const KIND_EXTS: Partial<Record<FileKind, string[]>> = {}
 
 function register(kind: FileKind, exts: string) {
-  for (const e of exts.split(' ')) KIND_BY_EXT[e] = kind
+  const list = exts.split(' ')
+  for (const e of list) KIND_BY_EXT[e] = kind
+  KIND_EXTS[kind] = list
+}
+
+/** 某个文件大类收录的扩展名（小写、不含点），供搜索类型筛选复用同一份表 */
+export function extsOfKind(kind: FileKind): string[] {
+  return KIND_EXTS[kind] ?? []
 }
 
 register('doc', 'txt md log rtf pdf doc docx xls xlsx ppt pptx csv odt ods')
