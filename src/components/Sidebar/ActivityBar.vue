@@ -75,11 +75,11 @@ const items: { key: PanelKey; icon: IconName; title: string }[] = [
     <button
       type="button"
       class="activity-btn"
-      title="收起侧边栏"
-      aria-label="收起侧边栏"
+      :title="ui.sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'"
+      :aria-label="ui.sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'"
       @click="ui.toggleSidebar()"
     >
-      <Icon name="panel-left" :size="19" />
+      <Icon :name="ui.sidebarCollapsed ? 'panel-left-open' : 'panel-left-close'" :size="19" />
     </button>
   </nav>
 </template>
