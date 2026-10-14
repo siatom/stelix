@@ -57,6 +57,7 @@ const locLoading = ref(false)
 const locError = ref<string | null>(null)
 const draggingFavorite = ref<string | null>(null)
 const dragOverFavorite = ref<string | null>(null)
+const fileDropOverFavorite = ref<string | null>(null)
 let favoritePointerId: number | null = null
 let favoritePointerStart: { path: string; x: number; y: number } | null = null
 let favoriteDragMoved = false
@@ -178,6 +179,56 @@ function finishFavoriteDrag(ev: PointerEvent) {
   dragOverFavorite.value = null
 }
 
+interface FileDragPayload {
+  paneId: string
+  paths: string[]
+}
+
+const FILE_DRAG_TYPE = 'application/x-stelix-items'
+const FILE_DRAG_FALLBACK_TYPE = 'text/plain'
+const FILE_DRAG_PREFIX = 'stelix:'
+
+function readFileDragPayload(ev: DragEvent): FileDragPayload | null {
+  const transfer = ev.dataTransfer
+  const custom = transfer?.getData(FILE_DRAG_TYPE)
+  const plain = transfer?.getData(FILE_DRAG_FALLBACK_TYPE) ?? ''
+  const raw = custom || (plain.startsWith(FILE_DRAG_PREFIX) ? plain.slice(FILE_DRAG_PREFIX.length) : '')
+  if (!raw) return null
+  try {
+    const payload = JSON.parse(raw) as Partial<FileDragPayload>
+    if (typeof payload.paneId !== 'string' || !Array.isArray(payload.paths)) return null
+    const paths = payload.paths.filter((path): path is string => typeof path === 'string' && !!path)
+    return paths.length ? { paneId: payload.paneId, paths } : null
+  } catch {
+    return null
+  }
+}
+
+function onFavoriteDragOver(ev: DragEvent, path: string) {
+  if (!readFileDragPayload(ev)) return
+  ev.preventDefault()
+  ev.stopPropagation()
+  if (ev.dataTransfer) ev.dataTransfer.dropEffect = ev.shiftKey ? 'copy' : 'move'
+  fileDropOverFavorite.value = path
+}
+
+function onFavoriteDragLeave(ev: DragEvent, path: string) {
+  const related = ev.relatedTarget as Node | null
+  if (related && (ev.currentTarget as HTMLElement).contains(related)) return
+  if (fileDropOverFavorite.value === path) fileDropOverFavorite.value = null
+}
+
+async function onFavoriteDrop(ev: DragEvent, targetPath: string) {
+  ev.preventDefault()
+  ev.stopPropagation()
+  fileDropOverFavorite.value = null
+  const payload = readFileDragPayload(ev)
+  if (!payload) return
+  const op = ev.shiftKey ? 'copy' : 'move'
+  const result = await pane.runFs(payload.paneId, { op, sources: payload.paths, target: targetPath })
+  if (result.ok) await pane.reloadByPath(targetPath)
+}
+
 onMounted(() => {
   window.addEventListener(FAVORITES_CHANGED_EVENT, syncFavorites)
   window.addEventListener(RECENT_DIRECTORIES_CHANGED_EVENT, syncRecentDirectories)
@@ -262,12 +313,15 @@ onBeforeUnmount(() => {
           :key="fav.path"
           :data-favorite-path="fav.path"
           :title="fav.path"
-          :class="{ 'drag-over': dragOverFavorite === fav.path, dragging: draggingFavorite === fav.path }"
+          :class="{ 'drag-over': dragOverFavorite === fav.path, 'file-drop-over': fileDropOverFavorite === fav.path, dragging: draggingFavorite === fav.path }"
           @click="onFavoriteClick(fav.path)"
           @pointerdown="startFavoriteDrag($event, fav.path)"
           @pointermove="moveFavorite"
           @pointerup="finishFavoriteDrag"
           @pointercancel="finishFavoriteDrag"
+          @dragover="onFavoriteDragOver($event, fav.path)"
+          @dragleave="onFavoriteDragLeave($event, fav.path)"
+          @drop="onFavoriteDrop($event, fav.path)"
         >
           <span class="ico favorite-ico" :class="`favorite-color-${index % 5}`"><Icon name="folder" :size="18" /></span>
           <span class="label">{{ fav.label }}</span>
@@ -510,6 +564,11 @@ onBeforeUnmount(() => {
 .nav-list li.drag-over {
   outline: 1px solid color-mix(in srgb, var(--accent) 60%, transparent);
   outline-offset: -1px;
+}
+.nav-list li.file-drop-over {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  outline: 2px solid color-mix(in srgb, var(--accent) 72%, transparent);
+  outline-offset: -2px;
 }
 .favorite-sort-move {
   transition: transform 140ms cubic-bezier(0.2, 0.75, 0.25, 1);

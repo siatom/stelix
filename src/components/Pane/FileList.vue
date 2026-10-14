@@ -38,6 +38,7 @@ const ICON_CAP = 600
 const DRAG_TYPE = 'application/x-stelix-items'
 const DRAG_FALLBACK_TYPE = 'text/plain'
 const DRAG_PREFIX = 'stelix:'
+const dragOverPath = ref<string | null>(null)
 
 const viewMode = computed(() => paneStore.panes.find((p) => p.id === props.paneId)?.viewMode ?? 'details')
 /**
@@ -727,6 +728,22 @@ interface DragPayload {
   paths: string[]
 }
 
+function readDragPayload(ev: DragEvent): DragPayload | null {
+  const transfer = ev.dataTransfer
+  const custom = transfer?.getData(DRAG_TYPE)
+  const plain = transfer?.getData(DRAG_FALLBACK_TYPE) ?? ''
+  const raw = custom || (plain.startsWith(DRAG_PREFIX) ? plain.slice(DRAG_PREFIX.length) : '')
+  if (!raw) return null
+  try {
+    const payload = JSON.parse(raw) as Partial<DragPayload>
+    if (typeof payload.paneId !== 'string' || !Array.isArray(payload.paths)) return null
+    const paths = payload.paths.filter((path): path is string => typeof path === 'string' && !!path)
+    return paths.length ? { paneId: payload.paneId, paths } : null
+  } catch {
+    return null
+  }
+}
+
 function onDragStart(ev: DragEvent, entry: FileEntry) {
   if (!ev.dataTransfer) return
   if (!isLocal.value) {
@@ -753,21 +770,43 @@ function onDragOver(ev: DragEvent) {
   }
 }
 
+function onEntryDragOver(ev: DragEvent, entry: FileEntry) {
+  if (!isLocal.value || !entry.isDir) return
+  const payload = readDragPayload(ev)
+  if (!payload) return
+  ev.preventDefault()
+  ev.stopPropagation()
+  if (ev.dataTransfer) ev.dataTransfer.dropEffect = ev.shiftKey ? 'copy' : 'move'
+  dragOverPath.value = entry.path
+}
+
+function onEntryDragLeave(ev: DragEvent, path: string) {
+  const related = ev.relatedTarget as Node | null
+  if (related && (ev.currentTarget as HTMLElement).contains(related)) return
+  if (dragOverPath.value === path) dragOverPath.value = null
+}
+
+async function onEntryDrop(ev: DragEvent, entry: FileEntry) {
+  if (!isLocal.value || !entry.isDir) return
+  ev.preventDefault()
+  ev.stopPropagation()
+  dragOverPath.value = null
+  const payload = readDragPayload(ev)
+  if (!payload) return
+  const result = await paneStore.runFs(props.paneId, {
+    op: ev.shiftKey ? 'copy' : 'move',
+    sources: payload.paths,
+    target: entry.path,
+  })
+  if (result.ok) await paneStore.reloadByPath(entry.path)
+}
+
 function onDrop(ev: DragEvent) {
   if (!isLocal.value) return // 远程目录不能接收本地复制 / 移动
-  const transfer = ev.dataTransfer
-  const custom = transfer?.getData(DRAG_TYPE)
-  const plain = transfer?.getData(DRAG_FALLBACK_TYPE) ?? ''
-  const raw = custom || (plain.startsWith(DRAG_PREFIX) ? plain.slice(DRAG_PREFIX.length) : '')
-  if (!raw) return
-  try {
-    const payload = JSON.parse(raw) as DragPayload
-    if (payload.paneId === props.paneId || !payload.paths.length) return
-    if (ev.shiftKey) void paneStore.copyToOtherPane(payload.paneId, payload.paths)
-    else void paneStore.moveToOtherPane(payload.paneId, payload.paths)
-  } catch {
-    // Ignore malformed drag data.
-  }
+  const payload = readDragPayload(ev)
+  if (!payload || payload.paneId === props.paneId) return
+  if (ev.shiftKey) void paneStore.copyToOtherPane(payload.paneId, payload.paths)
+  else void paneStore.moveToOtherPane(payload.paneId, payload.paths)
 }
 </script>
 
@@ -857,12 +896,15 @@ function onDrop(ev: DragEvent) {
             class="row"
             :data-selection-path="vr.row.entry.path"
             :draggable="!editing"
-            :class="{ selected: tab.selected.includes(vr.row.entry.path), dir: vr.row.entry.isDir }"
+            :class="{ selected: tab.selected.includes(vr.row.entry.path), dir: vr.row.entry.isDir, 'drop-target': dragOverPath === vr.row.entry.path }"
             :style="{ height: `${vr.size}px`, transform: `translateY(${vr.start}px)` }"
             @click="onClick($event, vr.index, vr.row.entry)"
             @dblclick="onDblClick(vr.row.entry)"
             @contextmenu="openCtx($event, vr.row.entry)"
             @dragstart="onDragStart($event, vr.row.entry)"
+            @dragover="onEntryDragOver($event, vr.row.entry)"
+            @dragleave="onEntryDragLeave($event, vr.row.entry.path)"
+            @drop="onEntryDrop($event, vr.row.entry)"
           >
             <span class="name-cell">
               <span v-if="vr.row.depth" class="indent" :style="{ width: `${vr.row.depth * 10}px` }" />
@@ -941,12 +983,15 @@ function onDrop(ev: DragEvent) {
           class="icon-cell"
           :data-selection-path="entry.path"
           :draggable="!editing"
-          :class="{ selected: tab.selected.includes(entry.path), dir: entry.isDir }"
+          :class="{ selected: tab.selected.includes(entry.path), dir: entry.isDir, 'drop-target': dragOverPath === entry.path }"
           :title="entry.path"
           @click="onClick($event, i, entry)"
           @dblclick="onDblClick(entry)"
           @contextmenu="openCtx($event, entry)"
           @dragstart="onDragStart($event, entry)"
+          @dragover="onEntryDragOver($event, entry)"
+          @dragleave="onEntryDragLeave($event, entry.path)"
+          @drop="onEntryDrop($event, entry)"
         >
           <span class="icon-big" :class="`k-${fileKind(entry)}`">
             <Icon v-if="isRemote" :name="fileIcon(entry)" :size="38" />
@@ -1197,6 +1242,16 @@ function onDrop(ev: DragEvent) {
 .row.selected {
   background: var(--bg-selected);
 }
+.row.drop-target {
+  background: color-mix(in srgb, var(--accent) 24%, var(--bg-hover));
+  outline: 2px solid color-mix(in srgb, var(--accent) 82%, transparent);
+  outline-offset: -2px;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 38%, transparent);
+}
+.row.drop-target .nm,
+.row.drop-target .ico {
+  color: var(--accent);
+}
 /* 名称单元格：缩进占位 + 展开三角 + 图标 + 名称（整体随层级右移，其余列保持对齐） */
 .name-cell {
   display: flex;
@@ -1288,6 +1343,16 @@ function onDrop(ev: DragEvent) {
 }
 .icon-cell.selected {
   background: var(--bg-selected);
+}
+.icon-cell.drop-target {
+  background: color-mix(in srgb, var(--accent) 24%, var(--bg-hover));
+  outline: 2px solid color-mix(in srgb, var(--accent) 82%, transparent);
+  outline-offset: -2px;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 38%, transparent);
+}
+.icon-cell.drop-target .icon-big,
+.icon-cell.drop-target .icon-name {
+  color: var(--accent);
 }
 .icon-big {
   display: flex;
