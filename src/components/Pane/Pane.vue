@@ -86,7 +86,7 @@ async function confirmDelete() {
   <section class="pane" @mousedown="activate">
     <template v-if="tab">
       <div class="pane-topbar" :class="{ 'is-active': isActivePane }">
-        <PaneToolbar :pane-id="paneId" @create="onCreate" />
+        <PaneToolbar :pane-id="paneId" @create="onCreate" @delete="openDelete" />
         <div v-if="tab.kind === 'search'" class="search-heading" :title="tab.searchQuery">
           搜索结果：{{ tab.searchQuery }}
         </div>

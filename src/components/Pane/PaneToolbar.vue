@@ -7,7 +7,10 @@ import Icon from '../icons/Icon.vue'
 import type { IconName } from '../icons/paths'
 
 const props = defineProps<{ paneId: string }>()
-const emit = defineEmits<{ (e: 'create', kind: 'mkdir' | 'createFile'): void }>()
+const emit = defineEmits<{
+  (e: 'create', kind: 'mkdir' | 'createFile'): void
+  (e: 'delete', paths: string[]): void
+}>()
 
 const paneStore = usePaneStore()
 
@@ -20,6 +23,13 @@ const activeTab = computed(() => {
 // 搜索结果与远程标签都没有本地「目录」写权限，禁用新建入口。
 const canCreate = computed(
   () => !!activeTab.value && activeTab.value.kind !== 'search' && activeTab.value.kind !== 'remote',
+)
+const canDelete = computed(
+  () =>
+    !!activeTab.value &&
+    activeTab.value.kind !== 'search' &&
+    activeTab.value.kind !== 'remote' &&
+    activeTab.value.selected.length > 0,
 )
 
 const modes: { key: ViewMode; icon: IconName; title: string }[] = [
@@ -52,6 +62,9 @@ const modes: { key: ViewMode; icon: IconName; title: string }[] = [
       </button>
       <button title="新建文件" :disabled="!canCreate" @click="emit('create', 'createFile')">
         <Icon name="file-plus" />
+      </button>
+      <button title="删除所选项" :disabled="!canDelete" @click="emit('delete', [...(activeTab?.selected ?? [])])">
+        <Icon name="trash" />
       </button>
     </div>
 
