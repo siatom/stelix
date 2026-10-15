@@ -48,8 +48,13 @@ const viewMode = computed(() => paneStore.panes.find((p) => p.id === props.paneI
  * （新建 / 重命名 / 删除 / 粘贴 / 拖拽对拷 / 终端 / 属性 / 收藏 / 递归大小）全部不适用。
  */
 const isRemote = computed(() => props.tab.kind === 'remote' && !!props.tab.remote)
-/** 只有本地目录标签才有本地文件操作。 */
+/** 只有本地目录标签才有**目录级**本地操作（新建 / 粘贴，目标目录取 `tab.path`）。 */
 const isLocal = computed(() => props.tab.kind !== 'search' && props.tab.kind !== 'remote')
+/**
+ * **条目级**本地操作（复制 / 剪切 / 重命名 / 删除 / 属性 / 终端 / 收藏等）作用于条目自身路径。
+ * 搜索结果里的命中项同样是真实本地文件，因此与普通目录标签一样可用。
+ */
+const canFileOp = computed(() => !isRemote.value)
 /** 搜索结果标签：命中项散落在各目录，需要「打开所在文件夹」这类定位操作。 */
 const isSearch = computed(() => props.tab.kind === 'search')
 // 先取 store 的过滤+排序结果，再按「隐藏受保护的操作系统文件」剔除（Explorer 语义：hidden && system）
@@ -380,14 +385,16 @@ const editingCreate = computed(
 async function commitEdit() {
   const e = editing.value
   if (!e) return
-  if (!isLocal.value) {
+  // 新建类要落到「当前目录」，搜索结果没有目录语义；重命名作用于条目自身路径，本地标签都可用。
+  const creating = e.mode === 'mkdir' || e.mode === 'createFile'
+  if (isRemote.value || (creating && !isLocal.value)) {
     editing.value = null
     return
   }
   const name = e.name.trim()
   editing.value = null // 先关闭，避免 Enter 与 blur 重复提交
   if (!name) return
-  if (e.mode === 'mkdir' || e.mode === 'createFile') {
+  if (creating) {
     await paneStore.runFs(props.paneId, { op: e.mode, target: joinPath(props.tab.path, name) })
     return
   }
@@ -422,7 +429,7 @@ function addEntryFavorite(entry: FileEntry) {
 }
 
 async function openInTerminal(entry: FileEntry) {
-  if (!entry.isDir) return
+  if (!entry.isDir || !canFileOp.value) return
   try {
     await api.openInTerminal(entry.path)
   } catch (error) {
@@ -438,6 +445,21 @@ function showCtxAt(ev: MouseEvent, entry: FileEntry) {
   const y = Math.min(ev.clientY, window.innerHeight - menuH - 4)
   ctx.value = { x, y, entry }
 }
+
+/**
+ * 渲染后按实际尺寸再校正一次位置：菜单项数量随标签类型 / 条目类型变化
+ * （搜索结果比普通目录多「打开所在文件夹」、少新建与粘贴），固定估值会让贴底的菜单被裁掉。
+ */
+const ctxMenuEl = ref<HTMLElement | null>(null)
+watch(ctx, async (c) => {
+  if (!c) return
+  await nextTick()
+  const el = ctxMenuEl.value
+  if (!el) return
+  const rect = el.getBoundingClientRect()
+  c.x = Math.max(4, Math.min(c.x, window.innerWidth - rect.width - 4))
+  c.y = Math.max(4, Math.min(c.y, window.innerHeight - rect.height - 4))
+})
 
 function openCtx(ev: MouseEvent, entry: FileEntry) {
   ev.preventDefault()
@@ -476,7 +498,7 @@ function closeCtx() {
 }
 
 function openInNewTab(entry: FileEntry) {
-  if (!entry.isDir || !isLocal.value) return
+  if (!entry.isDir || !canFileOp.value) return
   paneStore.addTab(props.paneId, entry.path)
   closeCtx()
 }
@@ -490,7 +512,7 @@ async function openContainingFolder(entry: FileEntry) {
 }
 
 async function searchFolder(entry: FileEntry) {
-  if (!entry.isDir || !isLocal.value) return
+  if (!entry.isDir || !canFileOp.value) return
   paneStore.activePaneId = props.paneId
   await paneStore.navigateTo(props.paneId, entry.path, props.tab.id)
   ui.openCurrentDirectorySearch()
@@ -594,8 +616,8 @@ function onGlobalKey(ev: KeyboardEvent) {
     return
   }
 
-  // 以下为文件操作：远程标签只读、搜索结果标签无目录语义，均不响应。
-  if (!isLocal.value) return
+  // 以下为条目级文件操作：远程标签只读，其余（含搜索结果）都可用 —— 命中项就是真实本地文件。
+  if (!canFileOp.value) return
 
   switch (id) {
     case 'copy':
@@ -607,6 +629,7 @@ function onGlobalKey(ev: KeyboardEvent) {
       return
     }
     case 'paste':
+      if (!isLocal.value) return // 粘贴目标目录取 `tab.path`，搜索结果没有目录语义
       ev.preventDefault()
       void paneStore.pasteInto(props.paneId, props.tab.path)
       return
@@ -1031,6 +1054,7 @@ function onDrop(ev: DragEvent) {
     <!-- 右键菜单 -->
     <div
       v-if="ctx"
+      ref="ctxMenuEl"
       class="ctx-menu"
       :style="{ left: `${ctx.x}px`, top: `${ctx.y}px` }"
       @click.stop
@@ -1043,15 +1067,17 @@ function onDrop(ev: DragEvent) {
       </template>
       <button @click="openEntry(ctx.entry); closeCtx()"><Icon :name="ctx.entry.isDir ? 'folder-open' : 'file'" :size="14" />打开</button>
       <button v-if="isSearch" @click="openContainingFolder(ctx.entry)"><Icon name="folder-arrow" :size="14" />打开所在文件夹</button>
-      <button v-if="ctx.entry.isDir && isLocal" @click="searchFolder(ctx.entry)"><Icon name="search" :size="14" />搜索此文件夹</button>
-      <button v-if="ctx.entry.isDir && isLocal" @click="openInNewTab(ctx.entry)"><Icon name="plus" :size="14" />在新标签页打开</button>
-      <button v-if="ctx.entry.isDir && isLocal" :disabled="favoritePaths.has(ctx.entry.path)" @click="addEntryFavorite(ctx.entry)"><Icon name="star" :size="14" />{{ favoritePaths.has(ctx.entry.path) ? '已在收藏中' : '添加到收藏' }}</button>
-      <button v-if="ctx.entry.isDir && isLocal" @click="openInTerminal(ctx.entry)"><Icon name="terminal" :size="14" />在终端打开</button>
-      <template v-if="isLocal">
+      <button v-if="ctx.entry.isDir && canFileOp" @click="searchFolder(ctx.entry)"><Icon name="search" :size="14" />搜索此文件夹</button>
+      <button v-if="ctx.entry.isDir && canFileOp" @click="openInNewTab(ctx.entry)"><Icon name="plus" :size="14" />在新标签页打开</button>
+      <button v-if="ctx.entry.isDir && canFileOp" :disabled="favoritePaths.has(ctx.entry.path)" @click="addEntryFavorite(ctx.entry)"><Icon name="star" :size="14" />{{ favoritePaths.has(ctx.entry.path) ? '已在收藏中' : '添加到收藏' }}</button>
+      <button v-if="ctx.entry.isDir && canFileOp" @click="openInTerminal(ctx.entry)"><Icon name="terminal" :size="14" />在终端打开</button>
+      <template v-if="canFileOp">
         <div class="sep" />
         <button @click="copyToClipboard('copy')"><Icon name="copy" :size="14" /><span>复制{{ ctxTargetCount > 1 ? ` (${ctxTargetCount} 项)` : '' }}</span><kbd>Ctrl+C</kbd></button>
         <button @click="copyToClipboard('move')"><Icon name="arrow-right" :size="14" /><span>剪切{{ ctxTargetCount > 1 ? ` (${ctxTargetCount} 项)` : '' }}</span><kbd>Ctrl+X</kbd></button>
-        <button @click="paste"><Icon name="folder-open" :size="14" /><span>粘贴到此目录</span><kbd>Ctrl+V</kbd></button>
+      </template>
+      <button v-if="isLocal" @click="paste"><Icon name="folder-open" :size="14" /><span>粘贴到此目录</span><kbd>Ctrl+V</kbd></button>
+      <template v-if="canFileOp">
         <div class="sep" />
         <button @click="startRename(ctx.entry.path); closeCtx()"><Icon name="pencil" :size="14" /><span>重命名</span><kbd>F2</kbd></button>
         <button class="danger" @click="emit('delete', ctxPaths()); closeCtx()"><Icon name="trash" :size="14" /><span>删除{{ ctxTargetCount > 1 ? ` (${ctxTargetCount} 项)` : '' }}</span><kbd>Delete</kbd></button>
@@ -1059,7 +1085,7 @@ function onDrop(ev: DragEvent) {
       <div class="sep" />
       <button @click="copyFileName"><Icon name="file" :size="14" />复制文件名</button>
       <button @click="copyPath"><Icon name="file-text" :size="14" />复制路径</button>
-      <template v-if="isLocal">
+      <template v-if="canFileOp">
         <div class="sep" />
         <button @click="showProperties(ctx.entry)"><Icon name="info" :size="14" />属性</button>
       </template>

@@ -4,7 +4,7 @@ import { homeDir } from '@tauri-apps/api/path'
 import { api } from '../api'
 import type { DirListing, FileEntry, FsOp, FsOpResult, PaneState, RemoteLocation, SearchHit, TabState, ViewMode } from '../types'
 import { useUiStore } from './ui'
-import { dirname } from '../components/Pane/utils'
+import { basename, dirname } from '../components/Pane/utils'
 import { matchesTypeFilter } from '../searchFilters'
 import { normalizePath, setWatchSource } from '../shell/dirWatch'
 import { remoteDirname, resolveRemotePassword } from '../shell/remote'
@@ -106,6 +106,12 @@ function makeTab(path: string): TabState {
 function makePane(id: string, path: string): PaneState {
   const tab = makeTab(path)
   return { id, tabs: [tab], activeTabId: tab.id, viewMode: 'details' }
+}
+
+/** 由文件名推导扩展名（与后端 `fs_core::to_entry` 的 `Path::extension()` 同规则）。 */
+function extOfName(name: string): string | null {
+  const dot = name.lastIndexOf('.')
+  return dot > 0 ? name.slice(dot + 1).toLowerCase() : null
 }
 
 /** 两次列目录结果是否一致（顺序由后端保证，逐项比较关键字段）。 */
@@ -330,6 +336,9 @@ export const usePaneStore = defineStore('pane', () => {
   }
 
   async function load(tab: TabState) {
+    // 搜索结果的命中来自检索管道，不由目录列举产生：重列目录会把它退化成
+    // 「搜索起点目录」的普通列表（`tab.path` 只是搜索发起时所在目录）。
+    if (tab.kind === 'search') return
     tab.loading = true
     tab.error = null
     try {
@@ -520,6 +529,47 @@ export const usePaneStore = defineStore('pane', () => {
     // 该目录若正被原地展开，同步刷新其缓存的子项。
     jobs.push(refreshCachedChildren(dir))
     await Promise.all(jobs)
+  }
+
+  /**
+   * 文件操作后的刷新：普通目录重列目录；搜索结果标签没有目录语义（`tab.path` 只是搜索
+   * 发起时所在目录），按操作类型就地修补命中列表，否则会把结果列表整片换成那个目录。
+   */
+  async function refreshAfterOp(paneId: string, op: FsOp, ok: boolean) {
+    const pane = paneById(paneId)
+    const tab = pane ? activeTabOf(pane) : undefined
+    if (tab && tab.kind === 'search') {
+      patchSearchHits(tab, op, ok)
+      return
+    }
+    await refresh(paneId)
+  }
+
+  /**
+   * 就地修补搜索结果标签的命中列表。
+   *
+   * 原地改 `tab.entries`（不换数组）：浏览历史里的快照持有的是同一个数组引用，
+   * 换成新数组会让「后退 → 前进」回到搜索结果时又看到已删除的旧命中。
+   */
+  function patchSearchHits(tab: TabState, op: FsOp, ok: boolean) {
+    if (!ok) return // 操作失败 → 列表保持原样，避免误删/误改已有命中
+    if (op.op === 'rename' && op.target && op.sources?.length === 1) {
+      const from = normalizePath(op.sources[0])
+      const entry = tab.entries.find((e) => normalizePath(e.path) === from)
+      if (entry) {
+        entry.path = op.target
+        entry.name = basename(op.target)
+        entry.ext = entry.isDir ? null : extOfName(entry.name)
+      }
+    } else if (op.op === 'delete' || op.op === 'move') {
+      const gone = new Set((op.sources ?? []).map(normalizePath))
+      for (let i = tab.entries.length - 1; i >= 0; i -= 1) {
+        if (gone.has(normalizePath(tab.entries[i].path))) tab.entries.splice(i, 1)
+      }
+    }
+    // 复制不改变命中项自身；新建类不会在搜索结果里发生。
+    const alive = new Set(tab.entries.map((e) => e.path))
+    tab.selected = tab.selected.filter((p) => alive.has(p))
   }
 
   // ---- 文件夹大小统计（详情视图按需，仅可见行） ----
@@ -946,7 +996,7 @@ export const usePaneStore = defineStore('pane', () => {
       result = { ok: false, errors: [String(e)] }
       setStatus(`操作失败：${String(e)}`)
     }
-    await refresh(paneId)
+    await refreshAfterOp(paneId, op, result.ok)
     return result
   }
 

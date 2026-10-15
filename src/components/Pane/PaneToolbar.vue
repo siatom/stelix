@@ -24,12 +24,9 @@ const activeTab = computed(() => {
 const canCreate = computed(
   () => !!activeTab.value && activeTab.value.kind !== 'search' && activeTab.value.kind !== 'remote',
 )
+// 删除作用于选中项自身路径：搜索结果的命中项也是真实本地文件，与普通目录一样可删。
 const canDelete = computed(
-  () =>
-    !!activeTab.value &&
-    activeTab.value.kind !== 'search' &&
-    activeTab.value.kind !== 'remote' &&
-    activeTab.value.selected.length > 0,
+  () => !!activeTab.value && activeTab.value.kind !== 'remote' && activeTab.value.selected.length > 0,
 )
 
 const modes: { key: ViewMode; icon: IconName; title: string }[] = [
