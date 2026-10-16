@@ -19,7 +19,7 @@ const items: { key: PanelKey; icon: IconName; title: string }[] = [
 <template>
   <nav class="activity-bar" aria-label="主工具栏">
     <div class="brand" :class="{ collapsed: ui.sidebarCollapsed }" aria-label="Stelix 星索">
-      <img v-if="ui.sidebarCollapsed" class="brand-logo" src="/app-icon.svg" alt="" />
+      <img v-if="ui.sidebarCollapsed" class="brand-logo" src="/brand-mark.svg" alt="" />
       <span v-else class="brand-title">
         Stelix
         <span v-if="isDev" class="dev-badge">dev</span>
