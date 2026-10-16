@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="ink" x1="512" y1="64" x2="512" y2="960" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#6E9BFF"/>
+      <stop offset="1" stop-color="#3B5FD0"/>
+    </linearGradient>
+  </defs>
+  <path d="M512 64Q602 422 960 512 602 602 512 960 422 602 64 512 422 422 512 64Z" fill="url(#ink)"/>
+</svg>
