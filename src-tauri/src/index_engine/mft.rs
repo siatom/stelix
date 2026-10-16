@@ -738,24 +738,7 @@ fn scan_ntfs_roots(roots: &[String], on_batch: &mut dyn FnMut(Vec<FileEntry>)) -
     let Some(volume) = volume_root(root) else {
         return false;
     };
-    let wide: Vec<u16> = volume.encode_utf16().chain(Some(0)).collect();
-    let mut fs_name = [0u16; 32];
-    let ntfs = unsafe {
-        GetVolumeInformationW(
-            wide.as_ptr(),
-            std::ptr::null_mut(),
-            0,
-            std::ptr::null_mut(),
-            std::ptr::null_mut(),
-            std::ptr::null_mut(),
-            fs_name.as_mut_ptr(),
-            fs_name.len() as u32,
-        ) != 0
-            && String::from_utf16_lossy(&fs_name)
-                .to_uppercase()
-                .starts_with("NTFS")
-    };
-    if !ntfs {
+    if !is_ntfs_volume(&volume) {
         return false;
     }
 
@@ -1049,6 +1032,35 @@ fn volume_root(root: &str) -> Option<String> {
         return None;
     }
     Some(format!("{}:\\", bytes[0] as char))
+}
+
+/// 判断给定路径所在的卷是否为 NTFS。
+///
+/// 供热插磁盘的自动索引（见 `lib.rs::watch_new_volumes`）与 MFT 直读扫描共用，
+/// 避免两处各写一份 `GetVolumeInformationW` 判定。
+pub(crate) fn is_ntfs(root: &str) -> bool {
+    volume_root(root).is_some_and(|volume| is_ntfs_volume(&volume))
+}
+
+/// 对已规范化的卷根（如 `D:\`）查询文件系统名，判断是否为 NTFS。
+fn is_ntfs_volume(volume: &str) -> bool {
+    let wide: Vec<u16> = volume.encode_utf16().chain(Some(0)).collect();
+    let mut fs_name = [0u16; 32];
+    unsafe {
+        GetVolumeInformationW(
+            wide.as_ptr(),
+            std::ptr::null_mut(),
+            0,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            fs_name.as_mut_ptr(),
+            fs_name.len() as u32,
+        ) != 0
+            && String::from_utf16_lossy(&fs_name)
+                .to_uppercase()
+                .starts_with("NTFS")
+    }
 }
 
 fn is_below_root(path: &str, root: &str) -> bool {

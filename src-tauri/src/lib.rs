@@ -507,6 +507,63 @@ fn setup_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
+/// 周期性检测新插入的 NTFS 卷并自动纳入索引。
+///
+/// 启动时的 [`fs_core::get_roots`] 快照不会感知运行期热插的磁盘。这里每 5s 比对
+/// 一次盘符集合，只有**从无到有**出现的 NTFS 盘才纳入索引——这样用户在设置里
+/// 手动移除的根（盘一直存在）不会被重新加回，而拔插过的盘会重新纳入。
+///
+/// 触发时把新盘与当前索引根合并后调用 [`index_engine::IndexStore::start_scan`]。
+/// 若此刻正在扫描，`start_scan` 会忽略本次调用（索引根未更新），该盘留在
+/// `pending` 中，下一轮自然重试，直至扫描空闲后成功。
+#[cfg(windows)]
+fn watch_new_volumes(index: std::sync::Arc<index_engine::IndexStore>, app: tauri::AppHandle) {
+    use std::collections::HashSet;
+    use std::time::Duration;
+
+    const INTERVAL: Duration = Duration::from_secs(5);
+
+    fn mounts(list: Vec<DriveInfo>) -> HashSet<String> {
+        list.into_iter().map(|drive| drive.mount).collect()
+    }
+
+    // 启动时已存在的盘不算「新插入」。
+    let mut known = mounts(fs_core::get_roots());
+    // 已发现但尚未确认进入索引根的新盘。
+    let mut pending: HashSet<String> = HashSet::new();
+
+    loop {
+        std::thread::sleep(INTERVAL);
+
+        let present = mounts(fs_core::get_roots());
+        for mount in &present {
+            if !known.contains(mount) && index_engine::mft::is_ntfs(mount) {
+                pending.insert(mount.clone());
+            }
+        }
+        known = present.clone();
+        // 已拔出的盘不再等待。
+        pending.retain(|mount| present.contains(mount));
+        if pending.is_empty() {
+            continue;
+        }
+
+        let current = index.status().roots;
+        let mut roots = current.clone();
+        for mount in &pending {
+            if !current.iter().any(|root| root.eq_ignore_ascii_case(mount)) {
+                roots.push(mount.clone());
+            }
+        }
+        if roots.len() == current.len() {
+            // 新盘都已进入索引根，收工。
+            pending.clear();
+            continue;
+        }
+        index.start_scan(app.clone(), roots);
+    }
+}
+
 // ---------------------------------------------------------------- 入口
 
 /// 提权子进程入口：命令行含提权开关时执行一次文件操作并写结果，返回退出码。
@@ -564,6 +621,14 @@ pub fn run() {
                 let index = std::sync::Arc::clone(&app.state::<AppState>().index);
                 let handle = app.handle().clone();
                 std::thread::spawn(move || index.start_service(handle, roots));
+            }
+            // 卷变化检测：上面的启动快照不会感知运行期热插的磁盘，这里周期性
+            // 比对盘符，把新出现的 NTFS 盘并入索引根并触发扫描。
+            #[cfg(windows)]
+            {
+                let index = std::sync::Arc::clone(&app.state::<AppState>().index);
+                let handle = app.handle().clone();
+                std::thread::spawn(move || watch_new_volumes(index, handle));
             }
             // 定时任务调度线程：每 20s 检查一次到期任务，跨平台。
             let tasks = std::sync::Arc::clone(&app.state::<AppState>().tasks);

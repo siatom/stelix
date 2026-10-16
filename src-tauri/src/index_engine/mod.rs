@@ -39,7 +39,7 @@ use crate::search_engine;
 use crate::types::{FileEntry, IndexProgress, IndexStatus, SearchHit, SearchQuery};
 
 #[cfg(windows)]
-mod mft;
+pub(crate) mod mft;
 
 /// 每批写入 DashMap 的条目数
 const BATCH_SIZE: usize = 2000;
