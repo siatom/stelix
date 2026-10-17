@@ -439,7 +439,7 @@ impl IndexStore {
             .map(str::to_lowercase)
             .collect();
         let normalized_query = query.text.trim().to_lowercase();
-        let mut best = BinaryHeap::with_capacity(limit.saturating_add(1));
+        let mut best: BinaryHeap<RankedHit> = BinaryHeap::with_capacity(limit.saturating_add(1));
         let scanning = self.status.read().scanning;
         #[cfg(windows)]
         if self.catalog_dirty.swap(false, Ordering::AcqRel) && !scanning {
@@ -459,24 +459,28 @@ impl IndexStore {
             if !search_engine::matches_with_terms(entry, query, name_lower, &terms) {
                 return;
             }
-            let hit = SearchHit {
-                score: search_engine::score_with_normalized_query(
-                    query,
-                    name_lower,
-                    &normalized_query,
-                ),
-                entry: entry.clone(),
-            };
-            let ranked = RankedHit {
-                hit,
-                name_lower: name_lower.to_string(),
-            };
-            if best.len() < limit {
-                best.push(ranked);
-            } else if best.peek().is_some_and(|worst| ranked < *worst) {
+            let score =
+                search_engine::score_with_normalized_query(query, name_lower, &normalized_query);
+            // 堆已满时先用 (score, name) 与当前最差命中比较：不够好就直接跳过。
+            // 宽泛查询（几十万命中、limit 500）若先克隆 FileEntry 再比较，会为每条命中
+            // 分配 path/name/ext 三份字符串，产生大量无谓的堆分配与 GC 压力。
+            if best.len() >= limit {
+                let better = best.peek().is_some_and(|worst| {
+                    score > worst.hit.score
+                        || (score == worst.hit.score && name_lower < worst.name_lower.as_str())
+                });
+                if !better {
+                    return;
+                }
                 best.pop();
-                best.push(ranked);
             }
+            best.push(RankedHit {
+                hit: SearchHit {
+                    score,
+                    entry: entry.clone(),
+                },
+                name_lower: name_lower.to_string(),
+            });
         };
         if let Some(ids) = candidates {
             for id in ids {
@@ -797,6 +801,39 @@ mod tests {
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].entry.name, "report.pdf");
         assert!(hits[0].score > 0);
+    }
+
+    /// 堆满后只保留 limit 条最优命中（同分按名称升序），覆盖「先比较后克隆」的剪枝路径。
+    #[test]
+    fn search_keeps_only_top_limited_hits() {
+        let store = IndexStore::new();
+        for (id, name) in ["file.txt", "file-1.txt", "file-2.txt", "my-file.txt"]
+            .iter()
+            .enumerate()
+        {
+            let path = format!("C:\\x\\{name}");
+            store.entries.insert(
+                path.clone(),
+                FileEntry {
+                    id: id as u64 + 1,
+                    name: (*name).into(),
+                    path,
+                    is_dir: false,
+                    size: 1,
+                    modified: 0,
+                    ext: Some("txt".into()),
+                    hidden: false,
+                    system: false,
+                },
+            );
+        }
+
+        let mut query = search_engine::parse_query("file");
+        query.limit = 2;
+        let hits = store.search(&query);
+        assert_eq!(hits.len(), 2, "应截断到 limit");
+        assert_eq!(hits[0].entry.name, "file.txt", "主干名命中评分最高");
+        assert_eq!(hits[1].entry.name, "file-1.txt", "同分按名称升序");
     }
 
     #[test]
