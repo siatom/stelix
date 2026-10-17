@@ -4,7 +4,7 @@ import { homeDir } from '@tauri-apps/api/path'
 import { api } from '../api'
 import type { DirListing, FileEntry, FsOp, FsOpResult, PaneState, RemoteLocation, SearchHit, TabState, ViewMode } from '../types'
 import { useUiStore } from './ui'
-import { basename, dirname } from '../components/Pane/utils'
+import { basename, dirname, joinPath } from '../components/Pane/utils'
 import { matchesTypeFilter } from '../searchFilters'
 import { normalizePath, setWatchSource } from '../shell/dirWatch'
 import { remoteDirname, resolveRemotePassword } from '../shell/remote'
@@ -164,6 +164,18 @@ function isPersistableTab(tab: TabState): boolean {
 interface HistoryEntry {
   stack: HistoryItem[]
   index: number
+}
+
+export interface FolderCreateFailure {
+  /** 用户输入的名称（已 trim） */
+  name: string
+  /** 可直接展示的失败原因 */
+  reason: string
+}
+
+export interface CreateFoldersResult {
+  created: string[]
+  failures: FolderCreateFailure[]
 }
 
 export const usePaneStore = defineStore('pane', () => {
@@ -990,8 +1002,12 @@ export const usePaneStore = defineStore('pane', () => {
 
   /** 由被拒绝的路径重建一个「只针对这些路径」的重试操作。 */
   function buildRetryOp(op: FsOp, denied: string[]): FsOp {
+    if (op.op === 'mkdir' && op.sources?.length) {
+      // 批量新建：sources 里每一项都是目标路径，只重试被拒绝的目标。
+      return { op: op.op, sources: denied }
+    }
     if (op.op === 'mkdir' || op.op === 'createFile') {
-      // 新建类没有 sources，失败路径就是 target。
+      // 单目标新建没有 sources，失败路径就是 target。
       return { op: op.op, target: denied[0] }
     }
     // 删除 / 重命名 / 移动 / 复制：沿用原 target，只把 sources 收窄为被拒绝项，
@@ -1004,8 +1020,14 @@ export const usePaneStore = defineStore('pane', () => {
    * 没有任何来源执行成功时返回 null。
    */
   function appliedSources(op: FsOp, denied: string[]): FsOp | null {
+    if (op.op === 'mkdir' && op.sources?.length) {
+      // 批量新建：sources 里每一项都是目标路径，剔除被拒绝的那部分。
+      const deniedSet = new Set(denied.map(normalizePath))
+      const sources = op.sources.filter((path) => !deniedSet.has(normalizePath(path)))
+      return sources.length ? { op: op.op, sources } : null
+    }
     if (op.op === 'mkdir' || op.op === 'createFile') {
-      // 新建类只有一个目标：它被拒绝就说明什么都没做。
+      // 单目标新建：目标被拒绝就说明什么都没做。
       return denied.length ? null : op
     }
     const deniedSet = new Set(denied.map(normalizePath))
@@ -1063,6 +1085,153 @@ export const usePaneStore = defineStore('pane', () => {
     }
     await refreshAfterOp(paneId, applied)
     return result
+  }
+
+  /** Windows 文件名不允许的字符（含控制字符）。 */
+  const INVALID_FOLDER_NAME_CHARS = /[\\/:*?"<>|\u0000-\u001f]/
+  /** Windows 保留设备名，带扩展名同样不可用（如 `CON.txt`）。 */
+  const RESERVED_FOLDER_NAMES = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i
+
+  /** 本地预检文件夹名，返回可展示的失败原因（后端仍会做最终校验）。 */
+  function folderNameError(name: string): string | null {
+    if (name.length > 255) return '名称过长（最多 255 个字符）'
+    if (name === '.' || name === '..') return '名称不能是 "." 或 ".."'
+    if (INVALID_FOLDER_NAME_CHARS.test(name)) return '名称不能包含 \\ / : * ? " < > | 等字符'
+    if (name.endsWith('.')) return '名称不能以句点结尾'
+    if (RESERVED_FOLDER_NAMES.test(name)) return '这是 Windows 保留名称'
+    return null
+  }
+
+  /** 把后端错误收敛为针对单个名称的原因（去掉完整路径，避免状态栏过长）。 */
+  function folderErrorReason(errors: string[], path: string, name: string): string {
+    const raw = errors.join('；')
+    if (raw.includes('已存在同名项')) return '已存在同名项'
+    if (raw.includes('目标路径为空')) return '名称为空'
+    const prefix = `新建目录失败 ${path}: `
+    const detail = raw.startsWith(prefix) ? raw.slice(prefix.length) : raw
+    return detail.split(path).join(name)
+  }
+
+  /** 状态栏里的失败摘要：逐条展示前几项，其余折叠为数量。 */
+  function failureSummary(failures: FolderCreateFailure[]): string {
+    const shown = failures
+      .slice(0, 2)
+      .map((item) => `${item.name}（${item.reason}）`)
+      .join('；')
+    return failures.length > 2 ? `${shown} 等 ${failures.length} 项` : shown
+  }
+
+  /**
+   * 批量新建文件夹（名称由调用方按换行拆好）。
+   *
+   * 逐项创建：单项失败不阻塞其余项，并精确记录失败名称与原因；成功的照常落盘。
+   * 若失败原因是权限不足，把被拒绝的目标合并成**一次**提权重试，避免连续弹多个 UAC。
+   */
+  async function createFolders(
+    paneId: string,
+    names: string[],
+  ): Promise<CreateFoldersResult> {
+    const created: string[] = []
+    const failures: FolderCreateFailure[] = []
+    const pane = paneById(paneId)
+    const tab = pane ? activeTabOf(pane) : undefined
+    if (!tab || tab.kind === 'remote' || tab.kind === 'search') {
+      return {
+        created,
+        failures: names.map((name) => ({ name, reason: '当前标签不支持新建文件夹' })),
+      }
+    }
+
+    const seen = new Set<string>()
+    const targets: { name: string; path: string }[] = []
+    for (const raw of names) {
+      const name = raw.trim()
+      if (!name) continue
+      const invalid = folderNameError(name)
+      if (invalid) {
+        failures.push({ name, reason: invalid })
+        continue
+      }
+      // Windows 文件名大小写不敏感：同一批里的 A / a 会落到同一个目录。
+      const key = name.toLowerCase()
+      if (seen.has(key)) {
+        failures.push({ name, reason: '名称重复' })
+        continue
+      }
+      seen.add(key)
+      targets.push({ name, path: joinPath(tab.path, name) })
+    }
+
+    // 全部被本地预检拦下（或只有空行）：没有可执行项。
+    if (!targets.length) {
+      if (failures.length) setStatus(`新建失败：${failureSummary(failures)}`)
+      return { created, failures }
+    }
+
+    // 逐项执行，把每个错误精确对应到名称；权限不足的目标留到提权阶段统一重试。
+    const denied: { name: string; path: string }[] = []
+    for (const item of targets) {
+      try {
+        const result = await api.fsOperation({ op: 'mkdir', target: item.path })
+        if (result.ok) {
+          created.push(item.name)
+        } else if (result.denied?.length) {
+          denied.push(item)
+        } else {
+          failures.push({
+            name: item.name,
+            reason: folderErrorReason(result.errors, item.path, item.name),
+          })
+        }
+      } catch (e) {
+        failures.push({ name: item.name, reason: `操作失败：${String(e)}` })
+      }
+    }
+
+    if (denied.length) {
+      setStatus('需要管理员权限，正在请求提权…')
+      try {
+        // 合并为一次提权：所有被拒绝的目标放在 sources 里，只弹一次 UAC。
+        const result = await api.fsOperationElevated({
+          op: 'mkdir',
+          sources: denied.map((item) => item.path),
+        })
+        if (result.ok) {
+          for (const item of denied) created.push(item.name)
+        } else {
+          const fallback = result.errors.join('；') || '提权后仍未创建'
+          for (const item of denied) {
+            const hit = result.errors.find((error) => error.includes(item.path))
+            failures.push({
+              name: item.name,
+              reason: hit
+                ? folderErrorReason([hit], item.path, item.name)
+                : fallback,
+            })
+          }
+        }
+      } catch (e) {
+        const message = String(e)
+        // 用户主动取消 UAC：不当作异常，但要让用户知道这些目录没有创建。
+        const reason = message.includes('取消')
+          ? '已取消提权（需要管理员权限）'
+          : `提权失败：${message}`
+        for (const item of denied) failures.push({ name: item.name, reason })
+      }
+    }
+
+    if (created.length) await refresh(paneId)
+
+    if (!failures.length) {
+      setStatus(`已创建 ${created.length} 个文件夹`)
+    } else if (!created.length) {
+      setStatus(`新建失败：${failureSummary(failures)}`)
+    } else {
+      setStatus(
+        `已创建 ${created.length} 个文件夹，${failures.length} 个失败：${failureSummary(failures)}`,
+      )
+    }
+    return { created, failures }
   }
 
   /** 把选中项（或指定项）复制到另一个窗格当前目录 */
@@ -1228,6 +1397,7 @@ export const usePaneStore = defineStore('pane', () => {
     clearSelection,
     setClipboard,
     runFs,
+    createFolders,
     copyToOtherPane,
     moveToOtherPane,
     showInOtherPane,

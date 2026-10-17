@@ -389,6 +389,8 @@ interface Editing {
 }
 
 const editing = ref<Editing | null>(null)
+/** 行内编辑会话序号：异步提交期间用户重新开始编辑 / 取消时，丢弃过期的回填。 */
+let editSeq = 0
 
 // 上报「正在行内编辑」的标签：store 在收到目录变更时会跳过该标签的自动刷新，避免打断输入。
 watch(
@@ -405,7 +407,9 @@ const rootRef = ref<HTMLElement | null>(null)
 
 function focusEdit(attempt = 0) {
   void nextTick(() => {
-    const el = rootRef.value?.querySelector<HTMLInputElement>('input.inline-edit')
+    const el = rootRef.value?.querySelector<HTMLInputElement | HTMLTextAreaElement>(
+      'input.inline-edit, textarea.inline-edit',
+    )
     const e = editing.value
     if (!el) {
       // 虚拟滚动下目标行可能尚未渲染，重试几帧
@@ -415,7 +419,41 @@ function focusEdit(attempt = 0) {
     if (!e) return
     el.focus()
     el.setSelectionRange(e.selStart, e.selEnd)
+    if (el instanceof HTMLTextAreaElement) autoGrowInline(el)
   })
+}
+
+/** 多行输入框随内容自动增高（上限 120px，超出后内部滚动）。 */
+function autoGrowInline(el: HTMLTextAreaElement) {
+  el.style.height = 'auto'
+  // scrollHeight 不含边框：补上上下各 1px 边框，避免多出 1 行滚动条。
+  el.style.height = `${Math.min(el.scrollHeight + 2, 120)}px`
+}
+
+function onInlineInput(ev: Event) {
+  const el = ev.target
+  if (el instanceof HTMLTextAreaElement) autoGrowInline(el)
+}
+
+/**
+ * 行内输入框键盘处理：Enter 提交、Esc 取消。
+ * 「新建文件夹」是多行输入（每行一个名称），用 Shift+Enter 插入换行。
+ */
+function onInlineKeydown(ev: KeyboardEvent) {
+  // 中文输入法正在组合时，Enter 用于确认候选词，不能当作「提交」。
+  if (ev.isComposing || ev.keyCode === 229) return
+  if (ev.key === 'Enter') {
+    if (ev.shiftKey && editing.value?.mode === 'mkdir') return
+    ev.preventDefault()
+    ev.stopPropagation()
+    void commitEdit(true)
+    return
+  }
+  if (ev.key === 'Escape') {
+    ev.preventDefault()
+    ev.stopPropagation()
+    cancelEdit()
+  }
 }
 
 /** 进入某条目的行内重命名 */
@@ -431,6 +469,7 @@ function startRename(path: string) {
     const dot = name.lastIndexOf('.')
     if (dot > 0) selEnd = dot // 文件：默认只选中主名（不含扩展名）
   }
+  editSeq += 1
   editing.value = { mode: 'rename', path, name, selStart: 0, selEnd }
   if (viewMode.value !== 'icons') {
     const idx = treeRows.value.findIndex((r) => r.entry.path === path)
@@ -440,13 +479,18 @@ function startRename(path: string) {
 }
 
 function cancelEdit() {
+  editSeq += 1
   editing.value = null
 }
 
 /** 进入「新建」行内编辑（文件夹 / 空文件），在当前目录创建 */
 function startCreate(kind: 'mkdir' | 'createFile') {
   if (!isLocal.value) return // 搜索结果 / 远程标签无本地目录语义
+  editSeq += 1
   editing.value = { mode: kind, name: '', selStart: 0, selEnd: 0 }
+  if (kind === 'mkdir') {
+    ui.setStatusText('新建文件夹：每行一个名称，Shift+Enter 换行，Enter 创建，Esc 取消')
+  }
   focusEdit()
 }
 
@@ -455,7 +499,7 @@ const editingCreate = computed(
   () => editing.value?.mode === 'mkdir' || editing.value?.mode === 'createFile',
 )
 
-async function commitEdit() {
+async function commitEdit(reopenFailed = false) {
   const e = editing.value
   if (!e) return
   // 新建类要落到「当前目录」，搜索结果没有目录语义；重命名作用于条目自身路径，本地标签都可用。
@@ -464,8 +508,29 @@ async function commitEdit() {
     editing.value = null
     return
   }
+  // 新建文件夹：一行一个名称，空行忽略。
+  const names =
+    e.mode === 'mkdir'
+      ? e.name.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
+      : []
   const name = e.name.trim()
+  editSeq += 1
+  const seq = editSeq
   editing.value = null // 先关闭，避免 Enter 与 blur 重复提交
+  if (e.mode === 'mkdir') {
+    if (!names.length) return
+    const result = await paneStore.createFolders(props.paneId, names)
+    if (reopenFailed && result.failures.length && editSeq === seq && !editing.value) {
+      // 回车提交失败时保留失败项，便于修正后直接重试（原因已由 store 汇总到状态栏）。
+      const failedNames = result.failures.map((item) => item.name).filter(Boolean)
+      if (failedNames.length) {
+        const text = failedNames.join('\n')
+        editing.value = { mode: 'mkdir', name: text, selStart: text.length, selEnd: text.length }
+        focusEdit()
+      }
+    }
+    return
+  }
   if (!name) return
   if (creating) {
     await paneStore.runFs(props.paneId, { op: e.mode, target: joinPath(props.tab.path, name) })
@@ -981,7 +1046,11 @@ function onDrop(ev: DragEvent) {
         </button>
       </div>
 
-      <div v-if="editingCreate && editing" class="inline-new" :class="{ file: editing.mode === 'createFile' }">
+      <div
+        v-if="editingCreate && editing"
+        class="inline-new"
+        :class="{ file: editing.mode === 'createFile', multi: editing.mode === 'mkdir' }"
+      >
         <span class="name-cell">
           <span class="twisty placeholder" />
           <span class="ico">
@@ -989,13 +1058,25 @@ function onDrop(ev: DragEvent) {
             <Icon v-else name="file" :size="18" />
           </span>
           <span class="nm">
+            <textarea
+              v-if="editing.mode === 'mkdir'"
+              v-model="editing.name"
+              class="inline-edit inline-edit-multi"
+              spellcheck="false"
+              rows="1"
+              placeholder="每行一个名称"
+              @keydown="onInlineKeydown"
+              @input="onInlineInput"
+              @blur="commitEdit()"
+              @click.stop
+            />
             <input
+              v-else
               v-model="editing.name"
               class="inline-edit"
               spellcheck="false"
-              @keydown.enter.stop.prevent="commitEdit"
-              @keydown.esc.stop.prevent="cancelEdit"
-              @blur="commitEdit"
+              @keydown="onInlineKeydown"
+              @blur="commitEdit()"
               @click.stop
             />
           </span>
@@ -1051,7 +1132,7 @@ function onDrop(ev: DragEvent) {
                   spellcheck="false"
                   @keydown.enter.stop.prevent="commitEdit"
                   @keydown.esc.stop.prevent="cancelEdit"
-                  @blur="commitEdit"
+                  @blur="commitEdit()"
                   @click.stop
                   @dblclick.stop
                 />
@@ -1079,13 +1160,25 @@ function onDrop(ev: DragEvent) {
           <Icon v-else name="file" :size="38" />
         </span>
         <span class="icon-name">
+          <textarea
+            v-if="editing.mode === 'mkdir'"
+            v-model="editing.name"
+            class="inline-edit inline-edit-multi"
+            spellcheck="false"
+            rows="1"
+            placeholder="每行一个名称"
+            @keydown="onInlineKeydown"
+            @input="onInlineInput"
+            @blur="commitEdit()"
+            @click.stop
+          />
           <input
+            v-else
             v-model="editing.name"
             class="inline-edit"
             spellcheck="false"
-            @keydown.enter.stop.prevent="commitEdit"
-            @keydown.esc.stop.prevent="cancelEdit"
-            @blur="commitEdit"
+            @keydown="onInlineKeydown"
+            @blur="commitEdit()"
             @click.stop
           />
         </span>
@@ -1118,7 +1211,7 @@ function onDrop(ev: DragEvent) {
               spellcheck="false"
               @keydown.enter.stop.prevent="commitEdit"
               @keydown.esc.stop.prevent="cancelEdit"
-              @blur="commitEdit"
+              @blur="commitEdit()"
               @click.stop
               @dblclick.stop
             />
@@ -1325,6 +1418,25 @@ function onDrop(ev: DragEvent) {
 .inline-new.file .ico {
   color: var(--ico-file);
 }
+.inline-new .nm {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+/* 多行新建（文件夹）：输入框随行数增高，行容器跟随内容 */
+.inline-new.multi {
+  height: auto;
+  min-height: var(--file-row-h);
+  align-items: start;
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+.inline-new.multi .name-cell {
+  align-items: start;
+}
+.inline-new.multi .ico,
+.inline-new.multi .twisty {
+  height: 20px;
+}
 
 /* 行内编辑输入框 */
 .inline-edit {
@@ -1338,6 +1450,30 @@ function onDrop(ev: DragEvent) {
   border: 1px solid var(--accent);
   border-radius: var(--radius-sm);
   outline: none;
+}
+/* 多行输入框：Shift+Enter 换行，高度由脚本按内容设置 */
+.inline-edit-multi {
+  display: block;
+  height: 20px;
+  min-height: 20px;
+  max-height: 120px;
+  padding: 1px 4px;
+  line-height: 16px;
+  resize: none;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+.icon-name .inline-edit {
+  display: block;
+  width: 100%;
+}
+/* 图标视图下多行新建：名称区跟随输入框增高，不再单行裁剪 */
+.icon-name:has(.inline-edit-multi) {
+  display: block;
+  width: 100%;
+  overflow: visible;
+  white-space: normal;
 }
 .row {
   position: absolute;
