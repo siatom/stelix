@@ -227,10 +227,7 @@ pub fn execute(op: &FsOp) -> FsOpResult {
                                 if is_access_denied(&e) {
                                     denied.push(t.to_string());
                                 }
-                                errors.push(format!(
-                                    "创建目标目录失败 {}: {e}",
-                                    parent.display()
-                                ));
+                                errors.push(format!("创建目标目录失败 {}: {e}", parent.display()));
                                 return FsOpResult {
                                     ok: false,
                                     errors,
@@ -396,9 +393,52 @@ fn is_access_denied(e: &std::io::Error) -> bool {
 
 // ---------------------------------------------------------------- 内部工具
 
+/// 词法规范化路径：解析掉 `.` 与 `..`，**不访问文件系统**（目标可不存在）。
+///
+/// 之所以需要它：`C:\Windows\..` 的组件是 `[Prefix, RootDir, Normal, ParentDir]`，
+/// 直接按组件判定会误认为「非根」而放行删除，从而递归清空整个卷。规范化后
+/// `C:\Windows\..` 归一为 `C:\`，可被正确拦截。`..` 不会越过卷根
+/// （`C:\Windows\..` → `C:\`），前缀 / 根 / 盘符原样保留。
+fn normalize(p: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    let mut has_root = false;
+    let mut depth = 0usize; // 根之后已压入的 Normal 组件数量
+    for comp in p.components() {
+        match comp {
+            Component::Prefix(prefix) => out.push(prefix.as_os_str()),
+            Component::RootDir => {
+                out.push(Component::RootDir.as_os_str());
+                has_root = true;
+                depth = 0;
+            }
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if depth > 0 {
+                    out.pop();
+                    depth -= 1;
+                } else if !has_root {
+                    // 相对路径开头的 `..` 无处可归，保留原样。
+                    out.push("..");
+                }
+            }
+            Component::Normal(seg) => {
+                out.push(seg);
+                depth += 1;
+            }
+        }
+    }
+    if out.as_os_str().is_empty() {
+        out.push(".");
+    }
+    out
+}
+
 /// 是否为驱动器根（`C:\` 或 `C:` 之类），这类路径禁止删除 / 移动 / 重命名。
+///
+/// 判定前先做词法规范化，避免 `C:\Windows\..` 这类路径绕过保护。
 fn is_drive_root(p: &Path) -> bool {
-    let comps: Vec<Component> = p.components().collect();
+    let norm = normalize(p);
+    let comps: Vec<Component> = norm.components().collect();
     match comps.as_slice() {
         [Component::Prefix(_)] => true,
         [Component::Prefix(_), Component::RootDir] => true,
@@ -407,15 +447,15 @@ fn is_drive_root(p: &Path) -> bool {
     }
 }
 
-/// `child` 是否位于 `ancestor` 之下（对两者做规范化，目标不存在时退回原路径）。
+/// `child` 是否位于 `ancestor` 之下（对两者做**词法**规范化后比较包含关系）。
+///
+/// 不用 `canonicalize`：调用点检查的是**尚未创建**的目标目录，canonicalize
+/// 失败退回原路径导致 `starts_with` 失配，进而放行「移动到自身子目录」并触发
+/// 无限递归。词法规范化对不存在的路径同样有效。
 fn is_subpath(child: &Path, ancestor: &Path) -> bool {
-    let c = canonical_or_self(child);
-    let a = canonical_or_self(ancestor);
+    let c = normalize(child);
+    let a = normalize(ancestor);
     c != a && c.starts_with(&a)
-}
-
-fn canonical_or_self(p: &Path) -> PathBuf {
-    p.canonicalize().unwrap_or_else(|_| p.to_path_buf())
 }
 
 /// 计算目标路径；若同名已存在则自动改为 `name (1).ext` / `name (1)`。
@@ -565,9 +605,62 @@ mod tests {
             target: None,
         });
         let json = serde_json::to_string(&res).unwrap();
-        assert!(json.contains("\"denied\""), "序列化结果应含 denied 字段: {json}");
+        assert!(
+            json.contains("\"denied\""),
+            "序列化结果应含 denied 字段: {json}"
+        );
         // 普通失败（源路径为空）不进入 denied。
         assert!(!res.ok);
         assert!(res.denied.is_empty());
+    }
+
+    /// BUG A：`C:\Windows\..` 归一后即为驱动器根，必须被拦截；
+    /// 普通目录不能被误判为根。
+    #[cfg(windows)]
+    #[test]
+    fn drive_root_detection_resolves_parent_dir() {
+        assert!(is_drive_root(Path::new(r"C:\")));
+        assert!(is_drive_root(Path::new(r"C:")));
+        assert!(is_drive_root(Path::new(r"C:\Windows\..")));
+        assert!(is_drive_root(Path::new(r"C:\Windows\System32\..\..")));
+        // 普通目录（含解析 `..` 后仍非根的路径）不应被误判。
+        assert!(!is_drive_root(Path::new(r"C:\Windows")));
+        assert!(!is_drive_root(Path::new(r"C:\Windows\..\Users")));
+    }
+
+    /// BUG B：目标（`C:\a\b\c`）尚不存在时也要判定为子路径；
+    /// 同级 / 无关 / 前缀相似的路径不能误判。
+    #[cfg(windows)]
+    #[test]
+    fn subpath_detects_nonexistent_target() {
+        assert!(is_subpath(Path::new(r"C:\a\b\c"), Path::new(r"C:\a")));
+        assert!(is_subpath(Path::new(r"C:\a\b\c\..\d"), Path::new(r"C:\a")));
+        // 自身不算子路径。
+        assert!(!is_subpath(Path::new(r"C:\a"), Path::new(r"C:\a")));
+        // 同级 / 无关 / 前缀相似（C:\ab 与 C:\a）不误判。
+        assert!(!is_subpath(Path::new(r"C:\a\c"), Path::new(r"C:\a\b")));
+        assert!(!is_subpath(Path::new(r"C:\other"), Path::new(r"C:\a")));
+        assert!(!is_subpath(Path::new(r"C:\ab"), Path::new(r"C:\a")));
+    }
+
+    /// BUG B（端到端）：目标目录尚不存在时，Copy 到自身子目录必须被拒绝，
+    /// 且不得创建出该目标目录（否则会无限递归拷贝）。
+    #[test]
+    fn copy_into_own_nonexistent_subdir_is_rejected() {
+        let dir = temp_dir("copy-self-subdir");
+        let src = dir.join("a");
+        fs::create_dir_all(&src).unwrap();
+        let target = src.join("b").join("c"); // 检查时该目录尚不存在
+        let mut o = op(FsOpKind::Copy, &target);
+        o.sources = vec![src.to_string_lossy().to_string()];
+        let res = execute(&o);
+        assert!(!res.ok, "应拒绝把目录复制到自身子目录: {:?}", res.errors);
+        assert!(
+            res.errors.iter().any(|e| e.contains("自身子目录")),
+            "{:?}",
+            res.errors
+        );
+        assert!(!target.exists(), "被拒绝的目标目录不应被创建");
+        let _ = fs::remove_dir_all(&dir);
     }
 }
