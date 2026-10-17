@@ -22,6 +22,8 @@ pub const TASK_UPDATED_EVENT: &str = "task:updated";
 const POLL_INTERVAL: Duration = Duration::from_secs(20);
 /// 预演最多返回的样例条数。
 const PREVIEW_SAMPLE_LIMIT: usize = 20;
+/// 间隔分钟数上界（一年），避免超大间隔导致下次触发时间溢出或实际上永不到达。
+const MAX_INTERVAL_MINUTES: u64 = 525_600;
 
 /// 当前 Unix 毫秒时间戳。
 pub fn now_ms() -> i64 {
@@ -184,15 +186,19 @@ impl Default for ScheduleService {
 
 // ================================================================ 校验
 
+/// 是否存在**真正起约束作用**的筛选条件。
+///
+/// 仅 `Some(0)` / `Some(u64::MAX)` / 空串等退化的「空约束」不算数，否则
+/// 「至少一个筛选条件」这条防误删护栏会被绕过（例如 `minAgeDays: 0` 会匹配全部文件）。
 fn has_any_filter(filters: &TaskFilters) -> bool {
-    !filters.extensions.is_empty()
+    filters.extensions.iter().any(|e| !e.trim().is_empty())
         || filters
             .name_contains
             .as_deref()
             .is_some_and(|s| !s.trim().is_empty())
-        || filters.min_age_days.is_some()
-        || filters.min_size_bytes.is_some()
-        || filters.max_size_bytes.is_some()
+        || filters.min_age_days.is_some_and(|days| days > 0)
+        || filters.min_size_bytes.is_some_and(|bytes| bytes > 0)
+        || filters.max_size_bytes.is_some_and(|bytes| bytes < u64::MAX)
 }
 
 fn validate(task: &ScheduledTask) -> Result<(), String> {
@@ -223,13 +229,42 @@ fn validate(task: &ScheduledTask) -> Result<(), String> {
         );
     }
     match task.schedule.kind.as_str() {
-        "interval" => {
-            if task.schedule.interval_minutes.unwrap_or(0) == 0 {
-                return Err("间隔分钟数必须大于 0".into());
+        "interval" => match task.schedule.interval_minutes {
+            Some(minutes) if (1..=MAX_INTERVAL_MINUTES).contains(&minutes) => {}
+            Some(_) => {
+                return Err(format!("间隔分钟数需在 1-{MAX_INTERVAL_MINUTES} 之间"));
+            }
+            None => return Err("间隔分钟数必须大于 0".into()),
+        },
+        "daily" => validate_clock(&task.schedule)?,
+        "weekly" => {
+            validate_clock(&task.schedule)?;
+            if task.schedule.weekday.is_some_and(|w| w > 6) {
+                return Err("星期需在 0（周日）到 6（周六）之间".into());
             }
         }
-        "daily" | "weekly" | "monthly" => {}
+        "monthly" => {
+            validate_clock(&task.schedule)?;
+            if task
+                .schedule
+                .day_of_month
+                .is_some_and(|d| !(1..=28).contains(&d))
+            {
+                return Err("每月日期需在 1 到 28 之间".into());
+            }
+        }
         other => return Err(format!("不支持的触发类型：{other}")),
+    }
+    Ok(())
+}
+
+/// 校验小时 / 分钟取值范围，避免非法时间导致 `compute_next_run` 静默返回 `None`。
+fn validate_clock(schedule: &TaskSchedule) -> Result<(), String> {
+    if schedule.hour.is_some_and(|h| h > 23) {
+        return Err("小时需在 0 到 23 之间".into());
+    }
+    if schedule.minute.is_some_and(|m| m > 59) {
+        return Err("分钟需在 0 到 59 之间".into());
     }
     Ok(())
 }
@@ -241,7 +276,8 @@ fn compute_next_run(schedule: &TaskSchedule, from_ms: i64) -> Option<i64> {
     match schedule.kind.as_str() {
         "interval" => {
             let minutes = schedule.interval_minutes.unwrap_or(60).max(1);
-            Some(from_ms + minutes as i64 * 60_000)
+            let delta = i64::try_from(minutes).ok()?.checked_mul(60_000)?;
+            from_ms.checked_add(delta)
         }
         "daily" => next_occurrence(
             from,
@@ -486,6 +522,25 @@ mod tests {
         }
     }
 
+    fn daily_schedule() -> TaskSchedule {
+        TaskSchedule {
+            kind: "daily".into(),
+            hour: Some(1),
+            minute: Some(0),
+            ..Default::default()
+        }
+    }
+
+    fn delete_action(filters: TaskFilters) -> TaskAction {
+        TaskAction {
+            kind: "delete".into(),
+            root: "D:\\tmp".into(),
+            recursive: true,
+            move_target: None,
+            filters,
+        }
+    }
+
     #[test]
     fn interval_adds_minutes() {
         let schedule = TaskSchedule {
@@ -508,10 +563,10 @@ mod tests {
             minute: Some(0),
             ..Default::default()
         };
-        let next =
-            Local.timestamp_millis_opt(compute_next_run(&schedule, from.timestamp_millis()).unwrap())
-                .earliest()
-                .unwrap();
+        let next = Local
+            .timestamp_millis_opt(compute_next_run(&schedule, from.timestamp_millis()).unwrap())
+            .earliest()
+            .unwrap();
         assert_eq!(
             next.date_naive(),
             chrono::NaiveDate::from_ymd_opt(2026, 1, 2).unwrap()
@@ -530,10 +585,10 @@ mod tests {
             weekday: Some(1),
             ..Default::default()
         };
-        let next =
-            Local.timestamp_millis_opt(compute_next_run(&schedule, from.timestamp_millis()).unwrap())
-                .earliest()
-                .unwrap();
+        let next = Local
+            .timestamp_millis_opt(compute_next_run(&schedule, from.timestamp_millis()).unwrap())
+            .earliest()
+            .unwrap();
         assert_eq!(next.weekday().num_days_from_sunday(), 1);
         assert_eq!(next.hour(), 8);
     }
@@ -579,6 +634,181 @@ mod tests {
             },
         );
         assert!(validate(&task).is_ok());
+    }
+
+    #[test]
+    fn validate_rejects_degenerate_filters() {
+        // 退化筛选（0 / u64::MAX / 空串）实际不约束任何文件，必须被拒绝，否则护栏形同虚设。
+        let cases = [
+            TaskFilters {
+                min_age_days: Some(0),
+                ..Default::default()
+            },
+            TaskFilters {
+                min_size_bytes: Some(0),
+                ..Default::default()
+            },
+            TaskFilters {
+                max_size_bytes: Some(u64::MAX),
+                ..Default::default()
+            },
+            TaskFilters {
+                extensions: vec![String::new(), "  ".into()],
+                ..Default::default()
+            },
+        ];
+        for filters in cases {
+            let task = task_with(daily_schedule(), delete_action(filters.clone()));
+            assert!(validate(&task).is_err(), "退化筛选应被拒绝：{filters:?}");
+        }
+    }
+
+    #[test]
+    fn validate_accepts_effective_filters() {
+        let cases = [
+            TaskFilters {
+                min_age_days: Some(1),
+                ..Default::default()
+            },
+            TaskFilters {
+                min_size_bytes: Some(1),
+                ..Default::default()
+            },
+            TaskFilters {
+                max_size_bytes: Some(u64::MAX - 1),
+                ..Default::default()
+            },
+            TaskFilters {
+                name_contains: Some("log".into()),
+                ..Default::default()
+            },
+        ];
+        for filters in cases {
+            let task = task_with(daily_schedule(), delete_action(filters.clone()));
+            assert!(validate(&task).is_ok(), "有效筛选应通过：{filters:?}");
+        }
+    }
+
+    #[test]
+    fn validate_rejects_out_of_range_schedule() {
+        let action = delete_action(TaskFilters {
+            extensions: vec!["tmp".into()],
+            ..Default::default()
+        });
+        let cases = [
+            TaskSchedule {
+                kind: "interval".into(),
+                interval_minutes: None,
+                ..Default::default()
+            },
+            TaskSchedule {
+                kind: "interval".into(),
+                interval_minutes: Some(0),
+                ..Default::default()
+            },
+            TaskSchedule {
+                kind: "interval".into(),
+                interval_minutes: Some(MAX_INTERVAL_MINUTES + 1),
+                ..Default::default()
+            },
+            TaskSchedule {
+                kind: "daily".into(),
+                hour: Some(25),
+                minute: Some(0),
+                ..Default::default()
+            },
+            TaskSchedule {
+                kind: "daily".into(),
+                hour: Some(9),
+                minute: Some(99),
+                ..Default::default()
+            },
+            TaskSchedule {
+                kind: "weekly".into(),
+                weekday: Some(7),
+                ..Default::default()
+            },
+            TaskSchedule {
+                kind: "monthly".into(),
+                day_of_month: Some(0),
+                ..Default::default()
+            },
+            TaskSchedule {
+                kind: "monthly".into(),
+                day_of_month: Some(32),
+                ..Default::default()
+            },
+        ];
+        for schedule in cases {
+            let task = task_with(schedule.clone(), action.clone());
+            assert!(
+                validate(&task).is_err(),
+                "非法触发时间应被拒绝：{schedule:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn validate_accepts_boundary_schedule() {
+        let action = delete_action(TaskFilters {
+            extensions: vec!["tmp".into()],
+            ..Default::default()
+        });
+        let cases = [
+            TaskSchedule {
+                kind: "interval".into(),
+                interval_minutes: Some(MAX_INTERVAL_MINUTES),
+                ..Default::default()
+            },
+            TaskSchedule {
+                kind: "daily".into(),
+                hour: Some(23),
+                minute: Some(59),
+                ..Default::default()
+            },
+            TaskSchedule {
+                kind: "weekly".into(),
+                hour: Some(0),
+                minute: Some(0),
+                weekday: Some(6),
+                ..Default::default()
+            },
+            TaskSchedule {
+                kind: "monthly".into(),
+                day_of_month: Some(28),
+                ..Default::default()
+            },
+        ];
+        for schedule in cases {
+            let task = task_with(schedule.clone(), action.clone());
+            assert!(validate(&task).is_ok(), "边界值应通过：{schedule:?}");
+        }
+    }
+
+    #[test]
+    fn compute_next_run_interval_overflow_returns_none() {
+        // u64 超出 i64 表示范围：必须返回 None，而不是 panic / 回绕。
+        let too_large = TaskSchedule {
+            kind: "interval".into(),
+            interval_minutes: Some(u64::MAX),
+            ..Default::default()
+        };
+        assert_eq!(compute_next_run(&too_large, 1_000_000), None);
+
+        // 可转换为 i64 但乘法溢出：同样必须返回 None。
+        let overflowing = TaskSchedule {
+            kind: "interval".into(),
+            interval_minutes: Some(1_000_000_000_000_000),
+            ..Default::default()
+        };
+        assert_eq!(compute_next_run(&overflowing, 1_000_000), None);
+
+        let near_max = TaskSchedule {
+            kind: "interval".into(),
+            interval_minutes: Some(MAX_INTERVAL_MINUTES),
+            ..Default::default()
+        };
+        assert!(compute_next_run(&near_max, 1_000_000).is_some());
     }
 
     #[test]
