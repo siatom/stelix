@@ -31,6 +31,7 @@ const FILE_SHARE_WRITE: u32 = 2;
 const OPEN_EXISTING: u32 = 3;
 const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
 const GENERIC_READ: u32 = 0x8000_0000;
+const FILE_READ_ATTRIBUTES: u32 = 0x80;
 const INVALID_HANDLE_VALUE: isize = -1;
 const BUFFER_SIZE: usize = 1024 * 1024;
 const FILETIME_UNIX_EPOCH: u64 = 116_444_736_000_000_000;
@@ -62,6 +63,7 @@ struct MftEnumData {
 }
 
 #[repr(C)]
+#[derive(Default)]
 struct ByHandleFileInformation {
     attributes: u32,
     creation_time: [u32; 2],
@@ -381,7 +383,12 @@ fn watch_volume(
 pub(super) fn capture_journals(roots: &[String]) -> Option<Vec<IndexJournal>> {
     let mut checkpoints = Vec::new();
     for root in roots {
-        let volume = volume_root(root)?;
+        // A root without a volume journal (UNC share, POSIX path, ...) only
+        // skips itself; aborting here would disable cache persistence for every
+        // other root for the whole session.
+        let Some(volume) = volume_root(root) else {
+            continue;
+        };
         if checkpoints
             .iter()
             .any(|checkpoint: &IndexJournal| checkpoint.volume.eq_ignore_ascii_case(&volume))
@@ -410,7 +417,9 @@ pub(super) fn resume_journals(
     let mut updated = Vec::new();
     let mut changes = Vec::new();
     for root in roots {
-        let volume = volume_root(root)?;
+        let Some(volume) = volume_root(root) else {
+            continue;
+        };
         if updated
             .iter()
             .any(|checkpoint: &IndexJournal| checkpoint.volume.eq_ignore_ascii_case(&volume))
@@ -433,7 +442,12 @@ pub(super) fn resume_journals(
             }
             continue;
         };
-        let (journal_id, first_usn, next_usn) = query_journal(&volume)?;
+        // A journal that cannot be queried right now only disables replay for
+        // this root. Returning `None` here would discard the cached index and
+        // force a full MFT rebuild on every launch.
+        let Some((journal_id, first_usn, next_usn)) = query_journal(&volume) else {
+            continue;
+        };
         if journal_id != saved.journal_id || saved.next_usn < first_usn || saved.next_usn > next_usn
         {
             return None;
@@ -698,6 +712,39 @@ fn path_for_file_id(volume: &str, file_id: u64) -> Option<String> {
     Some(result)
 }
 
+/// Resolve a file's logical size from the volume handle by file reference.
+/// Mirrors [`path_for_file_id`] but only asks for attributes, which succeeds on
+/// files whose data the user cannot read.
+fn file_size_by_reference(volume_handle: isize, file_id: u64) -> Option<u64> {
+    if volume_handle == INVALID_HANDLE_VALUE {
+        return None;
+    }
+    let descriptor = FileIdDescriptor {
+        size: std::mem::size_of::<FileIdDescriptor>() as u32,
+        kind: 0,
+        id: [file_id, 0],
+    };
+    let file = unsafe {
+        OpenFileById(
+            volume_handle,
+            &descriptor,
+            FILE_READ_ATTRIBUTES,
+            FILE_SHARE_READ | FILE_SHARE_WRITE,
+            std::ptr::null(),
+            0,
+        )
+    };
+    if file == INVALID_HANDLE_VALUE {
+        return None;
+    }
+    let mut info = ByHandleFileInformation::default();
+    let ok = unsafe { GetFileInformationByHandle(file, &mut info) } != 0;
+    unsafe {
+        CloseHandle(file);
+    }
+    ok.then_some(((info.file_size_high as u64) << 32) | info.file_size_low as u64)
+}
+
 #[derive(Default)]
 pub(super) struct MftOrWalkSource;
 
@@ -726,7 +773,6 @@ struct Record {
     reference: u64,
     parent: u64,
     name: String,
-    size: u64,
     modified: i64,
     attributes: u32,
 }
@@ -819,7 +865,6 @@ fn scan_ntfs_roots(roots: &[String], on_batch: &mut dyn FnMut(Vec<FileEntry>)) -
                             reference,
                             parent,
                             name,
-                            size: 0,
                             modified: if filetime >= FILETIME_UNIX_EPOCH {
                                 ((filetime - FILETIME_UNIX_EPOCH) / 10_000) as i64
                             } else {
@@ -836,17 +881,20 @@ fn scan_ntfs_roots(roots: &[String], on_batch: &mut dyn FnMut(Vec<FileEntry>)) -
             break;
         }
     }
-    unsafe {
-        CloseHandle(handle);
-    }
     let enumeration_elapsed = enumeration_started.elapsed();
     if !ok || records.is_empty() {
+        unsafe {
+            CloseHandle(handle);
+        }
         return false;
     }
 
+    // The volume handle stays open so sizes can be resolved by file reference
+    // for the entries that actually enter the index.
     let path_build_started = Instant::now();
     let record_count = records.len();
     let mut batch = Vec::with_capacity(2000);
+    let mut size_lookup = Duration::ZERO;
     let mut root_refs = Vec::new();
     let mut unresolved_roots = Vec::new();
     for root in roots {
@@ -884,7 +932,7 @@ fn scan_ntfs_roots(roots: &[String], on_batch: &mut dyn FnMut(Vec<FileEntry>)) -
                     if record.attributes & FILE_ATTRIBUTE_DIRECTORY != 0 {
                         stack.push((child_id, path.clone()));
                     }
-                    append_record(record, path, &mut batch, on_batch);
+                    append_record(record, path, handle, &mut size_lookup, &mut batch, on_batch);
                 }
             }
         }
@@ -899,7 +947,7 @@ fn scan_ntfs_roots(roots: &[String], on_batch: &mut dyn FnMut(Vec<FileEntry>)) -
                     .iter()
                     .any(|root| is_below_root(&path, root))
                 {
-                    append_record(record, path, &mut batch, on_batch);
+                    append_record(record, path, handle, &mut size_lookup, &mut batch, on_batch);
                 }
             }
         }
@@ -912,18 +960,22 @@ fn scan_ntfs_roots(roots: &[String], on_batch: &mut dyn FnMut(Vec<FileEntry>)) -
                 continue;
             };
             if roots.iter().any(|root| is_below_root(&path, root)) {
-                append_record(record, path, &mut batch, on_batch);
+                append_record(record, path, handle, &mut size_lookup, &mut batch, on_batch);
             }
         }
     }
     if !batch.is_empty() {
         on_batch(batch);
     }
+    unsafe {
+        CloseHandle(handle);
+    }
     eprintln!(
-        "[index-perf] mft_records={} enumerate_ms={} path_build_ms={}",
+        "[index-perf] mft_records={} enumerate_ms={} path_build_ms={} size_lookup_ms={}",
         record_count,
         enumeration_elapsed.as_millis(),
-        path_build_started.elapsed().as_millis()
+        path_build_started.elapsed().as_millis(),
+        size_lookup.as_millis()
     );
     true
 }
@@ -931,10 +983,24 @@ fn scan_ntfs_roots(roots: &[String], on_batch: &mut dyn FnMut(Vec<FileEntry>)) -
 fn append_record(
     record: &Record,
     path: String,
+    volume_handle: isize,
+    size_lookup: &mut Duration,
     batch: &mut Vec<FileEntry>,
     on_batch: &mut dyn FnMut(Vec<FileEntry>),
 ) {
     let is_dir = record.attributes & FILE_ATTRIBUTE_DIRECTORY != 0;
+    // USN_RECORD carries no file size, so resolve it only for files that are
+    // actually indexed. A failed lookup must not abort the scan.
+    let size = if is_dir {
+        0
+    } else {
+        let started = Instant::now();
+        let size = file_size_by_reference(volume_handle, record.reference)
+            .or_else(|| std::fs::metadata(&path).ok().map(|metadata| metadata.len()))
+            .unwrap_or(0);
+        *size_lookup += started.elapsed();
+        size
+    };
     let ext = if is_dir {
         None
     } else {
@@ -947,7 +1013,7 @@ fn append_record(
         name: record.name.clone(),
         path,
         is_dir,
-        size: record.size,
+        size,
         modified: record.modified,
         ext,
         hidden: record.attributes & FILE_ATTRIBUTE_HIDDEN != 0,
@@ -1093,4 +1159,135 @@ fn bytemuck_u16(bytes: &[u8]) -> &[u16] {
 #[link(name = "kernel32")]
 unsafe extern "system" {
     fn GetLastError() -> u32;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::path::PathBuf;
+
+    // These tests exercise Windows-only code paths; the module itself is only
+    // compiled on Windows (see index_engine::mod), so `C:\`-style paths hold.
+    fn temp_path(tag: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "stelix-mft-{}-{}-{}",
+            tag,
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ))
+    }
+
+    #[test]
+    fn capture_journals_skips_roots_without_a_volume() {
+        let roots = vec!["\\\\server\\share".to_string(), "/mnt/data".to_string()];
+        let checkpoints = capture_journals(&roots);
+        assert_eq!(
+            checkpoints.as_ref().map(|items| items.len()),
+            Some(0),
+            "非盘符根应被跳过，而不是让整个捕获返回 None"
+        );
+    }
+
+    #[test]
+    fn resume_journals_skips_roots_without_a_volume() {
+        let roots = vec!["\\\\server\\share".to_string(), "relative\\dir".to_string()];
+        let entries = DashMap::new();
+        let updated = resume_journals(&roots, &[], &entries, false);
+        assert_eq!(
+            updated.as_ref().map(|items| items.len()),
+            Some(0),
+            "非盘符根应被跳过，而不是让整个恢复返回 None"
+        );
+    }
+
+    #[test]
+    fn append_record_reads_size_from_filesystem_fallback() {
+        let base = temp_path("size");
+        fs::create_dir_all(&base).unwrap();
+        let file = base.join("data.bin");
+        fs::write(&file, vec![7u8; 4321]).unwrap();
+
+        let record = Record {
+            reference: 42,
+            parent: 5,
+            name: "data.bin".to_string(),
+            modified: 0,
+            attributes: 0,
+        };
+        let mut batch = Vec::new();
+        let mut size_lookup = Duration::ZERO;
+        append_record(
+            &record,
+            file.to_string_lossy().to_string(),
+            INVALID_HANDLE_VALUE,
+            &mut size_lookup,
+            &mut batch,
+            &mut |_batch: Vec<FileEntry>| {},
+        );
+
+        assert_eq!(batch.len(), 1);
+        assert!(!batch[0].is_dir);
+        assert_eq!(batch[0].size, 4321, "文件大小应回填为真实大小");
+
+        fs::remove_dir_all(&base).ok();
+    }
+
+    #[test]
+    fn append_record_keeps_directory_size_zero() {
+        let base = temp_path("dir-size");
+        fs::create_dir_all(&base).unwrap();
+
+        let record = Record {
+            reference: 43,
+            parent: 5,
+            name: "dir-size".to_string(),
+            modified: 0,
+            attributes: FILE_ATTRIBUTE_DIRECTORY,
+        };
+        let mut batch = Vec::new();
+        let mut size_lookup = Duration::ZERO;
+        append_record(
+            &record,
+            base.to_string_lossy().to_string(),
+            INVALID_HANDLE_VALUE,
+            &mut size_lookup,
+            &mut batch,
+            &mut |_batch: Vec<FileEntry>| {},
+        );
+
+        assert_eq!(batch.len(), 1);
+        assert!(batch[0].is_dir);
+        assert_eq!(batch[0].size, 0, "目录大小固定为 0");
+
+        fs::remove_dir_all(&base).ok();
+    }
+
+    #[test]
+    fn append_record_uses_zero_when_size_is_unavailable() {
+        let path = temp_path("missing");
+        let record = Record {
+            reference: 44,
+            parent: 5,
+            name: "missing.bin".to_string(),
+            modified: 0,
+            attributes: 0,
+        };
+        let mut batch = Vec::new();
+        let mut size_lookup = Duration::ZERO;
+        append_record(
+            &record,
+            path.to_string_lossy().to_string(),
+            INVALID_HANDLE_VALUE,
+            &mut size_lookup,
+            &mut batch,
+            &mut |_batch: Vec<FileEntry>| {},
+        );
+
+        assert_eq!(batch.len(), 1);
+        assert_eq!(batch[0].size, 0, "查询失败时回退为 0，不影响整次扫描");
+    }
 }
