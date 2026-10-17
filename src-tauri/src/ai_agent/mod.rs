@@ -1610,7 +1610,8 @@ fn offline_plan_task(prompt: &str, context: &AiContext) -> TaskPlanReply {
     };
 
     let extensions = detect_task_exts(&lower);
-    let min_age_days = extract_days(&lower);
+    // 收敛退化约束：「0 天前」不构成任何筛选，按「未提供」处理，交给下方护栏拒绝。
+    let min_age_days = extract_days(&lower).filter(|days| *days > 0);
     if extensions.is_empty() && min_age_days.is_none() {
         return TaskPlanReply {
             text: "请补充筛选条件（扩展名，或「超过 N 天」），例如：清理 D:\\下载 里超过 30 天的 .tmp 文件。"
@@ -2185,6 +2186,13 @@ mod tests {
     #[test]
     fn offline_plan_task_requires_filter() {
         let reply = offline_plan_task("每天清理文件", &ctx("C:\\"));
+        assert!(reply.draft.is_none());
+    }
+
+    #[test]
+    fn offline_plan_task_rejects_zero_day_filter() {
+        // 「0 天前」不是有效约束，不能生成 min_age_days = Some(0) 的空约束任务。
+        let reply = offline_plan_task("每天 9:00 清理 D:\\下载 里 0 天前的文件", &ctx("C:\\"));
         assert!(reply.draft.is_none());
     }
 }
