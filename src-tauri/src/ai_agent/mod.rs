@@ -190,6 +190,47 @@ fn is_write_tool(name: &str) -> bool {
     )
 }
 
+/// 一轮工具调用中待用户确认的写操作。
+struct PendingWrite {
+    op: FsOp,
+    call: AiToolCall,
+    desc: String,
+}
+
+/// 收集待确认的写操作。
+///
+/// `AiReply::pending_confirm` 只能承载一个操作，因此整轮只保留**第一个**写工具，
+/// 其余写工具逐条回灌 tool 消息说明原因：既不静默丢弃，也保证每个 tool_call
+/// 都有对应响应，模型可在下一轮单独发起。
+fn stash_pending_write(
+    pending: &mut Option<PendingWrite>,
+    call: &AiToolCall,
+    messages: &mut Vec<Value>,
+) {
+    if pending.is_some() {
+        messages.push(json!({
+            "role": "tool",
+            "tool_call_id": call.id,
+            "content": "一次只能确认一个写操作，请在下一轮单独发起"
+        }));
+        return;
+    }
+    match build_fs_op(call) {
+        Ok((op, desc)) => {
+            *pending = Some(PendingWrite {
+                op,
+                call: call.clone(),
+                desc,
+            });
+        }
+        Err(e) => messages.push(json!({
+            "role": "tool",
+            "tool_call_id": call.id,
+            "content": format!("构造操作失败：{e}")
+        })),
+    }
+}
+
 /// 注入给模型的 system prompt。
 fn system_prompt(context: &AiContext) -> String {
     let active = context
@@ -379,9 +420,7 @@ async fn chat_llm(
         // 把 assistant 的 tool_calls 消息回灌，随后逐条追加 tool 结果。
         api_messages.push(msg.clone());
 
-        let mut pending: Option<FsOp> = None;
-        let mut pending_call: Option<AiToolCall> = None;
-        let mut pending_desc = String::new();
+        let mut pending: Option<PendingWrite> = None;
 
         for tc in &tool_calls {
             if cancel.load(Ordering::Relaxed) {
@@ -431,20 +470,8 @@ async fn chat_llm(
             );
 
             if is_write_tool(&name) {
-                match build_fs_op(&call) {
-                    Ok((op, desc)) => {
-                        // 写操作：不执行，构造 pending_confirm。
-                        pending = Some(op);
-                        pending_call = Some(call.clone());
-                        pending_desc = desc;
-                    }
-                    Err(e) => {
-                        api_messages.push(json!({
-                            "role": "tool", "tool_call_id": id,
-                            "content": format!("构造操作失败：{e}")
-                        }));
-                    }
-                }
+                // 写操作：不执行，整轮只保留第一个待确认项，其余逐条回灌说明。
+                stash_pending_write(&mut pending, &call, &mut api_messages);
             } else {
                 // 只读工具：就地执行并回灌结果。
                 let result = match execute_tool(&call, true, index) {
@@ -457,17 +484,17 @@ async fn chat_llm(
             }
         }
 
-        if let Some(op) = pending {
+        if let Some(p) = pending {
             let head = if last_text.is_empty() {
                 "好的，我来处理。".to_string()
             } else {
                 last_text.clone()
             };
-            let text = format!("{head}\n\n我将执行以下操作，请确认后执行：\n{pending_desc}");
+            let text = format!("{head}\n\n我将执行以下操作，请确认后执行：\n{}", p.desc);
             return Ok(AiReply {
                 text,
-                tool_calls: pending_call.into_iter().collect(),
-                pending_confirm: Some(op),
+                tool_calls: vec![p.call],
+                pending_confirm: Some(p.op),
                 interrupted: false,
                 usage: got_usage.then_some(usage),
             });
@@ -1207,10 +1234,13 @@ fn search_files_offline(context: &AiContext, index: &IndexStore, text: &str) -> 
 
 // ---------------------------------------------------------------- 检索与格式化
 
-/// 优先走索引；索引为空时直接遍历 scope 目录兜底（保证离线演示可用）。
+/// 优先走索引；索引尚未建立时直接遍历 scope 目录兜底（保证离线演示可用）。
+///
+/// 判断依据是索引状态（条目总数），不是「本次查询为空」：索引已就绪时，
+/// 空结果就是合法结果（目标确实不存在），不应为此触发整盘/整目录遍历。
 fn search_with_fallback(index: &IndexStore, query: &SearchQuery) -> Vec<SearchHit> {
     let hits = index.search(query);
-    if !hits.is_empty() {
+    if index.status().total > 0 {
         return hits;
     }
     let scope = query
@@ -1335,15 +1365,33 @@ fn extract_number(s: &str) -> Option<usize> {
     cur.parse().ok()
 }
 
+/// 大小写不敏感地判断 `s` 是否以 `kw` 开头，返回匹配消耗的**原始串字节数**。
+///
+/// 逐字符小写化比较，长度取自原始字符的 `len_utf8()`，因此结果永远落在字符边界上
+/// （不能用小写串的偏移去切原始串：U+212A、U+0130 等会改变 UTF-8 字节长度）。
+fn strip_ci_prefix(s: &str, kw: &str) -> Option<usize> {
+    let mut chars = s.chars();
+    let mut used = 0usize;
+    for want in kw.to_lowercase().chars() {
+        let ch = chars.next()?;
+        if ch.to_lowercase().next()? != want {
+            return None;
+        }
+        used += ch.len_utf8();
+    }
+    Some(used)
+}
+
 /// 在 `s` 中查找任一关键词（大小写不敏感），返回关键词之后的剩余部分。
 fn strip_any<'a>(s: &'a str, kws: &[&str]) -> Option<&'a str> {
-    let ls = s.to_lowercase();
     for k in kws {
-        let kl = k.to_lowercase();
-        if let Some(i) = ls.find(&kl) {
-            let start = i + kl.len();
-            if start <= s.len() {
-                return Some(s[start..].trim());
+        if k.is_empty() {
+            continue;
+        }
+        for (i, _) in s.char_indices() {
+            let rest = &s[i..];
+            if let Some(used) = strip_ci_prefix(rest, k) {
+                return Some(rest[used..].trim());
             }
         }
     }
@@ -2187,6 +2235,81 @@ mod tests {
     fn offline_plan_task_requires_filter() {
         let reply = offline_plan_task("每天清理文件", &ctx("C:\\"));
         assert!(reply.draft.is_none());
+    }
+
+    #[test]
+    fn multiple_writes_keep_first_and_answer_each_call() {
+        let mut pending: Option<PendingWrite> = None;
+        let mut messages: Vec<Value> = Vec::new();
+        let calls = [
+            ("c1", "delete_files", json!({"paths": ["C:\\tmp\\a.txt"]})),
+            ("c2", "mkdir", json!({"path": "C:\\tmp\\报告"})),
+            (
+                "c3",
+                "rename_file",
+                json!({"path": "C:\\tmp\\b.txt", "new_name": "c.txt"}),
+            ),
+        ];
+        for (id, name, args) in calls {
+            let call = AiToolCall {
+                id: id.into(),
+                name: name.into(),
+                args,
+            };
+            stash_pending_write(&mut pending, &call, &mut messages);
+        }
+
+        let p = pending.expect("第一个写操作应作为待确认项");
+        assert_eq!(p.op.op, FsOpKind::Delete);
+        assert_eq!(p.call.id, "c1", "待确认项应是最先出现的写工具");
+
+        assert_eq!(messages.len(), 2, "其余写工具都要有对应的 tool 响应");
+        assert_eq!(messages[0]["tool_call_id"], "c2");
+        assert_eq!(messages[1]["tool_call_id"], "c3");
+        assert!(
+            messages[0]["content"]
+                .as_str()
+                .unwrap_or("")
+                .contains("一次只能确认一个写操作"),
+            "被暂缓的写操作不能静默丢弃"
+        );
+    }
+
+    #[test]
+    fn strip_any_handles_compatibility_chars() {
+        // U+212A（KELVIN SIGN）小写后只剩 1 字节，旧实现按小写偏移切原始串会切错位置。
+        assert_eq!(strip_any("\u{212A}ey test", &["test"]), Some(""));
+        // U+0130（İ）小写后变成 3 字节，旧实现的偏移会落进「文」的字节中间并 panic。
+        assert_eq!(strip_any("\u{0130}test文件", &["test"]), Some("文件"));
+        assert_eq!(strip_any("LIST 目录", &["list"]), Some("目录"));
+        assert_eq!(strip_any("无关键词", &["test"]), None);
+    }
+
+    #[test]
+    fn index_empty_result_does_not_trigger_disk_fallback() {
+        // 索引已就绪（total > 0）但本次查询为空 → 是合法空结果，不应遍历磁盘兜底。
+        let indexed = setup_dir("idx_ready");
+        std::fs::write(indexed.join("indexed.txt"), b"x").unwrap();
+        let index = IndexStore::new();
+        index.scan_blocking(&[indexed.to_string_lossy().to_string()]);
+        assert!(index.status().total > 0);
+
+        let scope = setup_dir("no_fallback");
+        std::fs::write(scope.join("target.txt"), b"y").unwrap();
+
+        let q = SearchQuery {
+            text: "target".to_string(),
+            scope: Some(scope.to_string_lossy().to_string()),
+            limit: 50,
+            ..Default::default()
+        };
+        assert!(
+            search_with_fallback(&index, &q).is_empty(),
+            "索引可用时空结果不应触发磁盘兜底"
+        );
+
+        let _ = std::fs::remove_dir_all(&indexed);
+        let _ = std::fs::remove_dir_all(&scope);
     }
 
     #[test]
