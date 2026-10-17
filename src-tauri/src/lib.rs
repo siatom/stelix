@@ -100,9 +100,18 @@ async fn delete_remote_password(host_id: String) -> Result<(), String> {
         .map_err(|error| format!("密码删除任务失败: {error}"))?
 }
 
+/// 执行一次文件操作（复制 / 移动 / 删除 / 重命名 / 新建）。
+///
+/// 递归复制、移动、删除都是重负载阻塞操作，走后台线程执行，避免卡死 UI。
 #[tauri::command]
-fn fs_operation(op: FsOp) -> FsOpResult {
-    fs_core::execute(&op)
+async fn fs_operation(op: FsOp) -> FsOpResult {
+    tauri::async_runtime::spawn_blocking(move || fs_core::execute(&op))
+        .await
+        .unwrap_or_else(|error| FsOpResult {
+            ok: false,
+            errors: vec![format!("文件操作任务失败: {error}")],
+            denied: Vec::new(),
+        })
 }
 
 /// 提权执行一次因权限不足失败的文件操作（Windows UAC）。
@@ -243,7 +252,10 @@ fn index_status(state: State<'_, AppState>) -> IndexStatus {
     state.index.status()
 }
 
-#[tauri::command]
+/// 在索引中检索文件。
+///
+/// 检索会遍历全量索引，标注 `async` 后由 Tauri 交给线程池执行，避免阻塞主线程。
+#[tauri::command(async)]
 fn search_files(state: State<'_, AppState>, query: SearchQuery) -> Vec<SearchHit> {
     // 集成点：搜索框里可以直接写语法，例如
     //   `ext:pdf size:>100mb modified:today dir: 报告`
@@ -292,12 +304,15 @@ async fn ai_list_models(provider: AiProvider) -> Result<Vec<AiModel>, String> {
 }
 
 #[tauri::command]
-fn ai_execute_tool(
+async fn ai_execute_tool(
     state: State<'_, AppState>,
     call: AiToolCall,
     approved: bool,
 ) -> Result<ToolOutcome, String> {
-    ai_agent::execute_tool(&call, approved, &state.index)
+    let index = state.index.clone();
+    tauri::async_runtime::spawn_blocking(move || ai_agent::execute_tool(&call, approved, &index))
+        .await
+        .map_err(|error| format!("AI 工具执行失败: {error}"))?
 }
 
 #[tauri::command]
@@ -364,13 +379,20 @@ fn task_set_enabled(state: State<'_, AppState>, id: String, enabled: bool) -> Re
 }
 
 /// 立即运行一次任务，返回中文结果摘要。
+///
+/// 任务执行可能遍历整棵目录树，走后台线程避免阻塞 UI。
 #[tauri::command]
-fn task_run_now(state: State<'_, AppState>, id: String) -> Result<String, String> {
-    state.tasks.run_now(&id)
+async fn task_run_now(state: State<'_, AppState>, id: String) -> Result<String, String> {
+    let tasks = state.tasks.clone();
+    tauri::async_runtime::spawn_blocking(move || tasks.run_now(&id))
+        .await
+        .map_err(|error| format!("任务执行失败: {error}"))?
 }
 
 /// 预演（dry-run）：统计将命中的文件，不产生任何副作用。
-#[tauri::command]
+///
+/// 预演要遍历目录树，标注 `async` 后由 Tauri 交给线程池执行，避免阻塞主线程。
+#[tauri::command(async)]
 fn task_preview(state: State<'_, AppState>, action: TaskAction) -> TaskPreview {
     state.tasks.preview(&action)
 }
