@@ -187,7 +187,11 @@ function onClick(ev: MouseEvent, index: number, entry: FileEntry) {
   if (ev.shiftKey && anchor >= 0) {
     const a = Math.min(anchor, index)
     const b = Math.max(anchor, index)
-    const paths = treeRows.value.slice(a, b + 1).map((r) => r.entry.path)
+    // 下标基准随视图不同：详情/列表用展平后的 treeRows，图标视图用 iconRows（仅顶层条目）。
+    const paths =
+      viewMode.value === 'icons'
+        ? iconRows.value.slice(a, b + 1).map((e) => e.path)
+        : treeRows.value.slice(a, b + 1).map((r) => r.entry.path)
     props.tab.selected = ev.ctrlKey || ev.metaKey ? Array.from(new Set([...props.tab.selected, ...paths])) : paths
   } else if (ev.ctrlKey || ev.metaKey) {
     paneStore.toggleSelect(props.tab, entry.path)
@@ -558,6 +562,9 @@ function ctxPaths(): string[] {
 /** 右键菜单里批量操作要显示的项数（1 表示单条，不额外提示）。 */
 const ctxTargetCount = computed(() => ctxPaths().length)
 
+/** 空白处右键的合成「当前目录」条目（id 固定为 -1）：它不是列表里的条目，不能重命名。 */
+const ctxIsCurrentDir = computed(() => ctx.value?.entry.id === -1)
+
 function copyToClipboard(op: 'copy' | 'move') {
   const c = ctx.value
   if (!c) return
@@ -722,6 +729,11 @@ watch(
   },
 )
 
+// 详情/列表与图标视图的下标基准不同（treeRows 含展开子项），切换视图后旧锚点不再有效。
+watch(viewMode, () => {
+  anchor = -1
+})
+
 const hasEntries = computed(() => props.tab.entries.length > 0)
 // 因「隐藏受保护的操作系统文件」而被清空的目录（无文本过滤与类型筛选时）
 const emptyByProtect = computed(
@@ -809,18 +821,27 @@ function onDragStart(ev: DragEvent, entry: FileEntry) {
   ev.dataTransfer.effectAllowed = 'copyMove'
 }
 
+/**
+ * 是否为应用内拖拽。
+ *
+ * 只能看 `dataTransfer.types`：按 HTML 规范 `getData()` 要到 `drop` 阶段才可读，
+ * `dragover` 阶段取到的永远是空串，不能用来判断。
+ */
+function isInternalDrag(ev: DragEvent): boolean {
+  const types = Array.from(ev.dataTransfer?.types ?? [])
+  return types.includes(DRAG_TYPE) || types.includes(DRAG_FALLBACK_TYPE)
+}
+
 function onDragOver(ev: DragEvent) {
   if (!isLocal.value) return // 远程目录不能作为本地拖放目标
-  const types = Array.from(ev.dataTransfer?.types ?? [])
-  if (types.includes(DRAG_TYPE) || types.includes(DRAG_FALLBACK_TYPE)) {
-    if (ev.dataTransfer) ev.dataTransfer.dropEffect = ev.shiftKey ? 'copy' : 'move'
+  if (isInternalDrag(ev) && ev.dataTransfer) {
+    ev.dataTransfer.dropEffect = ev.shiftKey ? 'copy' : 'move'
   }
 }
 
 function onEntryDragOver(ev: DragEvent, entry: FileEntry) {
   if (!isLocal.value || !entry.isDir) return
-  const payload = readDragPayload(ev)
-  if (!payload) return
+  if (!isInternalDrag(ev)) return
   ev.preventDefault()
   ev.stopPropagation()
   if (ev.dataTransfer) ev.dataTransfer.dropEffect = ev.shiftKey ? 'copy' : 'move'
@@ -850,6 +871,7 @@ async function onEntryDrop(ev: DragEvent, entry: FileEntry) {
 
 function onDrop(ev: DragEvent) {
   if (!isLocal.value) return // 远程目录不能接收本地复制 / 移动
+  dragOverPath.value = null
   const payload = readDragPayload(ev)
   if (!payload || payload.paneId === props.paneId) return
   if (ev.shiftKey) void paneStore.copyToOtherPane(payload.paneId, payload.paths)
@@ -1103,7 +1125,7 @@ function onDrop(ev: DragEvent) {
       <button v-if="isLocal" @click="paste"><Icon name="folder-open" :size="14" /><span>粘贴到此目录</span><kbd>Ctrl+V</kbd></button>
       <template v-if="canFileOp">
         <div class="sep" />
-        <button @click="startRename(ctx.entry.path); closeCtx()"><Icon name="pencil" :size="14" /><span>重命名</span><kbd>F2</kbd></button>
+        <button v-if="!ctxIsCurrentDir" @click="startRename(ctx.entry.path); closeCtx()"><Icon name="pencil" :size="14" /><span>重命名</span><kbd>F2</kbd></button>
         <button class="danger" @click="emit('delete', ctxPaths()); closeCtx()"><Icon name="trash" :size="14" /><span>删除{{ ctxTargetCount > 1 ? ` (${ctxTargetCount} 项)` : '' }}</span><kbd>Delete</kbd></button>
       </template>
       <div class="sep" />
