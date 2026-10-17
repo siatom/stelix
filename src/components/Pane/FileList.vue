@@ -124,6 +124,30 @@ watch(
   },
 )
 
+/**
+ * 把虚拟滚动器缓存的偏移量同步回滚动容器的真实 `scrollTop`。
+ *
+ * `.fl-scroll` 会随「加载中 / 错误 / 空目录 / 无匹配 / 图标视图」等分支被 `v-if` 卸载重建。
+ * `@tanstack/virtual-core` 只在收到真实 `scroll` 事件时才更新内部偏移量，卸载时也不会清零，
+ * 于是新容器（`scrollTop` 为 0）配着**上一个目录**的旧偏移量：虚拟窗口从「旧偏移 - overscan」
+ * 行开始渲染，列表顶部就空出一大片。
+ *
+ * 更糟的是当旧偏移量超过新目录的内容高度时（大目录里滚动过再进入条目较少的目录），
+ * 容器根本滚不动、永远不再发出 `scroll` 事件，第一行永远不会被渲染，空白会一直留在那里。
+ * 因此这里在容器重建后主动把偏移量纠正为 0，保证列表总是从首行开始渲染。
+ */
+function resyncScrollOffset() {
+  const el = scrollRef.value
+  if (!el) return
+  if (el.scrollTop !== 0) el.scrollTop = 0
+  // 派发一次合成的 scroll 事件，驱动 virtualizer 重新读取真实偏移量并刷新可见区间。
+  el.dispatchEvent(new Event('scroll'))
+}
+
+watch(scrollRef, (el) => {
+  if (el) void nextTick(resyncScrollOffset)
+})
+
 let anchor = -1
 let lastItemClick: { path: string; at: number } | null = null
 
