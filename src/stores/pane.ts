@@ -15,6 +15,8 @@ import { remoteDirname, resolveRemotePassword } from '../shell/remote'
  */
 
 let tabSeq = 0
+/** 每个标签最近一次目录加载的 token（用于丢弃过期请求的结果）。 */
+const loadTokens = new Map<string, number>()
 const PANE_PATHS_KEY = 'stelix.panePaths'
 const PANE_LAYOUT_KEY = 'stelix.paneLayout'
 /** 文件夹大小看门狗的重试间隔（毫秒）。 */
@@ -255,7 +257,9 @@ export const usePaneStore = defineStore('pane', () => {
   watch(
     () =>
       panes.value.map((pane) => ({
-        paths: pane.tabs.map((tab) => tab.path),
+        // 必须一并读取 `kind`：`savePanePaths` 会按 `isPersistableTab` 过滤，
+        // 搜索 / 远程标签转回普通目录时路径不变，仅靠 path 无法触发重新保存。
+        tabs: pane.tabs.map((tab) => ({ path: tab.path, kind: tab.kind ?? 'files' })),
         activeTabId: pane.activeTabId,
         viewMode: pane.viewMode,
       })),
@@ -339,18 +343,26 @@ export const usePaneStore = defineStore('pane', () => {
     // 搜索结果的命中来自检索管道，不由目录列举产生：重列目录会把它退化成
     // 「搜索起点目录」的普通列表（`tab.path` 只是搜索发起时所在目录）。
     if (tab.kind === 'search') return
+    // 每次加载领一个递增 token：先发出的请求若后返回，其结果是过期目录，必须丢弃，
+    // 否则会覆盖新目录的内容并清空选中。
+    const token = (loadTokens.get(tab.id) ?? 0) + 1
+    loadTokens.set(tab.id, token)
+    const requestPath = tab.path
     tab.loading = true
     tab.error = null
     try {
-      const listing = tab.kind === 'remote' ? await listRemoteTab(tab) : await api.listDir(tab.path)
+      const listing = tab.kind === 'remote' ? await listRemoteTab(tab) : await api.listDir(requestPath)
+      if (loadTokens.get(tab.id) !== token) return
       tab.entries = listing.entries
       tab.selected = []
     } catch (e) {
+      if (loadTokens.get(tab.id) !== token) return
       tab.error = String(e)
       tab.entries = []
-    } finally {
-      tab.loading = false
     }
+    // 已被更新的请求接管时不得改动 loading（由新请求负责收尾）。
+    if (loadTokens.get(tab.id) !== token) return
+    tab.loading = false
     if (tab.error) setStatus(`无法打开目录：${tab.error}`)
   }
 
@@ -533,13 +545,16 @@ export const usePaneStore = defineStore('pane', () => {
 
   /**
    * 文件操作后的刷新：普通目录重列目录；搜索结果标签没有目录语义（`tab.path` 只是搜索
-   * 发起时所在目录），按操作类型就地修补命中列表，否则会把结果列表整片换成那个目录。
+   * 发起时所在目录），只按「实际执行成功」的部分就地修补命中列表，否则会把结果列表整片
+   * 换成那个目录。
+   *
+   * `applied` 为 null 表示没有任何来源被执行（失败 / 用户取消提权），此时保持搜索结果原样。
    */
-  async function refreshAfterOp(paneId: string, op: FsOp, ok: boolean) {
+  async function refreshAfterOp(paneId: string, applied: FsOp | null) {
     const pane = paneById(paneId)
     const tab = pane ? activeTabOf(pane) : undefined
     if (tab && tab.kind === 'search') {
-      patchSearchHits(tab, op, ok)
+      if (applied) patchSearchHits(tab, applied)
       return
     }
     await refresh(paneId)
@@ -551,8 +566,7 @@ export const usePaneStore = defineStore('pane', () => {
    * 原地改 `tab.entries`（不换数组）：浏览历史里的快照持有的是同一个数组引用，
    * 换成新数组会让「后退 → 前进」回到搜索结果时又看到已删除的旧命中。
    */
-  function patchSearchHits(tab: TabState, op: FsOp, ok: boolean) {
-    if (!ok) return // 操作失败 → 列表保持原样，避免误删/误改已有命中
+  function patchSearchHits(tab: TabState, op: FsOp) {
     if (op.op === 'rename' && op.target && op.sources?.length === 1) {
       const from = normalizePath(op.sources[0])
       const entry = tab.entries.find((e) => normalizePath(e.path) === from)
@@ -773,7 +787,11 @@ export const usePaneStore = defineStore('pane', () => {
     if (!pane) return
     const base = path ?? activeTabOf(pane)?.path ?? fallbackHome
     const tab = makeTab(base)
-    const loaded = pane.tabs.find((item) => item.path === base && !item.loading && !item.error)
+    // 只复用普通本地目录标签：搜索结果标签的 `path` 是搜索发起目录、远程标签的 `path`
+    // 是远端路径，复用会把它们的命中 / 远端列表当成该路径的本地内容。
+    const loaded = pane.tabs.find(
+      (item) => item.path === base && (item.kind ?? 'files') === 'files' && !item.loading && !item.error,
+    )
     if (loaded) tab.entries = loaded.entries
     pane.tabs.push(tab)
     pane.activeTabId = tab.id
@@ -827,6 +845,7 @@ export const usePaneStore = defineStore('pane', () => {
     if (idx < 0) return
     pane.tabs.splice(idx, 1)
     delete histories.value[tabId]
+    loadTokens.delete(tabId)
     clearExpand(tabId)
     if (pane.activeTabId === tabId) {
       pane.activeTabId = pane.tabs[Math.max(0, idx - 1)].id
@@ -964,8 +983,25 @@ export const usePaneStore = defineStore('pane', () => {
     return { op: op.op, sources: denied, target: op.target }
   }
 
+  /**
+   * 从原操作中剔除被拒绝的来源，得到「首次尝试里实际已执行」的那部分。
+   * 没有任何来源执行成功时返回 null。
+   */
+  function appliedSources(op: FsOp, denied: string[]): FsOp | null {
+    if (op.op === 'mkdir' || op.op === 'createFile') {
+      // 新建类只有一个目标：它被拒绝就说明什么都没做。
+      return denied.length ? null : op
+    }
+    const deniedSet = new Set(denied.map(normalizePath))
+    const sources = (op.sources ?? []).filter((path) => !deniedSet.has(normalizePath(path)))
+    if (!sources.length) return null
+    return { op: op.op, sources, target: op.target }
+  }
+
   async function runFs(paneId: string, op: FsOp): Promise<FsOpResult> {
     let result: FsOpResult
+    /** 实际已执行的部分；null 表示没有任何来源被改动（搜索命中列表保持原样）。 */
+    let applied: FsOp | null = null
     try {
       result = await api.fsOperation(op)
       const denied = result.denied
@@ -974,14 +1010,26 @@ export const usePaneStore = defineStore('pane', () => {
         setStatus('需要管理员权限，正在请求提权…')
         try {
           result = await api.fsOperationElevated(buildRetryOp(op, denied))
-          if (!result.ok) setStatus(`操作失败：${result.errors.join('; ')}`)
-          else setStatus('操作已完成（管理员权限）')
+          if (!result.ok) {
+            setStatus(`操作失败：${result.errors.join('; ')}`)
+            applied = appliedSources(op, denied)
+          } else {
+            setStatus('操作已完成（管理员权限）')
+            // 未拒绝的来源在首次尝试已成功，重试部分也成功 → 整个操作已生效。
+            applied = op
+          }
         } catch (e) {
           const msg = String(e)
+          // 首次尝试中成功的那部分已落盘；其余（被拒绝的）随取消而未执行。
+          applied = appliedSources(op, denied)
           if (msg.includes('取消')) {
             // 用户主动取消提权 → 不当作错误（不弹红色错误条），仅状态栏提示。
-            setStatus('已取消提权，操作未执行')
-            result = { ok: true, errors: [] }
+            result = { ok: false, errors: [], denied }
+            setStatus(
+              applied
+                ? '已取消提权：部分操作已执行，其余未执行'
+                : '已取消提权，操作未执行',
+            )
           } else {
             setStatus(`提权失败：${msg}`)
             result = { ok: false, errors: [msg] }
@@ -991,12 +1039,13 @@ export const usePaneStore = defineStore('pane', () => {
         setStatus(`操作失败：${result.errors.join('; ')}`)
       } else {
         setStatus('操作已完成')
+        applied = op
       }
     } catch (e) {
       result = { ok: false, errors: [String(e)] }
       setStatus(`操作失败：${String(e)}`)
     }
-    await refreshAfterOp(paneId, op, result.ok)
+    await refreshAfterOp(paneId, applied)
     return result
   }
 
