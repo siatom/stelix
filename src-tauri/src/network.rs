@@ -168,7 +168,12 @@ pub fn parse_listing(raw: &str, base: &str) -> Vec<FileEntry> {
         parsed = raw
             .lines()
             .map(|line| line.trim_end_matches('\r').trim())
-            .filter(|line| !line.is_empty() && !is_total_line(line) && !line.contains(['/', '\\']))
+            .filter(|line| {
+                !line.is_empty()
+                    && !is_total_line(line)
+                    && !line.contains(['/', '\\'])
+                    && !looks_like_listing_line(line)
+            })
             .map(|line| ParsedLine {
                 name: line.to_string(),
                 is_dir: true,
@@ -275,6 +280,43 @@ fn parse_hhmm(token: &str) -> Option<(u32, u32)> {
     Some((hour, minute))
 }
 
+/// 校验 Unix 权限串：首字符为类型，随后 9 位为权限位；尾随的 ACL `+`、SELinux `.`、
+/// macOS `@` 等扩展标记忽略（这些标记不在权限位白名单内，但仍应视为合法行）。
+/// 返回类型字符。
+fn parse_permission_kind(perms: &str) -> Option<char> {
+    if perms.len() < 10 {
+        return None;
+    }
+    let mut chars = perms.chars();
+    let kind = chars.next()?;
+    if !matches!(kind, 'd' | '-' | 'l' | 'b' | 'c' | 'p' | 's' | 'D') {
+        return None;
+    }
+    if !chars
+        .take(9)
+        .all(|c| matches!(c, 'r' | 'w' | 'x' | '-' | 's' | 'S' | 't' | 'T'))
+    {
+        return None;
+    }
+    Some(kind)
+}
+
+/// 该行是否长得像结构化列表（权限串开头，或 DOS 方言的日期 + 时间列）。
+/// 兜底时用它排除原始行，避免把权限、大小、时间整行当成目录名。
+fn looks_like_listing_line(line: &str) -> bool {
+    let mut tokens = line.split_whitespace();
+    let Some(first) = tokens.next() else {
+        return false;
+    };
+    if parse_permission_kind(first).is_some() {
+        return true;
+    }
+    match tokens.next() {
+        Some(second) => parse_dos_date(first).is_some() && parse_dos_time(second).is_some(),
+        None => false,
+    }
+}
+
 /// 解析 Unix 长格式行（FTP `LIST` 与 SFTP 长名通用）。
 ///
 /// 字段：`权限 链接数 属主 [属组] 大小 月份 日 时间|年份 名字…`
@@ -282,20 +324,7 @@ fn parse_hhmm(token: &str) -> Option<(u32, u32)> {
 fn parse_unix_line(line: &str, now_year: i32) -> Option<ParsedLine> {
     let tokens = tokens_with_offsets(line);
     let perms = tokens.first()?.0;
-    if perms.len() < 10 {
-        return None;
-    }
-    let kind = perms.chars().next()?;
-    if !matches!(kind, 'd' | '-' | 'l' | 'b' | 'c' | 'p' | 's' | 'D') {
-        return None;
-    }
-    if !perms
-        .chars()
-        .skip(1)
-        .all(|c| matches!(c, 'r' | 'w' | 'x' | '-' | 's' | 'S' | 't' | 'T'))
-    {
-        return None;
-    }
+    let kind = parse_permission_kind(perms)?;
 
     let mut found = None;
     for (index, (token, _)) in tokens.iter().enumerate().skip(1) {
@@ -504,6 +533,39 @@ mod tests {
         assert_eq!(entries[1].size, 1234);
         // 04-27-2017 15:25（PM）UTC
         assert_eq!(entries[0].modified, 1493306700000);
+    }
+
+    #[test]
+    fn parses_unix_listing_with_acl_selinux_and_macos_markers() {
+        // 权限串末尾带 ACL `+`、SELinux `.`、macOS `@` 标记时仍应正常解析，
+        // 名字不能混入权限串，也不能触发整行当目录名的兜底。
+        let raw = "drwxr-xr-x    2 root root 4096 Oct 12 09:30 logs\n\
+                   drwxr-xr-x.   2 root root 4096 Oct 12 09:30 selinux\n\
+                   -rw-r--r--+   1 root root 1234 Oct 12 09:31 acl.txt\n\
+                   -rw-r--r--@   1 root root   42 Oct 12 09:32 mac.txt\n";
+        let entries = parse_listing(raw, "/var/www");
+        assert_eq!(
+            names(&entries),
+            vec!["logs", "selinux", "acl.txt", "mac.txt"]
+        );
+        assert!(entries[0].is_dir);
+        assert!(entries[1].is_dir);
+        assert_eq!(entries[1].path, "/var/www/selinux");
+        assert!(!entries[2].is_dir);
+        assert_eq!(entries[2].size, 1234);
+        assert_eq!(entries[2].name, "acl.txt");
+        assert_eq!(entries[3].ext.as_deref(), Some("txt"));
+        assert!(entries.iter().all(|entry| !entry.name.contains("rw-")));
+    }
+
+    #[test]
+    fn marker_lines_never_leak_as_raw_fallback_names() {
+        // 所有行都带标记、且无法结构化解析时，不应把原始整行当成目录名。
+        let raw = "drwxr-xr-x.   2 root root 4096 Oct 12 09:30 a\n\
+                   drwxr-xr-x+   2 root root 4096 Oct 12 09:30 b\n";
+        let entries = parse_listing(raw, "/");
+        assert_eq!(names(&entries), vec!["a", "b"]);
+        assert!(entries.iter().all(|entry| !entry.name.contains("drwx")));
     }
 
     #[test]
