@@ -205,11 +205,17 @@ pub fn matches_with_terms(
     name_lower: &str,
     terms: &[String],
 ) -> bool {
-    // 路径范围
+    // 路径范围（大小写不敏感；需目录边界，避免 `C:\Ann` 误命中 `C:\Anna`）
     if let Some(scope) = &query.scope {
         let scope = scope.trim_end_matches(['\\', '/']).to_lowercase();
-        if !scope.is_empty() && !entry.path.to_lowercase().starts_with(&scope) {
-            return false;
+        if !scope.is_empty() {
+            let path = entry.path.to_lowercase();
+            let in_scope = path == scope
+                || path.starts_with(&format!("{scope}\\"))
+                || path.starts_with(&format!("{scope}/"));
+            if !in_scope {
+                return false;
+            }
         }
     }
 
@@ -429,5 +435,89 @@ mod tests {
     fn score_empty_text_zero() {
         let q = parse_query("ext:pdf");
         assert_eq!(score(&entry("a.pdf", false, 1, Some("pdf")), &q), 0);
+    }
+
+    /// 构造指定路径的条目，用于 `scope` 过滤测试
+    fn at(path: &str) -> FileEntry {
+        FileEntry {
+            id: 0,
+            name: path.rsplit(['\\', '/']).next().unwrap_or(path).to_string(),
+            path: path.to_string(),
+            is_dir: false,
+            size: 1,
+            modified: 0,
+            ext: None,
+            hidden: false,
+            system: false,
+        }
+    }
+
+    fn with_scope(scope: &str) -> SearchQuery {
+        SearchQuery {
+            scope: Some(scope.to_string()),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn scope_respects_directory_boundary() {
+        // 同名前缀目录不应被误命中
+        assert!(!matches(
+            &at("C:\\Users\\Anna\\file.txt"),
+            &with_scope("C:\\Users\\Ann")
+        ));
+        assert!(!matches(
+            &at("C:\\Users\\Ann2\\file.txt"),
+            &with_scope("C:\\Users\\Ann")
+        ));
+    }
+
+    #[test]
+    fn scope_matches_subdir_and_exact() {
+        // 子目录命中
+        assert!(matches(
+            &at("C:\\Users\\Ann\\sub\\file.txt"),
+            &with_scope("C:\\Users\\Ann")
+        ));
+        // 精确相等命中（目录自身）
+        assert!(matches(
+            &at("C:\\Users\\Ann"),
+            &with_scope("C:\\Users\\Ann")
+        ));
+        // 尾部反斜杠规范化
+        assert!(matches(
+            &at("C:\\Users\\Ann\\file.txt"),
+            &with_scope("C:\\Users\\Ann\\")
+        ));
+        // 正斜杠分隔
+        assert!(matches(
+            &at("C:/Users/Ann/file.txt"),
+            &with_scope("C:/Users/Ann")
+        ));
+    }
+
+    #[test]
+    fn scope_drive_root() {
+        assert!(matches(
+            &at("c:\\Users\\Ann\\file.txt"),
+            &with_scope("C:\\")
+        ));
+        assert!(matches(&at("C:/Users/Ann/file.txt"), &with_scope("c:/")));
+        // 其他盘符不应命中
+        assert!(!matches(&at("D:\\file.txt"), &with_scope("C:\\")));
+    }
+
+    #[test]
+    fn scope_non_match_outside() {
+        // scope 之外的路径不命中
+        assert!(!matches(
+            &at("D:\\Other\\file.txt"),
+            &with_scope("C:\\Users\\Ann")
+        ));
+        // Windows 路径大小写不敏感
+        assert!(matches(
+            &at("C:\\USERS\\ann\\FILE.txt"),
+            &with_scope("c:\\users\\ANN")
+        ));
     }
 }
