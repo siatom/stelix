@@ -13,6 +13,9 @@ dist-ssr
 *.local
 .playwright-cli/
 
+# git worktree（隔离开发时创建的临时工作区，不入库）
+.worktrees/
+
 # Local CI/CD（含本机绝对路径，不入库）
 .local-cicd/
 .local-cicd.yaml
