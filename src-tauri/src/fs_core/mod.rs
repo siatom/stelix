@@ -193,10 +193,22 @@ pub fn execute(op: &FsOp) -> FsOpResult {
     // 因「拒绝访问」失败的路径：前端据此发起 UAC 提权重试。
     let mut denied: Vec<String> = Vec::new();
     match op.op {
-        FsOpKind::Mkdir => match op.target.as_deref() {
-            None => errors.push("Mkdir 缺少 target".into()),
-            Some(t) if t.trim().is_empty() => errors.push("Mkdir 目标路径为空".into()),
-            Some(t) => {
+        FsOpKind::Mkdir => {
+            // target 为单目录创建；sources 承载「批量新建」的其余目标（也供提权子进程
+            // 一次重试多个被拒绝的目录）。单个目标失败不影响同一批里的其它目标。
+            if op.target.is_none() && op.sources.is_empty() {
+                errors.push("Mkdir 缺少 target".into());
+            }
+            let targets = op
+                .target
+                .iter()
+                .chain(op.sources.iter())
+                .map(String::as_str);
+            for t in targets {
+                if t.trim().is_empty() {
+                    errors.push("Mkdir 目标路径为空".into());
+                    continue;
+                }
                 let p = Path::new(t);
                 if is_drive_root(p) {
                     errors.push(format!("已拒绝在驱动器根新建目录：{t}"));
@@ -210,7 +222,7 @@ pub fn execute(op: &FsOp) -> FsOpResult {
                     errors.push(format!("新建目录失败 {t}: {e}"));
                 }
             }
-        },
+        }
         FsOpKind::CreateFile => match op.target.as_deref() {
             None => errors.push("CreateFile 缺少 target".into()),
             Some(t) if t.trim().is_empty() => errors.push("新建文件路径为空".into()),
@@ -576,6 +588,31 @@ mod tests {
         fs::create_dir(&target).unwrap();
         let res = execute(&op(FsOpKind::Mkdir, &target));
         assert!(!res.ok);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn mkdir_creates_multiple_targets_from_sources() {
+        let dir = temp_dir("mkdir-batch");
+        let first = dir.join("first");
+        let second = dir.join("second");
+        let existing = dir.join("existing");
+        fs::create_dir(&existing).unwrap();
+        let res = execute(&FsOp {
+            op: FsOpKind::Mkdir,
+            sources: vec![
+                first.to_string_lossy().to_string(),
+                second.to_string_lossy().to_string(),
+                existing.to_string_lossy().to_string(),
+            ],
+            target: None,
+        });
+        // 已存在的项报错，但不影响其它目录创建。
+        assert!(!res.ok);
+        assert!(first.is_dir());
+        assert!(second.is_dir());
+        assert_eq!(res.errors.len(), 1);
+        assert!(res.errors[0].contains("已存在同名项"));
         let _ = fs::remove_dir_all(&dir);
     }
 
