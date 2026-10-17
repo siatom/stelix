@@ -217,12 +217,23 @@ function updateMarqueeBox(ev: MouseEvent) {
   const bounds = root.getBoundingClientRect()
   const left = Math.min(state.startX, ev.clientX) - bounds.left
   const top = Math.min(state.startY, ev.clientY) - bounds.top
-  marqueeBox.value = {
+  const next = {
     left,
     top,
     width: Math.abs(ev.clientX - state.startX),
     height: Math.abs(ev.clientY - state.startY),
   }
+  const prev = marqueeBox.value
+  // 位置没变就不写回，省掉一次无用渲染。
+  if (prev.left === next.left && prev.top === next.top && prev.width === next.width && prev.height === next.height) return
+  marqueeBox.value = next
+}
+
+/** 两个路径列表是否完全一致（框选结果按 DOM 顺序生成，可直接逐项比较）。 */
+function samePaths(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i += 1) if (a[i] !== b[i]) return false
+  return true
 }
 
 function applyMarqueeSelection() {
@@ -242,11 +253,46 @@ function applyMarqueeSelection() {
     .map((el) => el.dataset.selectionPath)
     .filter((path): path is string => !!path)
 
-  props.tab.selected = state.additive ? Array.from(new Set([...state.baseSelection, ...selected])) : selected
+  const next = state.additive ? Array.from(new Set([...state.baseSelection, ...selected])) : selected
+  // 选中集没变化时不要替换数组：否则每次 mousemove 都会让所有可见行重新渲染
+  //（图标视图最多 600 格）。框选只在跨越行/格边界时才真正改变选中项。
+  if (!samePaths(props.tab.selected, next)) props.tab.selected = next
   anchor = -1
 }
 
+/**
+ * 框选的 mousemove 合并到每帧一次。
+ *
+ * 一次拖拽可能产生上百个 mousemove；每个事件都要读全部可见行的
+ * `getBoundingClientRect()` 并重算选中集，直接同步处理会在高刷新率屏幕 / 图标视图下
+ * 持续超过帧预算。rAF 合并后每帧只做一次布局读取与选中集计算。
+ */
+let marqueeFrame = 0
+let pendingMarqueeEvent: MouseEvent | null = null
+
+function cancelMarqueeFrame() {
+  if (marqueeFrame) {
+    cancelAnimationFrame(marqueeFrame)
+    marqueeFrame = 0
+  }
+  pendingMarqueeEvent = null
+}
+
+function scheduleMarqueeUpdate(ev: MouseEvent) {
+  pendingMarqueeEvent = ev
+  if (marqueeFrame) return
+  marqueeFrame = requestAnimationFrame(() => {
+    marqueeFrame = 0
+    const pending = pendingMarqueeEvent
+    pendingMarqueeEvent = null
+    if (!pending || !marquee.value) return
+    updateMarqueeBox(pending)
+    applyMarqueeSelection()
+  })
+}
+
 function stopMarquee(ev?: MouseEvent) {
+  cancelMarqueeFrame()
   if (!marquee.value) return
   if (ev) {
     updateMarqueeBox(ev)
@@ -264,8 +310,7 @@ function onMarqueeMove(ev: MouseEvent) {
   const state = marquee.value
   if (!state) return
   if (Math.abs(ev.clientX - state.startX) > 4 || Math.abs(ev.clientY - state.startY) > 4) state.moved = true
-  updateMarqueeBox(ev)
-  applyMarqueeSelection()
+  scheduleMarqueeUpdate(ev)
 }
 
 function onMarqueeUp(ev: MouseEvent) {
