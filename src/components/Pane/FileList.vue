@@ -149,6 +149,23 @@ watch(scrollRef, (el) => {
 })
 
 let anchor = -1
+let lastItemClick: { path: string; at: number } | null = null
+
+/** 判定「再次单击已选中条目」的最小间隔，低于它视为双击的一部分。 */
+const RENAME_CLICK_INTERVAL_MS = 400
+/**
+ * 慢速单击重命名的确认窗口：需覆盖系统双击判定时长。
+ * 第二次单击后先等这么久，期间收到 dblclick 就取消重命名（用户其实是在双击打开），
+ * 否则才真正进入重命名。
+ */
+const RENAME_DBLCLICK_GUARD_MS = 600
+let renameTimer: number | null = null
+
+function cancelPendingRename() {
+  if (renameTimer === null) return
+  window.clearTimeout(renameTimer)
+  renameTimer = null
+}
 
 interface MarqueeState {
   startX: number
@@ -167,6 +184,31 @@ let suppressBlankClick = false
 // ---- 选择 ----
 
 function onClick(ev: MouseEvent, index: number, entry: FileEntry) {
+  const isPlainClick = !ev.shiftKey && !ev.ctrlKey && !ev.metaKey
+  const now = Date.now()
+  // 再次单击已单独选中的条目：可能是「两次单击重命名」的第二次单击，
+  // 也可能是「稍后双击打开」的第一次单击。先挂起，等双击窗口过去再决定。
+  const mayRename =
+    isPlainClick &&
+    !isRemote.value &&
+    props.tab.selected.length === 1 &&
+    props.tab.selected[0] === entry.path &&
+    lastItemClick?.path === entry.path &&
+    now - lastItemClick.at >= RENAME_CLICK_INTERVAL_MS
+
+  cancelPendingRename()
+  if (mayRename) {
+    const path = entry.path
+    renameTimer = window.setTimeout(() => {
+      renameTimer = null
+      // 等待期间选中项已变（含切换标签 / 目录）或已进入编辑，就放弃这次重命名。
+      if (editing.value || props.tab.selected.length !== 1 || props.tab.selected[0] !== path) return
+      lastItemClick = null
+      startRename(path)
+    }, RENAME_DBLCLICK_GUARD_MS)
+  }
+
+  lastItemClick = isPlainClick ? { path: entry.path, at: now } : null
   if (ev.shiftKey && anchor >= 0) {
     const a = Math.min(anchor, index)
     const b = Math.max(anchor, index)
@@ -186,6 +228,7 @@ function onClick(ev: MouseEvent, index: number, entry: FileEntry) {
 }
 
 function clearSelection() {
+  cancelPendingRename()
   paneStore.clearSelection(props.tab)
   anchor = -1
 }
@@ -353,6 +396,7 @@ async function openEntry(entry: FileEntry, countForFrequentDirectories = false) 
 }
 
 async function onDblClick(entry: FileEntry) {
+  cancelPendingRename()
   await openEntry(entry, true)
 }
 
@@ -439,6 +483,7 @@ function onInlineKeydown(ev: KeyboardEvent) {
 
 /** 进入某条目的行内重命名 */
 function startRename(path: string) {
+  cancelPendingRename()
   if (isRemote.value) return // 远程标签只读
   const entry =
     treeRows.value.find((r) => r.entry.path === path)?.entry ??
@@ -558,6 +603,7 @@ async function openInTerminal(entry: FileEntry) {
 }
 
 function showCtxAt(ev: MouseEvent, entry: FileEntry) {
+  cancelPendingRename()
   const menuW = 176
   const menuH = 402
   const x = Math.min(ev.clientX, window.innerWidth - menuW - 4)
@@ -788,6 +834,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  cancelPendingRename()
   document.removeEventListener('click', onDocClick)
   document.removeEventListener('keydown', onKey)
   window.removeEventListener('keydown', onGlobalKey)
@@ -825,6 +872,7 @@ watch(
   () => [props.tab.id, props.tab.path],
   () => {
     anchor = -1
+    cancelPendingRename()
     closeCtx()
     cancelEdit()
   },
