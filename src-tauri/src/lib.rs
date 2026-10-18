@@ -240,6 +240,77 @@ fn show_item_properties(path: String) -> Result<(), String> {
     }
 }
 
+/// 弹出 Windows 系统「打开方式」窗口，由系统列出已注册的应用与「选择其他应用」。
+///
+/// 只接受真实存在的本地文件（文件夹请走「在终端打开」等入口）。对话框是模态阻塞
+/// 调用，放到后台线程执行，避免卡住 WebView IPC / 主线程。
+#[tauri::command]
+async fn show_open_with(path: String) -> Result<(), String> {
+    let file = std::path::PathBuf::from(&path);
+    if !file.is_file() {
+        return Err(format!("文件不存在或不是普通文件: {path}"));
+    }
+
+    #[cfg(windows)]
+    {
+        tauri::async_runtime::spawn_blocking(move || show_open_with_windows(&file))
+            .await
+            .map_err(|error| format!("打开方式任务失败: {error}"))?
+    }
+
+    #[cfg(not(windows))]
+    {
+        let _ = file;
+        Err("当前平台暂不支持系统「打开方式」窗口".to_string())
+    }
+}
+
+/// `SHOpenWithDialog` 的 Windows 实现。
+///
+/// 用 Shell 官方 API 而不是自行枚举注册表：应用列表、图标、「始终使用此应用」
+/// 选项都由系统维护，避免与应用商店 / 传统 Win32 应用的注册方式产生偏差。
+#[cfg(windows)]
+fn show_open_with_windows(file: &std::path::Path) -> Result<(), String> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::System::Com::{
+        CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED,
+    };
+    use windows_sys::Win32::UI::Shell::{
+        SHOpenWithDialog, OAIF_ALLOW_REGISTRATION, OAIF_EXEC, OPENASINFO,
+    };
+
+    let file_wide: Vec<u16> = file
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    let info = OPENASINFO {
+        pcszFile: file_wide.as_ptr(),
+        pcszClass: std::ptr::null(),
+        oaifInFlags: OAIF_ALLOW_REGISTRATION | OAIF_EXEC,
+    };
+
+    // spawn_blocking 线程默认没有初始化 COM；RPC_E_CHANGED_MODE 表示线程已处于
+    // 其他套间模型，此时不负责反初始化，仍继续弹窗。
+    let init_hr = unsafe { CoInitializeEx(std::ptr::null(), COINIT_APARTMENTTHREADED as u32) };
+    let initialized_here = init_hr >= 0;
+    let hr = unsafe { SHOpenWithDialog(std::ptr::null_mut(), &info) };
+    if initialized_here {
+        unsafe { CoUninitialize() };
+    }
+
+    // 用户取消不是错误：HRESULT_FROM_WIN32(ERROR_CANCELLED)。
+    const CANCELLED: i32 = 0x8007_04C7u32 as i32;
+    if hr >= 0 || hr == CANCELLED {
+        Ok(())
+    } else {
+        Err(format!(
+            "无法打开系统「打开方式」窗口（HRESULT 0x{:08X}）",
+            hr as u32
+        ))
+    }
+}
+
 // ---------------------------------------------------------------- 索引与检索
 
 #[tauri::command]
@@ -686,6 +757,7 @@ pub fn run() {
             path_is_file,
             open_in_terminal,
             show_item_properties,
+            show_open_with,
             start_index,
             index_status,
             search_files,

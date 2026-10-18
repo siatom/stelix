@@ -696,6 +696,16 @@ async function showProperties(entry: FileEntry) {
   closeCtx()
 }
 
+/** 文件专用：弹出系统原生「打开方式」，应用列表由操作系统维护。 */
+async function openWith(entry: FileEntry) {
+  closeCtx()
+  try {
+    await api.showOpenWith(entry.path)
+  } catch (error) {
+    ui.setStatusText(`无法打开「打开方式」：${String(error)}`)
+  }
+}
+
 async function paste() {
   closeCtx()
   await paneStore.pasteInto(props.paneId, props.tab.path)
@@ -1231,6 +1241,7 @@ function onDrop(ev: DragEvent) {
         <div class="sep" />
       </template>
       <button @click="openEntry(ctx.entry); closeCtx()"><Icon :name="ctx.entry.isDir ? 'folder-open' : 'file'" :size="14" />打开</button>
+      <button v-if="!ctx.entry.isDir && canFileOp && ctxTargetCount === 1" @click="openWith(ctx.entry)"><Icon name="external-link" :size="14" />打开方式…</button>
       <button v-if="isSearch" @click="openContainingFolder(ctx.entry)"><Icon name="folder-arrow" :size="14" />打开所在文件夹</button>
       <button v-if="ctx.entry.isDir && canFileOp" @click="searchFolder(ctx.entry)"><Icon name="search" :size="14" />搜索此文件夹</button>
       <button v-if="ctx.entry.isDir && canFileOp" @click="openInNewTab(ctx.entry)"><Icon name="plus" :size="14" />在新标签页打开</button>
