@@ -752,6 +752,26 @@ async function openWith(entry: FileEntry) {
   }
 }
 
+/** 单条目：弹出经筛选的系统原生菜单（锚定在「更多」右侧）。 */
+async function showMoreMenu(entry: FileEntry, event: MouseEvent) {
+  const button = event.currentTarget as HTMLElement | null
+  const rect = button?.getBoundingClientRect()
+  const anchor = rect
+    ? { x: rect.right + 2, y: rect.top, scale: window.devicePixelRatio || 1 }
+    : null
+
+  closeCtx()
+  // 先让自绘菜单完成一帧重绘，再弹原生菜单，避免两层菜单叠在一起。
+  await nextTick()
+  await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+  try {
+    const shown = await api.showShellMenu(entry.path, anchor)
+    if (!shown) ui.setStatusText('没有可用的系统菜单项')
+  } catch (error) {
+    ui.setStatusText(`无法打开系统菜单：${String(error)}`)
+  }
+}
+
 async function paste() {
   closeCtx()
   await paneStore.pasteInto(props.paneId, props.tab.path)
@@ -1313,6 +1333,12 @@ function onDrop(ev: DragEvent) {
         <div class="sep" />
         <button @click="showProperties(ctx.entry)"><Icon name="info" :size="14" />属性</button>
       </template>
+      <template v-if="canFileOp && ctxTargetCount === 1">
+        <div class="sep" />
+        <button @click="showMoreMenu(ctx.entry, $event)">
+          <Icon name="package" :size="14" /><span>更多</span><Icon name="chevron-right" :size="12" class="more-arrow" />
+        </button>
+      </template>
     </div>
   </div>
 </template>
@@ -1714,6 +1740,10 @@ function onDrop(ev: DragEvent) {
   color: var(--fg-dim);
   font: inherit;
   font-size: 0.9167em;
+}
+.ctx-menu button .more-arrow {
+  margin-left: auto;
+  color: var(--fg-dim);
 }
 .ctx-menu button.danger :deep(svg) {
   color: var(--danger);

@@ -53,6 +53,9 @@ export const api = {
   showItemProperties: (path: string) => invoke<void>('show_item_properties', { path }),
   /** 弹出系统原生「打开方式」窗口（仅本地文件）。 */
   showOpenWith: (path: string) => invoke<void>('show_open_with', { path }),
+  /** 弹出经筛选的系统原生右键菜单；返回 false 表示没有可显示的项。 */
+  showShellMenu: (path: string, anchor?: { x: number; y: number; scale: number } | null) =>
+    invoke<boolean>('show_shell_menu', { path, anchor: anchor ?? null }),
 
   startIndex: (roots: string[]) => invoke<void>('start_index', { roots }),
   indexStatus: () => invoke<IndexStatus>('index_status'),
