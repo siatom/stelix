@@ -17,6 +17,8 @@ mod persistence;
 mod schedule;
 mod search_engine;
 mod shell_icon;
+#[cfg(windows)]
+mod shell_menu;
 mod smb_discovery;
 mod state;
 mod types;
@@ -309,6 +311,49 @@ fn show_open_with_windows(file: &std::path::Path) -> Result<(), String> {
             hr as u32
         ))
     }
+}
+
+/// 弹出经筛选的 Windows 系统右键菜单（应用菜单里的「更多」）。
+///
+/// 必须是同步命令：`TrackPopupMenuEx` 依赖窗口线程的消息循环，放到后台线程
+/// 会收不到 `WM_INITMENUPOPUP` / owner-draw 消息。菜单关闭后返回是否成功弹出；
+/// 所有系统项都被过滤时返回 `false`。
+#[tauri::command]
+fn show_shell_menu(
+    window: tauri::Window,
+    path: String,
+    anchor: Option<ShellMenuAnchor>,
+) -> Result<bool, String> {
+    #[cfg(windows)]
+    {
+        let hwnd = window
+            .hwnd()
+            .map_err(|error| format!("无法获取窗口句柄: {error}"))?;
+        shell_menu::show(
+            hwnd,
+            &path,
+            anchor.map(|value| shell_menu::Anchor {
+                x: value.x,
+                y: value.y,
+                scale: value.scale,
+            }),
+        )
+    }
+
+    #[cfg(not(windows))]
+    {
+        let _ = (window, path, anchor);
+        Err("当前平台暂不支持系统右键菜单".to_string())
+    }
+}
+
+/// “更多”按钮在 WebView 客户端坐标系中的锚点（CSS 像素 + DPI 缩放）。
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ShellMenuAnchor {
+    x: f64,
+    y: f64,
+    scale: f64,
 }
 
 // ---------------------------------------------------------------- 索引与检索
@@ -758,6 +803,7 @@ pub fn run() {
             open_in_terminal,
             show_item_properties,
             show_open_with,
+            show_shell_menu,
             start_index,
             index_status,
             search_files,
