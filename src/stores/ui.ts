@@ -125,6 +125,8 @@ export const useUiStore = defineStore('ui', () => {
   const searchCurrentRequest = ref(0)
   /** 一次性标记：下一次搜索面板挂载/响应时应聚焦输入框（消费后清除） */
   const searchFocusPending = ref(false)
+  /** 每次 +1 表示「请把焦点交给搜索框」，用于面板已挂载时也能重复聚焦 */
+  const searchFocusRequest = ref(0)
   const settingsOpen = ref(false)
   const settingsTab = ref<SettingsTab>('general')
   const feedbackOpen = ref(false)
@@ -170,8 +172,18 @@ export const useUiStore = defineStore('ui', () => {
     searchScope.value = 'current'
     searchCurrentRequest.value += 1
     searchFocusPending.value = true
+    searchFocusRequest.value += 1
     activePanel.value = 'search'
     sidebarCollapsed.value = false
+    persistSidebar()
+  }
+
+  /** Ctrl+F：打开搜索面板并聚焦输入框（不改变当前搜索范围） */
+  function openSearch() {
+    activePanel.value = 'search'
+    sidebarCollapsed.value = false
+    searchFocusPending.value = true
+    searchFocusRequest.value += 1
     persistSidebar()
   }
 
@@ -379,6 +391,7 @@ export const useUiStore = defineStore('ui', () => {
     searchScope,
     searchCurrentRequest,
     searchFocusPending,
+    searchFocusRequest,
     settingsOpen,
     settingsTab,
     feedbackOpen,
@@ -390,6 +403,7 @@ export const useUiStore = defineStore('ui', () => {
     toggleSidebar,
     setPanel,
     openCurrentDirectorySearch,
+    openSearch,
     openSettings,
     closeSettings,
     openFeedback,

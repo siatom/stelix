@@ -48,12 +48,9 @@ function toggle() {
   else void openPalette()
 }
 
-async function focusSearch() {
+function openSearchPanel() {
   close()
-  await nextTick()
-  const el = document.querySelector<HTMLInputElement>('.search-bar input')
-  el?.focus()
-  el?.select()
+  ui.openSearch()
 }
 
 async function reindex() {
@@ -84,7 +81,12 @@ function buildCommands(locations: QuickLocation[]) {
     },
     { id: 'toggle-ai', label: '打开 AI 助手面板', run: () => ui.setPanel('ai') },
     { id: 'toggle-sidebar', label: '切换侧边栏', run: () => ui.toggleSidebar() },
-    { id: 'focus-search', label: '聚焦全局搜索', hint: '/', run: focusSearch },
+    {
+      id: 'focus-search',
+      label: '打开搜索面板',
+      hint: combos.value.search?.key ? formatCombo(combos.value.search) : undefined,
+      run: openSearchPanel,
+    },
     { id: 'reindex', label: '重新建立索引', run: reindex },
   ]
   for (const loc of locations) {
@@ -128,6 +130,13 @@ function onKeydown(e: KeyboardEvent) {
   if (match(e) === 'command-palette') {
     e.preventDefault()
     toggle()
+    return
+  }
+  if (match(e) === 'search') {
+    // 命令面板打开时按 Ctrl+F：收起面板并直接进入搜索（阻止 App 层重复处理）
+    e.preventDefault()
+    e.stopImmediatePropagation()
+    openSearchPanel()
     return
   }
   if (e.key === 'Escape' && open.value) {

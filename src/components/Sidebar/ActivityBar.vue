@@ -2,6 +2,7 @@
 // 左侧图标导航栏：文件导航 / 定时任务 / 搜索 / AI 助手，底部为意见反馈 / 设置 / 主题 / 收起侧边栏
 import { useUiStore } from '../../stores/ui'
 import type { PanelKey } from '../../stores/ui'
+import { combos, formatCombo } from '../../stores/shortcuts'
 import Icon from '../icons/Icon.vue'
 import type { IconName } from '../icons/paths'
 
@@ -14,6 +15,12 @@ const items: { key: PanelKey; icon: IconName; title: string }[] = [
   { key: 'search', icon: 'search', title: '搜索' },
   { key: 'ai', icon: 'sparkles', title: 'AI 助手' },
 ]
+
+function titleOf(item: { key: PanelKey; title: string }): string {
+  if (item.key !== 'search') return item.title
+  const combo = combos.value.search
+  return combo?.key ? `${item.title}（${formatCombo(combo)}）` : item.title
+}
 </script>
 
 <template>
@@ -31,7 +38,7 @@ const items: { key: PanelKey; icon: IconName; title: string }[] = [
       type="button"
       class="activity-btn"
       :class="{ active: ui.activePanel === it.key && !ui.sidebarCollapsed }"
-      :title="it.title"
+      :title="titleOf(it)"
       :aria-label="it.title"
       @click="ui.setPanel(it.key)"
     >

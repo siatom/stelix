@@ -100,6 +100,17 @@ function onAltF4(event: KeyboardEvent) {
   void appWindow.close()
 }
 
+/** Ctrl+F：打开侧边栏搜索面板并聚焦输入框 */
+function onSearchShortcut(event: KeyboardEvent) {
+  if (isCapturingShortcut()) return // 正在设置里捕获新键位
+  if (ui.settingsOpen || ui.feedbackOpen) return // 弹窗打开时不抢焦点
+  if (match(event) !== 'search') return
+  event.preventDefault()
+  event.stopPropagation()
+  closeTitlebarMenu()
+  ui.openSearch()
+}
+
 function dismissTitlebarMenu(event: MouseEvent) {
   if (!(event.target as HTMLElement).closest('.titlebar-context-menu')) closeTitlebarMenu()
 }
@@ -160,6 +171,7 @@ onMounted(async () => {
   window.addEventListener('mousedown', dismissTitlebarMenu)
   window.addEventListener('keydown', onTitlebarActionKeydown)
   window.addEventListener('keydown', onAltF4, true)
+  window.addEventListener('keydown', onSearchShortcut)
   void ui.startIndexStatusWatch()
   // 目录变更：刷新所有打开该目录的标签（跨窗格 / 后台标签），并广播给左侧目录树。
   unlistenFsChanged = await events.onFsChanged(({ dirs }) => {
@@ -236,6 +248,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('mousedown', dismissTitlebarMenu)
   window.removeEventListener('keydown', onTitlebarActionKeydown)
   window.removeEventListener('keydown', onAltF4, true)
+  window.removeEventListener('keydown', onSearchShortcut)
   window.removeEventListener('mousemove', onResizeMove)
   window.removeEventListener('mouseup', stopResize)
 })

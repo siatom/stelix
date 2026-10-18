@@ -53,6 +53,7 @@ export const SHORTCUT_DEFS: readonly ShortcutDef[] = [
   { id: 'rename', label: '重命名', group: 'files', default: { key: 'f2' } },
   { id: 'delete', label: '删除', group: 'files', default: { key: 'delete' } },
   { id: 'close-window', label: '关闭窗口', group: 'window', default: { alt: true, key: 'f4' } },
+  { id: 'search', label: '打开搜索面板', group: 'global', default: { ctrl: true, key: 'f' } },
   { id: 'command-palette', label: '打开命令面板', group: 'global', default: { ctrl: true, key: 'k' } },
 ]
 

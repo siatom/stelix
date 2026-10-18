@@ -103,8 +103,9 @@ function onKeyDown(e: KeyboardEvent): void {
   }
 
   // 应用内快捷键优先：只拦浏览器默认行为，放行到应用层。
+  // 输入框内同样放行（如 Ctrl+F 打开搜索）；纯文本编辑组合键不在屏蔽表中，不受影响。
   // （用户可把快捷键改到 BLOCKED_COMBOS / BLOCKED_KEYS 里的键位，此时以用户的绑定为准。）
-  if (isRegisteredShortcut(e) && !isEditable(e.target)) {
+  if (isRegisteredShortcut(e)) {
     if (matchesBlockedCombo(e) || (BLOCKED_KEYS.has(key) && !ctrl && !e.altKey)) e.preventDefault()
     return
   }
