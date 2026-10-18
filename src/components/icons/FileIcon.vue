@@ -25,7 +25,7 @@ const props = withDefaults(
 )
 
 // computed：虚拟滚动的行会被复用（key 为索引），path 变化时需要重新取图标。
-const url = computed(() => fileIconRef(props.path, props.isDir, props.ext, props.isDrive, props.usePathIcon).value)
+const url = computed(() => fileIconRef(props.path, props.isDir, props.isDrive, props.usePathIcon).value)
 </script>
 
 <template>

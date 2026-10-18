@@ -74,11 +74,22 @@ fn is_drive_root(path: &str) -> bool {
 }
 
 /// 小写扩展名（不含点）；无扩展名返回空串。
+///
+/// 与 Windows Shell 的关联规则保持一致：以 `.` 开头的文件名（`.env`、`.gitignore` 等）
+/// 同样取最后一个点之后的部分作为扩展名，因此 `.env` 与 `foo.env` 共用图标，
+/// 而 `.env` / `.gitignore` 等不同 dotfile 不会再共用同一个缓存 key。
+///
+/// 注意：这里不能直接用 `Path::extension()`——它把 `.env` 视为「无扩展名」，
+/// 会让所有 dotfile 落入同一个 `e:` 缓存，先加载的那个文件的图标会覆盖全部。
 fn extension_of(path: &str) -> String {
-    Path::new(path)
-        .extension()
-        .map(|e| e.to_string_lossy().to_lowercase())
-        .unwrap_or_default()
+    let name = Path::new(path)
+        .file_name()
+        .map(|name| name.to_string_lossy())
+        .unwrap_or_default();
+    match name.rfind('.') {
+        Some(index) if index + 1 < name.len() => name[index + 1..].to_lowercase(),
+        _ => String::new(),
+    }
 }
 
 // ---------------------------------------------------------------- 提取
@@ -393,6 +404,16 @@ mod tests {
             cache_key(r"C:\Program Files\App.EXE", false, false),
             r"p:c:\program files\app.exe"
         );
+        // dotfile 按 Windows Shell 规则去掉前导点取扩展名；
+        // 不同 dotfile 必须分开缓存，否则会互相串用图标。
+        assert_eq!(cache_key(r"C:\a\.env", false, false), "e:env");
+        assert_eq!(cache_key(r"C:\a\.gitignore", false, false), "e:gitignore");
+        assert_ne!(
+            cache_key(r"C:\a\.env", false, false),
+            cache_key(r"C:\a\.gitignore", false, false)
+        );
+        assert_eq!(cache_key(r"C:\a\README", false, false), "e:");
+        assert_eq!(cache_key(r"C:\a\.env.local", false, false), "e:local");
     }
 
     #[cfg(windows)]

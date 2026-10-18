@@ -10,6 +10,11 @@
  *
  * 同一 key 的所有组件共享同一个 `Ref`，因此同一扩展名只会发起一次 IPC，
  * 且异步结果返回后自动触发视图更新。
+ *
+ * ⚠️ 扩展名必须按 Windows Shell 规则从**文件名**推导：`.env` / `.gitignore`
+ * 等 dotfile 同样以点后部分作为扩展名。若把它们都当作「无扩展名」落入同一个
+ * `e:`，先加载的 dotfile 图标会覆盖其余文件——例如 `.gitignore` 可能显示
+ * `.env` 的图标（看起来像文件夹）。
  */
 import { ref, type Ref } from 'vue'
 import { api } from '../../api'
@@ -21,13 +26,25 @@ const PER_FILE_EXTS = new Set([
 
 const refs = new Map<string, Ref<string | null>>()
 
+/** 取文件名最后一段（与后端 `extension_of` 的输入保持一致）。 */
+function baseName(path: string): string {
+  return path.slice(Math.max(path.lastIndexOf('\\'), path.lastIndexOf('/')) + 1)
+}
+
+/** Windows Shell 规则的扩展名：文件名最后一个点之后的部分（小写）；无扩展名返回空串。 */
+function iconExtension(path: string): string {
+  const name = baseName(path)
+  const dot = name.lastIndexOf('.')
+  return dot >= 0 && dot + 1 < name.length ? name.slice(dot + 1).toLowerCase() : ''
+}
+
 /** 计算缓存 key。 */
-export function iconKey(path: string, isDir: boolean, ext: string | null, isDrive = false, usePathIcon = false): string {
+export function iconKey(path: string, isDir: boolean, isDrive = false, usePathIcon = false): string {
   if (isDrive) return `drive:${path.toLowerCase()}`
   if (usePathIcon) return `system:${path.toLowerCase()}`
   if (isDir) return 'dir'
-  const e = (ext ?? '').replace(/^\./, '').toLowerCase()
-  return PER_FILE_EXTS.has(e) ? `p:${path.toLowerCase()}` : `e:${e}`
+  const ext = iconExtension(path)
+  return PER_FILE_EXTS.has(ext) ? `p:${path.toLowerCase()}` : `e:${ext}`
 }
 
 /**
@@ -37,11 +54,10 @@ export function iconKey(path: string, isDir: boolean, ext: string | null, isDriv
 export function fileIconRef(
   path: string,
   isDir: boolean,
-  ext: string | null,
   isDrive = false,
   usePathIcon = false,
 ): Ref<string | null> {
-  const key = iconKey(path, isDir, ext, isDrive, usePathIcon)
+  const key = iconKey(path, isDir, isDrive, usePathIcon)
   const existing = refs.get(key)
   if (existing) return existing
 
