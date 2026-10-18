@@ -51,6 +51,8 @@ export const api = {
   pathIsFile: (path: string) => invoke<boolean>('path_is_file', { path }),
   openInTerminal: (path: string) => invoke<void>('open_in_terminal', { path }),
   showItemProperties: (path: string) => invoke<void>('show_item_properties', { path }),
+  /** 弹出系统原生「打开方式」窗口（仅本地文件）。 */
+  showOpenWith: (path: string) => invoke<void>('show_open_with', { path }),
 
   startIndex: (roots: string[]) => invoke<void>('start_index', { roots }),
   indexStatus: () => invoke<IndexStatus>('index_status'),
