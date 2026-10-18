@@ -4,6 +4,7 @@ import { computed } from 'vue'
 import type { Component } from 'vue'
 import { useUiStore } from '../../stores/ui'
 import type { PanelKey } from '../../stores/ui'
+import { combos, formatCombo } from '../../stores/shortcuts'
 import FolderTree from './FolderTree.vue'
 import TaskPanel from './TaskPanel.vue'
 import SearchBar from '../SearchBar.vue'
@@ -28,11 +29,21 @@ const panels: Record<PanelKey, Component> = {
 const title = computed(() => titles[ui.activePanel])
 const current = computed(() => panels[ui.activePanel])
 const showHead = computed(() => ui.activePanel !== 'ai')
+const searchShortcut = computed(() =>
+  combos.value.search?.key ? formatCombo(combos.value.search) : '',
+)
 </script>
 
 <template>
   <aside class="sidebar-panel">
-    <header v-if="showHead" class="sidebar-head">{{ title }}</header>
+    <header v-if="showHead" class="sidebar-head">
+      <span class="sidebar-title">{{ title }}</span>
+      <kbd
+        v-if="ui.activePanel === 'search' && searchShortcut"
+        class="head-kbd"
+        :title="`打开搜索：${searchShortcut}`"
+      >{{ searchShortcut }}</kbd>
+    </header>
     <div
       class="sidebar-body"
       :class="{
@@ -65,12 +76,33 @@ const showHead = computed(() => ui.activePanel !== 'ai')
   height: var(--toolbar-h);
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   padding: 0 10px;
   font-size: 1.1667em;
   font-weight: 700;
   color: var(--fg);
   border-bottom: 1px solid transparent;
   flex: none;
+}
+.sidebar-title {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.head-kbd {
+  flex: none;
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--sidebar-hover);
+  color: var(--fg-muted);
+  font-family: var(--mono);
+  font-size: 0.72em;
+  font-weight: 500;
+  line-height: 1.6;
+  letter-spacing: 0.02em;
 }
 .sidebar-body {
   flex: 1;

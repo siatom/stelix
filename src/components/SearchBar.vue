@@ -17,9 +17,14 @@ const open = ref(false)
 const inputEl = ref<HTMLInputElement | null>(null)
 const activeTab = computed(() => paneStore.activeTab)
 
-/** 聚焦输入框（等 Vue flush 后再 focus，避免面板刚挂载时 ref 尚未就绪） */
+/** 聚焦输入框并选中已有内容（再次按 Ctrl+F 时可直接覆盖输入） */
 function focusInput() {
-  void nextTick(() => inputEl.value?.focus())
+  void nextTick(() => {
+    const el = inputEl.value
+    if (!el) return
+    el.focus()
+    el.select()
+  })
 }
 
 /** 消费一次性聚焦标记：为真则聚焦并清除 */
@@ -28,6 +33,9 @@ function consumeFocusRequest() {
   ui.searchFocusPending = false
   focusInput()
 }
+
+// 面板已挂载时再次触发快捷键（如 Ctrl+F）也能把焦点交回输入框
+watch(() => ui.searchFocusRequest, consumeFocusRequest)
 
 // 索引状态（统一在此展示：条目数 / 已扫描 / 状态）
 const indexText = computed(() =>
@@ -38,6 +46,15 @@ const indexText = computed(() =>
 const indexTitle = computed(
   () => `索引条目 ${ui.indexTotal.toLocaleString()}，已扫描 ${ui.scanned.toLocaleString()}，${ui.scanning ? '扫描中' : '空闲'}`,
 )
+
+const placeholder = computed(() => (scope.value === 'global' ? '搜索文件…' : '筛选当前目录…'))
+const syntaxHint = computed(() =>
+  scope.value === 'global' ? '支持 ext:pdf、size:>100mb 等语法' : '在当前目录内即时过滤',
+)
+const resultMeta = computed(() => {
+  if (scope.value !== 'global' || search.searching || !search.searched) return ''
+  return `${search.hits.length} 项 · ${Math.round(search.elapsedMs)} ms`
+})
 
 watch(
   () => [scope.value, paneStore.activePaneId, activeTab.value?.id],
@@ -84,7 +101,8 @@ function clearAll() {
     activeTab.value.typeFilter = null
   }
   search.clear()
-  open.value = false
+  // 清空后保持焦点，方便直接输入下一次关键词
+  focusInput()
 }
 
 function setScope(next: 'global' | 'current') {
@@ -120,6 +138,17 @@ watch(
 // 面板重新挂载（如收起后经搜索入口再次打开）时也要聚焦
 onMounted(consumeFocusRequest)
 
+/** 输入法组合输入时按 Enter 是在确认候选词，不应触发搜索 */
+function onEnter(event: KeyboardEvent) {
+  if (event.isComposing) return
+  void submit()
+}
+
+function onEscape() {
+  open.value = false
+  inputEl.value?.blur()
+}
+
 /** 「搜索」按钮与 Enter 共用的提交入口 */
 async function submit() {
   if (scope.value === 'current') {
@@ -137,48 +166,100 @@ async function submit() {
 
 <template>
   <div class="search-wrap">
-    <div class="search-bar" :class="{ focused: open }">
+    <div class="search-controls">
       <div class="scope-switch" role="group" aria-label="搜索范围">
-        <button :class="{ on: scope === 'global' }" @click="setScope('global')">全局</button>
-        <button :class="{ on: scope === 'current' }" @click="setScope('current')">当前目录</button>
+        <button
+          type="button"
+          :class="{ on: scope === 'global' }"
+          :aria-pressed="scope === 'global'"
+          @click="setScope('global')"
+        >
+          全局
+        </button>
+        <button
+          type="button"
+          :class="{ on: scope === 'current' }"
+          :aria-pressed="scope === 'current'"
+          @click="setScope('current')"
+        >
+          当前目录
+        </button>
       </div>
-      <input
-        ref="inputEl"
-        v-model="text"
-        :placeholder="scope === 'global' ? '全局搜索…（支持 ext:pdf  size:>100mb）' : '搜索当前 panel 目录…'"
-        spellcheck="false"
-        @focus="open = true"
-        @keyup.enter="submit"
-        @keyup.esc="open = false"
-      />
-      <span v-if="scope === 'global' && search.searching" class="spinner" />
-      <span v-else-if="scope === 'global' && search.searched" class="meta">{{ search.hits.length }} 项</span>
-      <button v-if="text" class="clear" title="清空" @click="clearAll">
-        <Icon name="x" :size="13" />
-      </button>
-      <button
-        class="go"
-        title="搜索（Enter）"
-        :disabled="scope === 'global' && !text.trim() && !search.typeKey"
-        @click="submit"
-      >
-        搜索
-      </button>
+
+      <div class="search-row">
+        <div class="search-field" :class="{ focused: open }">
+          <Icon name="search" class="field-icon" :size="15" />
+          <input
+            ref="inputEl"
+            v-model="text"
+            :placeholder="placeholder"
+            :title="scope === 'global' ? '支持 ext:pdf、size:>100mb 等语法' : '在当前目录内按名称过滤'"
+            spellcheck="false"
+            aria-label="搜索关键词"
+            @focus="open = true"
+            @blur="open = false"
+            @keydown.enter="onEnter"
+            @keydown.esc="onEscape"
+          />
+          <span v-if="scope === 'global' && search.searching" class="spinner" />
+          <button
+            v-if="text"
+            type="button"
+            class="clear"
+            title="清空"
+            aria-label="清空搜索"
+            @mousedown.prevent
+            @click="clearAll"
+          >
+            <Icon name="x" :size="12" />
+          </button>
+        </div>
+        <button
+          type="button"
+          class="go"
+          title="搜索（Enter）"
+          aria-label="搜索"
+          :disabled="scope === 'global' && !text.trim() && !search.typeKey"
+          @mousedown.prevent
+          @click="submit"
+        >
+          <Icon name="arrow-right" :size="16" />
+        </button>
+      </div>
+
+      <div class="search-meta">
+        <span class="hint">{{ syntaxHint }}</span>
+        <span v-if="resultMeta" class="meta">{{ resultMeta }}</span>
+      </div>
     </div>
 
     <div class="type-filter" role="group" aria-label="按文件类型筛选">
-      <span class="type-label">类型</span>
-      <button
-        v-for="c in SEARCH_CATEGORIES"
-        :key="c.key"
-        class="chip"
-        :class="{ on: (search.typeKey ?? 'all') === c.key }"
-        :aria-pressed="(search.typeKey ?? 'all') === c.key"
-        :title="c.key === 'all' ? '不按类型筛选' : `只显示${c.label}`"
-        @click="setType(c.key)"
-      >
-        {{ c.label }}
-      </button>
+      <div class="filter-head">
+        <span class="type-label">类型</span>
+        <button
+          v-if="search.typeKey"
+          type="button"
+          class="reset"
+          title="清除类型筛选"
+          @click="setType('all')"
+        >
+          清除
+        </button>
+      </div>
+      <div class="chips">
+        <button
+          v-for="c in SEARCH_CATEGORIES"
+          :key="c.key"
+          type="button"
+          class="chip"
+          :class="{ on: (search.typeKey ?? 'all') === c.key }"
+          :aria-pressed="(search.typeKey ?? 'all') === c.key"
+          :title="c.key === 'all' ? '不按类型筛选' : `只显示${c.label}`"
+          @click="setType(c.key)"
+        >
+          {{ c.label }}
+        </button>
+      </div>
     </div>
 
     <footer class="search-status" :title="indexTitle" aria-label="索引状态">
@@ -193,134 +274,227 @@ async function submit() {
 <style scoped>
 .search-wrap {
   position: relative;
-  flex: 1;
+  /* 内容超出可用高度时由侧栏滚动，而不是压扁类型标签 */
+  flex: 1 0 auto;
   min-height: 0;
   display: flex;
   flex-direction: column;
+  background: var(--sidebar-bg);
 }
-.search-bar {
-  min-height: 60px;
+
+/* ---- 搜索控件区 ---- */
+.search-controls {
+  flex: none;
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  padding: 8px;
-  background: var(--bg-panel);
-  border-bottom: 1px solid var(--border);
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 10px 8px;
 }
-.search-bar.focused {
-  border-bottom-color: transparent;
-}
-.search-bar input {
-  flex: 1 1 150px;
-  min-width: 0;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--bg-panel);
-  padding: 8px 14px;
-  height: 38px;
-}
-.search-bar input:focus {
-  border-color: var(--border-strong);
-  box-shadow: none;
-}
+
+/* 范围切换：轻量分段控件 */
 .scope-switch {
-  flex: 1 1 100%;
   display: flex;
-  align-items: center;
-  height: 38px;
-  padding: 3px;
-  gap: 1px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 10px;
+  background: var(--bg-hover);
 }
 .scope-switch button {
-  height: 30px;
   flex: 1;
+  height: 26px;
   padding: 0 8px;
-  border-radius: 999px;
-  color: var(--fg-muted);
+  border-radius: 8px;
+  color: var(--fg-dim);
   font-size: 0.9167em;
+  font-weight: 500;
   white-space: nowrap;
+}
+.scope-switch button:hover {
+  color: var(--fg);
 }
 .scope-switch button.on {
-  background: var(--bg-active);
-  color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--fg);
+  font-weight: 600;
 }
-.meta {
-  font-size: 0.9167em;
-  color: var(--fg-dim);
-  white-space: nowrap;
-}
-/* 搜索按钮：整行，显式触发查询（输入 / 选类型都不再实时生效） */
-.go {
-  flex: 1 1 100%;
+
+/* 输入框 + 提交按钮 */
+.search-row {
   display: flex;
   align-items: center;
-  justify-content: center;
-  min-height: 32px;
-  padding: 0 12px;
-  border: 1px solid var(--accent);
-  border-radius: var(--radius-sm);
+  gap: 6px;
+}
+.search-field {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 8px 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-panel);
+  transition:
+    border-color var(--t-fast),
+    background var(--t-fast),
+    box-shadow var(--t-fast);
+}
+.search-field:hover {
+  border-color: var(--border-strong);
+}
+.search-field.focused {
+  border-color: var(--border-strong);
+  background: var(--bg-hover);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.field-icon {
+  color: var(--fg-dim);
+  transition: color var(--t-fast);
+}
+.search-field.focused .field-icon {
+  color: var(--fg-muted);
+}
+.search-field input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--fg);
+  font: inherit;
+  outline: none;
+}
+.search-field input:focus {
+  border: none;
+  box-shadow: none;
+}
+.search-field input::placeholder {
+  color: var(--fg-dim);
+}
+.clear {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border-radius: 5px;
+  color: var(--fg-dim);
+}
+.clear:hover {
+  background: var(--bg-active);
+  color: var(--fg);
+}
+.go {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
   background: var(--accent);
   color: var(--accent-fg);
-  font-size: 0.9167em;
-  white-space: nowrap;
+  transition:
+    opacity var(--t-fast),
+    background var(--t-fast),
+    color var(--t-fast);
 }
 .go:hover:not(:disabled) {
-  filter: brightness(0.9);
+  opacity: 0.86;
 }
 .go:disabled {
   background: var(--bg-active);
-  border-color: var(--border);
   color: var(--fg-dim);
+  opacity: 0.6;
   cursor: default;
 }
 
-/* ---- 类型筛选标签 ---- */
-.type-filter {
+/* 辅助提示 + 结果统计 */
+.search-meta {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  gap: 4px;
-  padding: 8px;
-  border-bottom: 1px solid var(--border);
-}
-.type-filter .type-label {
-  flex: none;
-  margin-right: 2px;
-  font-size: 0.9167em;
-  color: var(--fg-dim);
-}
-.type-filter .chip {
-  flex: none;
-  height: 22px;
-  padding: 0 8px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  font-size: 0.9167em;
+  justify-content: space-between;
+  gap: 6px;
+  min-height: 14px;
+  padding: 0 2px;
   color: var(--fg-muted);
+  font-size: 0.8333em;
+  line-height: 1.35;
+}
+.search-meta .hint {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.search-meta .meta {
+  flex: none;
+  color: var(--fg-muted);
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
-.type-filter .chip:hover {
-  background: var(--bg-hover);
-  color: var(--fg);
+
+/* ---- 类型筛选 ---- */
+.type-filter {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border-top: 1px solid var(--border);
 }
-.type-filter .chip.on {
-  background: var(--bg-active);
-  border-color: transparent;
-  color: var(--accent);
-}
-.clear {
+.filter-head {
   display: flex;
   align-items: center;
-  color: var(--fg-dim);
-  padding: 0 4px;
+  justify-content: space-between;
+  padding: 0 2px;
 }
-.clear:hover {
+.type-label {
+  color: var(--fg-muted);
+  font-size: 0.8333em;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+.reset {
+  padding: 0 2px;
+  border-radius: 4px;
+  color: var(--fg-muted);
+  font-size: 0.8333em;
+}
+.reset:hover {
   color: var(--fg);
 }
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.chip {
+  height: 24px;
+  padding: 0 9px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: var(--bg-hover);
+  color: var(--fg-muted);
+  font-size: 0.875em;
+  white-space: nowrap;
+}
+.chip:hover {
+  background: var(--bg-active);
+  color: var(--fg);
+}
+.chip.on {
+  background: var(--accent-soft);
+  border-color: var(--border-strong);
+  color: var(--fg);
+  font-weight: 600;
+}
+
 .spinner {
+  flex: none;
   width: 13px;
   height: 13px;
   border: 2px solid var(--border-strong);
@@ -341,11 +515,11 @@ async function submit() {
   height: var(--status-bar-h);
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
   padding: 0 10px;
   border-top: 1px solid var(--border);
   background: var(--bg-panel);
-  font-size: 0.9167em;
+  font-size: 0.8333em;
   color: var(--fg-muted);
   overflow: hidden;
 }
@@ -354,13 +528,15 @@ async function submit() {
 }
 .search-status .dot {
   flex: none;
-  width: 7px;
-  height: 7px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   background: var(--ok);
+  box-shadow: 0 0 0 3px var(--ok-soft);
 }
 .search-status .dot.scanning {
   background: var(--warn);
+  box-shadow: 0 0 0 3px var(--warn-soft);
   animation: pulse 1s ease-in-out infinite;
 }
 .search-status .txt {
