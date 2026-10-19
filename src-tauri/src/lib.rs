@@ -50,12 +50,31 @@ fn get_roots() -> Vec<DriveInfo> {
     fs_core::get_roots()
 }
 
-/// 列出 FTP / SFTP 目录（只读），条目带类型 / 大小 / 修改时间。
+/// 列出 FTP / SFTP 目录，条目带类型 / 大小 / 修改时间。
 #[tauri::command]
 async fn list_remote_dir(request: network::RemoteRequest) -> Result<DirListing, String> {
     tauri::async_runtime::spawn_blocking(move || network::list_remote_dir(request))
         .await
         .map_err(|error| format!("远程读取任务失败: {error}"))?
+}
+
+/// 在本地与 FTP / SFTP 之间上传或下载（支持目录递归）。
+///
+/// 大文件与目录递归都在后台线程执行；每开始一个顶层条目就发一次
+/// `remote:transfer` 事件，供状态栏显示当前进度。
+#[tauri::command]
+async fn remote_transfer(
+    app: tauri::AppHandle,
+    request: network::RemoteTransferRequest,
+) -> Result<network::RemoteTransferResult, String> {
+    use tauri::Emitter;
+    tauri::async_runtime::spawn_blocking(move || {
+        network::transfer_remote(request, &mut |progress| {
+            let _ = app.emit(app_core::events::REMOTE_TRANSFER, progress);
+        })
+    })
+    .await
+    .map_err(|error| format!("远程传输任务失败: {error}"))
 }
 
 #[tauri::command]
@@ -728,6 +747,7 @@ pub fn run() {
             show_main_window(app);
         }))
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         // 开机自启动：注册时带上 `--autostart` 参数，供下方 setup 判断启动来源。
         .plugin(tauri_plugin_autostart::init(
             MacosLauncher::LaunchAgent,
@@ -788,6 +808,7 @@ pub fn run() {
             list_dir,
             get_roots,
             list_remote_dir,
+            remote_transfer,
             discover_smb_neighbors,
             list_smb_shares,
             list_wsl_distros,

@@ -169,6 +169,40 @@ export interface RemoteLocation {
   label: string
 }
 
+/** 一个待传输条目：下载时 path 为远端 POSIX 路径，上传时为本地路径。 */
+export interface RemoteTransferItem {
+  path: string
+  isDir: boolean
+}
+
+export interface RemoteTransferRequest {
+  protocol: 'ftp' | 'sftp'
+  host: string
+  port: number
+  username: string
+  password: string
+  direction: 'download' | 'upload'
+  /** 下载目标本地目录 / 上传目标远端目录 */
+  target: string
+  items: RemoteTransferItem[]
+  /** 传输成功后删除源（剪切 / 移动） */
+  removeSources?: boolean
+}
+
+export interface RemoteTransferResult {
+  ok: boolean
+  errors: string[]
+  transferred: number
+  bytes: number
+}
+
+export interface RemoteTransferProgress {
+  direction: 'download' | 'upload'
+  done: number
+  total: number
+  current: string
+}
+
 export interface TabState {
   id: string
   path: string

@@ -17,6 +17,8 @@ tauri-build = { version = "2", features = [] }
 # tray-icon：系统托盘支持（托盘图标 + 右键菜单），用于「关闭窗口最小化到托盘」
 tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-opener = "2"
+# dialog：远程传输时选择本地上传文件 / 下载目标目录（官方插件）
+tauri-plugin-dialog = "2"
 # autostart：开机自启动（Windows 写 HKCU\...\Run 注册表项）
 tauri-plugin-autostart = "2"
 # single-instance：保证整个系统只运行一个实例，重复启动时唤起已有窗口

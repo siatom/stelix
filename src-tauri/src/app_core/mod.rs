@@ -21,4 +21,6 @@ pub mod events {
     /// 文件操作进度（预留）：payload = String
     #[allow(dead_code)]
     pub const FS_PROGRESS: &str = "fs:progress";
+    /// 远程传输进度：payload = RemoteTransferProgress
+    pub const REMOTE_TRANSFER: &str = "remote:transfer";
 }
