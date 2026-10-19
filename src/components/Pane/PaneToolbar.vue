@@ -1,39 +1,13 @@
 <script setup lang="ts">
-// 窗格内嵌工具栏：导航 / 新建 / 视图
-import { computed } from 'vue'
-import type { ViewMode } from '../../types'
+// 窗格内嵌工具栏：目录导航。
+// 新建 / 删除 / 视图切换已上移到应用顶部标题栏（见 components/TitlebarActions.vue），
+// 这里只保留与当前窗格强绑定的前进后退与刷新。
 import { usePaneStore } from '../../stores/pane'
 import Icon from '../icons/Icon.vue'
-import type { IconName } from '../icons/paths'
 
 const props = defineProps<{ paneId: string }>()
-const emit = defineEmits<{
-  (e: 'create', kind: 'mkdir' | 'createFile'): void
-  (e: 'delete', paths: string[]): void
-}>()
 
 const paneStore = usePaneStore()
-
-const pane = computed(() => paneStore.panes.find((p) => p.id === props.paneId))
-const activeTab = computed(() => {
-  const p = pane.value
-  if (!p) return undefined
-  return p.tabs.find((t) => t.id === p.activeTabId) ?? p.tabs[0]
-})
-// 搜索结果与远程标签都没有本地「目录」写权限，禁用新建入口。
-const canCreate = computed(
-  () => !!activeTab.value && activeTab.value.kind !== 'search' && activeTab.value.kind !== 'remote',
-)
-// 删除作用于选中项自身路径：搜索结果的命中项也是真实本地文件，与普通目录一样可删。
-const canDelete = computed(
-  () => !!activeTab.value && activeTab.value.kind !== 'remote' && activeTab.value.selected.length > 0,
-)
-
-const modes: { key: ViewMode; icon: IconName; title: string }[] = [
-  { key: 'details', icon: 'view-details', title: '详细' },
-  { key: 'list', icon: 'view-list', title: '列表' },
-  { key: 'icons', icon: 'view-icons', title: '图标' },
-]
 </script>
 
 <template>
@@ -50,30 +24,6 @@ const modes: { key: ViewMode; icon: IconName; title: string }[] = [
       </button>
       <button title="刷新" @click="paneStore.refresh(paneId)">
         <Icon name="refresh" />
-      </button>
-    </div>
-
-    <div class="group">
-      <button title="新建文件夹" :disabled="!canCreate" @click="emit('create', 'mkdir')">
-        <Icon name="folder-plus" />
-      </button>
-      <button title="新建文件" :disabled="!canCreate" @click="emit('create', 'createFile')">
-        <Icon name="file-plus" />
-      </button>
-      <button title="删除所选项" :disabled="!canDelete" @click="emit('delete', [...(activeTab?.selected ?? [])])">
-        <Icon name="trash" />
-      </button>
-    </div>
-
-    <div class="group views">
-      <button
-        v-for="m in modes"
-        :key="m.key"
-        :class="{ on: pane?.viewMode === m.key }"
-        :title="m.title"
-        @click="paneStore.setViewMode(paneId, m.key)"
-      >
-        <Icon :name="m.icon" />
       </button>
     </div>
   </div>
@@ -95,8 +45,6 @@ const modes: { key: ViewMode; icon: IconName; title: string }[] = [
   align-items: center;
   gap: 1px;
   flex: none;
-  padding-right: 6px;
-  border-right: 1px solid var(--border);
 }
 .group button {
   width: 24px;
@@ -115,9 +63,5 @@ const modes: { key: ViewMode; icon: IconName; title: string }[] = [
 .group button:disabled {
   opacity: 0.35;
   cursor: default;
-}
-.views button.on {
-  background: var(--bg-active);
-  color: var(--fg);
 }
 </style>

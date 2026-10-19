@@ -18,7 +18,7 @@ import {
   recordOpenedFileDirectory,
 } from '../Sidebar/shared'
 
-/** 由窗格工具栏发起的一次「新建」请求（FileList 处理后回发 create-handled）。 */
+/** 由顶部标题栏发起的一次「新建」请求（FileList 处理后回发 create-handled）。 */
 interface CreateRequest {
   kind: 'mkdir' | 'createFile'
   seq: number
