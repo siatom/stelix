@@ -1,11 +1,13 @@
 <script setup lang="ts">
 // 全局搜索栏（Everything 式，走索引引擎）（WS-D）
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useSearchStore } from '../stores/search'
 import { usePaneStore } from '../stores/pane'
 import { useUiStore } from '../stores/ui'
 import { SEARCH_CATEGORIES } from '../searchFilters'
+import { basename } from './Pane/utils'
 import Icon from './icons/Icon.vue'
+import type { IconName } from './icons/paths'
 
 const search = useSearchStore()
 const paneStore = usePaneStore()
@@ -14,16 +16,19 @@ const ui = useUiStore()
 const text = ref('')
 const scope = ref<'global' | 'current'>(ui.searchScope)
 const open = ref(false)
+const typeMenuOpen = ref(false)
 const inputEl = ref<HTMLInputElement | null>(null)
+const typePickerEl = ref<HTMLElement | null>(null)
+const typeBtnEl = ref<HTMLButtonElement | null>(null)
 const activeTab = computed(() => paneStore.activeTab)
 
-/** 聚焦输入框并选中已有内容（再次按 Ctrl+F 时可直接覆盖输入） */
-function focusInput() {
+/** 聚焦输入框；默认选中已有内容（再次按 Ctrl+F 时可直接覆盖输入） */
+function focusInput(select = true) {
   void nextTick(() => {
     const el = inputEl.value
     if (!el) return
     el.focus()
-    el.select()
+    if (select) el.select()
   })
 }
 
@@ -40,21 +45,105 @@ watch(() => ui.searchFocusRequest, consumeFocusRequest)
 // 索引状态（统一在此展示：条目数 / 已扫描 / 状态）
 const indexText = computed(() =>
   ui.scanning
-    ? `${ui.scanned.toLocaleString()} / ${ui.indexTotal.toLocaleString()}`
+    ? `正在扫描 ${ui.scanned.toLocaleString()} 项`
     : `索引 ${ui.indexTotal.toLocaleString()} 项`,
 )
 const indexTitle = computed(
   () => `索引条目 ${ui.indexTotal.toLocaleString()}，已扫描 ${ui.scanned.toLocaleString()}，${ui.scanning ? '扫描中' : '空闲'}`,
 )
+/** 扫描进度（仅在已知总量时展示百分比） */
+const scanPercent = computed(() => {
+  if (!ui.scanning || ui.indexTotal <= 0) return ''
+  return `${Math.min(100, Math.round((ui.scanned / ui.indexTotal) * 100))}%`
+})
 
 const placeholder = computed(() => (scope.value === 'global' ? '搜索文件…' : '筛选当前目录…'))
 const syntaxHint = computed(() =>
-  scope.value === 'global' ? '支持 ext:pdf、size:>100mb 等语法' : '在当前目录内即时过滤',
+  scope.value === 'global' ? 'Enter 搜索 · 支持 ext: size: 语法' : 'Enter 应用筛选',
 )
 const resultMeta = computed(() => {
   if (scope.value !== 'global' || search.searching || !search.searched) return ''
   return `${search.hits.length} 项 · ${Math.round(search.elapsedMs)} ms`
 })
+/** 输入框右侧的提交按钮：仅在有可执行条件时出现 */
+const canSearch = computed(() =>
+  scope.value === 'global' ? !!(text.value.trim() || search.typeKey) : !!text.value.trim(),
+)
+/** 没有输入、也没有筛选条件时展示引导区 */
+const showEmpty = computed(() => !text.value.trim() && !search.typeKey && !search.searching)
+
+const currentPath = computed(() => activeTab.value?.path ?? '')
+const currentPathLabel = computed(() => {
+  const name = currentPath.value ? basename(currentPath.value) : ''
+  // 盘根 basename 会得到 `C:`，补回分隔符更符合路径习惯
+  return /^[A-Za-z]:$/.test(name) ? `${name}\\` : name
+})
+
+// ---- 类型筛选 ----
+
+interface CategoryVisual {
+  icon?: IconName
+  badge?: string
+  color: string
+}
+
+const CATEGORY_VISUALS: Record<string, CategoryVisual> = {
+  all: { icon: 'view-icons', color: 'var(--fg-dim)' },
+  folder: { icon: 'folder', color: 'var(--ico-folder)' },
+  doc: { icon: 'file-text', color: 'var(--ico-doc)' },
+  image: { icon: 'image', color: 'var(--ico-image)' },
+  audio: { icon: 'music', color: 'var(--ico-audio)' },
+  video: { icon: 'video', color: 'var(--ico-video)' },
+  archive: { icon: 'archive', color: 'var(--ico-archive)' },
+  app: { icon: 'executable', color: 'var(--ico-app)' },
+  code: { icon: 'code', color: 'var(--ico-code)' },
+  word: { badge: 'W', color: '#5b9bef' },
+  excel: { badge: 'X', color: '#48b57d' },
+  ppt: { badge: 'P', color: '#e3805c' },
+  pdf: { badge: 'PDF', color: '#ef6b70' },
+  markdown: { badge: 'MD', color: 'var(--fg-muted)' },
+}
+const FALLBACK_VISUAL: CategoryVisual = { icon: 'file', color: 'var(--fg-muted)' }
+
+function visualOf(key: string): CategoryVisual {
+  return CATEGORY_VISUALS[key] ?? FALLBACK_VISUAL
+}
+
+// 办公文档单独成组，避免和通用分类混在一起显得杂乱
+const OFFICE_KEYS = new Set(['word', 'excel', 'ppt', 'pdf', 'markdown'])
+const TYPE_GROUPS = [
+  SEARCH_CATEGORIES.filter((c) => !OFFICE_KEYS.has(c.key)),
+  SEARCH_CATEGORIES.filter((c) => OFFICE_KEYS.has(c.key)),
+].map((group) => group.map((c) => ({ ...c, visual: visualOf(c.key) })))
+
+const activeVisual = computed(() => (search.typeKey ? visualOf(search.typeKey) : null))
+
+const syntaxExamples = [
+  { label: '按类型', value: 'ext:pdf' },
+  { label: '按大小', value: 'size:>100mb' },
+  { label: '按时间', value: 'modified:today' },
+]
+
+/** 点击语法示例：填入并立即检索 */
+async function applyExample(value: string) {
+  text.value = value
+  await submit()
+  focusInput(false)
+}
+
+function toggleTypeMenu() {
+  typeMenuOpen.value = !typeMenuOpen.value
+}
+
+function closeTypeMenu() {
+  typeMenuOpen.value = false
+}
+
+function onDocPointerDown(event: PointerEvent) {
+  if (!typeMenuOpen.value) return
+  const el = typePickerEl.value
+  if (el && !el.contains(event.target as Node)) closeTypeMenu()
+}
 
 watch(
   () => [scope.value, paneStore.activePaneId, activeTab.value?.id],
@@ -66,6 +155,7 @@ watch(
         tab.typeFilter = null
       }),
     )
+    closeTypeMenu()
   },
 )
 
@@ -87,15 +177,44 @@ async function runGlobalSearch(value: string) {
   resultTabId = paneStore.showSearchResults(trimmed, search.hits, resultTabId, title)
 }
 
-/** 点击类型标签：只改选择，结果等「搜索」/ Enter 再更新；再次点击已选中的回到「全部」 */
-function setType(key: string) {
-  search.setType(search.typeKey === key || key === 'all' ? null : key)
+/**
+ * 选择类型：点击已选中的分类会回到「全部」。
+ * 全局搜索下立即刷新结果；当前目录下立即应用到文件列表，免去再按一次 Enter。
+ */
+async function setType(key: string) {
+  const next = !key || key === 'all' || search.typeKey === key ? null : key
+  const changed = next !== search.typeKey
+  typeMenuOpen.value = false
+  search.setType(next)
+  if (!changed) return
+  if (scope.value === 'current') {
+    if (activeTab.value) activeTab.value.typeFilter = next
+    return
+  }
+  if (!next && !text.value.trim()) {
+    // 只剩「全部」条件：清掉上一轮结果统计，回到引导态
+    search.clear()
+    return
+  }
+  await runGlobalSearch(text.value)
+}
+
+function pickType(key: string) {
+  void setType(key)
+  focusInput(false)
+}
+
+/** 类型下拉的键盘关闭：焦点回到触发按钮 */
+function onTypeEscape() {
+  closeTypeMenu()
+  typeBtnEl.value?.focus()
 }
 
 function clearAll() {
   requestId += 1
   text.value = ''
   search.setType(null)
+  closeTypeMenu()
   if (scope.value === 'current' && activeTab.value) {
     activeTab.value.filter = ''
     activeTab.value.typeFilter = null
@@ -110,6 +229,7 @@ function setScope(next: 'global' | 'current') {
   scope.value = next
   ui.searchScope = next
   requestId += 1
+  closeTypeMenu()
   search.clear()
   paneStore.panes.forEach((pane) =>
     pane.tabs.forEach((tab) => {
@@ -125,6 +245,7 @@ watch(
   () => {
     text.value = ''
     search.clear()
+    closeTypeMenu()
     setScope('current')
     // 已经在「当前目录」范围时 setScope 会提前返回，这里补一次过滤清理
     if (activeTab.value) {
@@ -136,7 +257,11 @@ watch(
 )
 
 // 面板重新挂载（如收起后经搜索入口再次打开）时也要聚焦
-onMounted(consumeFocusRequest)
+onMounted(() => {
+  document.addEventListener('pointerdown', onDocPointerDown, true)
+  consumeFocusRequest()
+})
+onUnmounted(() => document.removeEventListener('pointerdown', onDocPointerDown, true))
 
 /** 输入法组合输入时按 Enter 是在确认候选词，不应触发搜索 */
 function onEnter(event: KeyboardEvent) {
@@ -145,12 +270,17 @@ function onEnter(event: KeyboardEvent) {
 }
 
 function onEscape() {
+  if (typeMenuOpen.value) {
+    closeTypeMenu()
+    return
+  }
   open.value = false
   inputEl.value?.blur()
 }
 
 /** 「搜索」按钮与 Enter 共用的提交入口 */
 async function submit() {
+  closeTypeMenu()
   if (scope.value === 'current') {
     requestId += 1
     if (activeTab.value) {
@@ -167,98 +297,193 @@ async function submit() {
 <template>
   <div class="search-wrap">
     <div class="search-controls">
-      <div class="scope-switch" role="group" aria-label="搜索范围">
-        <button
-          type="button"
-          :class="{ on: scope === 'global' }"
-          :aria-pressed="scope === 'global'"
-          @click="setScope('global')"
-        >
-          全局
-        </button>
-        <button
-          type="button"
-          :class="{ on: scope === 'current' }"
-          :aria-pressed="scope === 'current'"
-          @click="setScope('current')"
-        >
-          当前目录
-        </button>
-      </div>
-
-      <div class="search-row">
-        <div class="search-field" :class="{ focused: open }">
-          <Icon name="search" class="field-icon" :size="15" />
-          <input
-            ref="inputEl"
-            v-model="text"
-            :placeholder="placeholder"
-            :title="scope === 'global' ? '支持 ext:pdf、size:>100mb 等语法' : '在当前目录内按名称过滤'"
-            spellcheck="false"
-            aria-label="搜索关键词"
-            @focus="open = true"
-            @blur="open = false"
-            @keydown.enter="onEnter"
-            @keydown.esc="onEscape"
-          />
-          <span v-if="scope === 'global' && search.searching" class="spinner" />
+      <div class="search-field" :class="{ focused: open }">
+        <Icon name="search" class="field-icon" :size="15" />
+        <input
+          ref="inputEl"
+          v-model="text"
+          :placeholder="placeholder"
+          :title="scope === 'global' ? '支持 ext:pdf、size:>100mb 等语法' : '在当前目录内按名称过滤'"
+          spellcheck="false"
+          aria-label="搜索关键词"
+          @focus="open = true"
+          @blur="open = false"
+          @keydown.enter="onEnter"
+          @keydown.esc="onEscape"
+        />
+        <span v-if="scope === 'global' && search.searching" class="spinner" aria-hidden="true" />
+        <template v-else>
           <button
             v-if="text"
             type="button"
-            class="clear"
+            class="field-btn clear"
             title="清空"
             aria-label="清空搜索"
             @mousedown.prevent
             @click="clearAll"
           >
-            <Icon name="x" :size="12" />
+            <Icon name="x" :size="11" />
+          </button>
+          <button
+            v-if="canSearch"
+            type="button"
+            class="field-btn go"
+            title="搜索（Enter）"
+            aria-label="搜索"
+            @mousedown.prevent
+            @click="submit"
+          >
+            <Icon name="arrow-right" :size="13" />
+          </button>
+        </template>
+      </div>
+
+      <div class="toolbar">
+        <div class="scope-switch" role="group" aria-label="搜索范围">
+          <button
+            type="button"
+            :class="{ on: scope === 'global' }"
+            :aria-pressed="scope === 'global'"
+            @click="setScope('global')"
+          >
+            全局
+          </button>
+          <button
+            type="button"
+            :class="{ on: scope === 'current' }"
+            :aria-pressed="scope === 'current'"
+            @click="setScope('current')"
+          >
+            当前目录
           </button>
         </div>
-        <button
-          type="button"
-          class="go"
-          title="搜索（Enter）"
-          aria-label="搜索"
-          :disabled="scope === 'global' && !text.trim() && !search.typeKey"
-          @mousedown.prevent
-          @click="submit"
-        >
-          <Icon name="arrow-right" :size="16" />
-        </button>
+
+        <div ref="typePickerEl" class="type-picker" @keydown.esc="onTypeEscape">
+          <button
+            ref="typeBtnEl"
+            type="button"
+            class="type-btn"
+            :class="{ on: !!search.typeKey, open: typeMenuOpen }"
+            title="按文件类型筛选"
+            aria-haspopup="true"
+            :aria-expanded="typeMenuOpen"
+            @mousedown.prevent
+            @click="toggleTypeMenu"
+          >
+            <span>类型</span>
+            <Icon name="chevron-down" :size="12" class="chev" />
+          </button>
+
+          <transition name="pop">
+            <div v-if="typeMenuOpen" class="type-menu" role="group" aria-label="按文件类型筛选">
+              <div class="type-menu-head">
+                <span class="t">文件类型</span>
+                <button
+                  v-if="search.typeKey"
+                  type="button"
+                  class="reset"
+                  @mousedown.prevent
+                  @click="pickType('all')"
+                >
+                  重置
+                </button>
+              </div>
+              <div class="type-grid">
+                <template v-for="(group, gi) in TYPE_GROUPS" :key="gi">
+                  <div v-if="gi > 0" class="type-sep" />
+                  <button
+                    v-for="c in group"
+                    :key="c.key"
+                    type="button"
+                    class="type-item"
+                    :class="{ on: (search.typeKey ?? 'all') === c.key }"
+                    :aria-pressed="(search.typeKey ?? 'all') === c.key"
+                    @mousedown.prevent
+                    @click="pickType(c.key)"
+                  >
+                    <Icon
+                      v-if="c.visual.icon"
+                      :name="c.visual.icon ?? 'file'"
+                      :size="14"
+                      class="ti-icon"
+                      :style="{ color: c.visual.color }"
+                    />
+                    <span v-else class="ti-badge" :style="{ color: c.visual.color }">
+                      {{ c.visual.badge }}
+                    </span>
+                    <span class="ti-label">{{ c.label }}</span>
+                    <Icon
+                      v-if="(search.typeKey ?? 'all') === c.key"
+                      name="check"
+                      :size="12"
+                      class="ti-check"
+                    />
+                  </button>
+                </template>
+              </div>
+            </div>
+          </transition>
+        </div>
       </div>
 
       <div class="search-meta">
-        <span class="hint">{{ syntaxHint }}</span>
+        <button
+          v-if="search.typeKey"
+          type="button"
+          class="active-filter"
+          :title="`清除类型筛选：${search.typeLabel}`"
+          @click="setType('all')"
+        >
+          <Icon
+            v-if="activeVisual?.icon"
+            :name="activeVisual.icon ?? 'file'"
+            :size="12"
+            class="af-icon"
+            :style="{ color: activeVisual.color }"
+          />
+          <span v-else class="af-badge" :style="{ color: activeVisual?.color }">
+            {{ activeVisual?.badge }}
+          </span>
+          <span class="af-label">{{ search.typeLabel }}</span>
+          <Icon name="x" :size="10" class="af-x" />
+        </button>
+        <span v-else class="hint">{{ syntaxHint }}</span>
         <span v-if="resultMeta" class="meta">{{ resultMeta }}</span>
       </div>
     </div>
 
-    <div class="type-filter" role="group" aria-label="按文件类型筛选">
-      <div class="filter-head">
-        <span class="type-label">类型</span>
-        <button
-          v-if="search.typeKey"
-          type="button"
-          class="reset"
-          title="清除类型筛选"
-          @click="setType('all')"
-        >
-          清除
-        </button>
-      </div>
-      <div class="chips">
-        <button
-          v-for="c in SEARCH_CATEGORIES"
-          :key="c.key"
-          type="button"
-          class="chip"
-          :class="{ on: (search.typeKey ?? 'all') === c.key }"
-          :aria-pressed="(search.typeKey ?? 'all') === c.key"
-          :title="c.key === 'all' ? '不按类型筛选' : `只显示${c.label}`"
-          @click="setType(c.key)"
-        >
-          {{ c.label }}
-        </button>
+    <div class="search-body">
+      <div v-if="showEmpty" class="empty">
+        <div class="empty-icon" :class="{ folder: scope === 'current' }">
+          <Icon :name="scope === 'current' ? 'folder' : 'search'" :size="18" />
+        </div>
+        <p class="empty-title">{{ scope === 'global' ? '搜索这台电脑' : '筛选当前目录' }}</p>
+        <p class="empty-sub">
+          {{ scope === 'global' ? '输入文件名，或组合语法精确筛选' : '输入关键词，仅在当前文件夹内过滤' }}
+        </p>
+
+        <div v-if="scope === 'current' && currentPathLabel" class="scope-path" :title="currentPath">
+          <Icon name="folder" :size="11" />
+          <span>{{ currentPathLabel }}</span>
+        </div>
+
+        <div v-else-if="scope === 'global'" class="syntax-card">
+          <div class="syntax-head">
+            <span>快捷语法</span>
+            <span class="note">点击立即搜索</span>
+          </div>
+          <button
+            v-for="ex in syntaxExamples"
+            :key="ex.value"
+            type="button"
+            class="syntax-row"
+            @mousedown.prevent
+            @click="applyExample(ex.value)"
+          >
+            <span class="name">{{ ex.label }}</span>
+            <code>{{ ex.value }}</code>
+          </button>
+        </div>
       </div>
     </div>
 
@@ -266,7 +491,7 @@ async function submit() {
       <span class="dot" :class="{ scanning: ui.scanning }" />
       <span class="txt">{{ indexText }}</span>
       <span class="spacer" />
-      <span class="state" :class="{ busy: ui.scanning }">{{ ui.scanning ? '扫描中' : '空闲' }}</span>
+      <span v-if="scanPercent" class="state busy">{{ scanPercent }}</span>
     </footer>
   </div>
 </template>
@@ -274,8 +499,8 @@ async function submit() {
 <style scoped>
 .search-wrap {
   position: relative;
-  /* 内容超出可用高度时由侧栏滚动，而不是压扁类型标签 */
-  flex: 1 0 auto;
+  /* 铺满侧栏：引导区可垂直居中，底部状态栏贴边 */
+  flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -288,56 +513,21 @@ async function submit() {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 10px 10px 8px;
+  padding: 12px 10px 8px;
 }
 
-/* 范围切换：轻量分段控件 */
-.scope-switch {
-  display: flex;
-  gap: 2px;
-  padding: 2px;
-  border-radius: 10px;
-  background: var(--bg-hover);
-}
-.scope-switch button {
-  flex: 1;
-  height: 26px;
-  padding: 0 8px;
-  border-radius: 8px;
-  color: var(--fg-dim);
-  font-size: 0.9167em;
-  font-weight: 500;
-  white-space: nowrap;
-}
-.scope-switch button:hover {
-  color: var(--fg);
-}
-.scope-switch button.on {
-  background: var(--accent-soft);
-  color: var(--fg);
-  font-weight: 600;
-}
-
-/* 输入框 + 提交按钮 */
-.search-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
+/* 输入框 */
 .search-field {
-  flex: 1;
-  min-width: 0;
   display: flex;
   align-items: center;
   gap: 6px;
-  height: 34px;
-  padding: 0 8px 0 10px;
+  height: 36px;
+  padding: 0 7px 0 10px;
   border: 1px solid var(--border);
   border-radius: 10px;
-  background: var(--bg-panel);
+  background: var(--bg-input);
   transition:
     border-color var(--t-fast),
-    background var(--t-fast),
     box-shadow var(--t-fast);
 }
 .search-field:hover {
@@ -345,7 +535,6 @@ async function submit() {
 }
 .search-field.focused {
   border-color: var(--border-strong);
-  background: var(--bg-hover);
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
 .field-icon {
@@ -373,124 +562,436 @@ async function submit() {
   box-shadow: none;
 }
 .search-field input::placeholder {
-  color: var(--fg-dim);
+  color: var(--fg-muted);
 }
-.clear {
-  display: grid;
-  place-items: center;
-  width: 20px;
-  height: 20px;
-  padding: 0;
-  border-radius: 5px;
-  color: var(--fg-dim);
-}
-.clear:hover {
-  background: var(--bg-active);
-  color: var(--fg);
-}
-.go {
+
+.field-btn {
   flex: none;
   display: grid;
   place-items: center;
-  width: 34px;
-  height: 34px;
-  border-radius: 10px;
+  padding: 0;
+  border-radius: 6px;
+  color: var(--fg-dim);
+}
+.field-btn.clear {
+  width: 20px;
+  height: 20px;
+}
+.field-btn.clear:hover {
+  background: var(--bg-active);
+  color: var(--fg);
+}
+.field-btn.go {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
   background: var(--accent);
   color: var(--accent-fg);
-  transition:
-    opacity var(--t-fast),
-    background var(--t-fast),
-    color var(--t-fast);
 }
-.go:hover:not(:disabled) {
+.field-btn.go:hover {
   opacity: 0.86;
 }
-.go:disabled {
-  background: var(--bg-active);
-  color: var(--fg-dim);
-  opacity: 0.6;
-  cursor: default;
+
+/* 范围 + 类型：一行次级控件 */
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.scope-switch {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 9px;
+  background: var(--bg-hover);
+}
+.scope-switch button {
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  padding: 0 6px;
+  border-radius: 7px;
+  color: var(--fg-muted);
+  font-size: 0.875em;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.scope-switch button:hover {
+  color: var(--fg);
+}
+.scope-switch button.on {
+  background: var(--accent-soft);
+  color: var(--fg);
+  font-weight: 600;
 }
 
-/* 辅助提示 + 结果统计 */
-.search-meta {
+.type-picker {
+  position: relative;
+  flex: none;
+}
+.type-btn {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  height: 30px;
+  padding: 0 8px;
+  border-radius: 9px;
+  background: var(--bg-hover);
+  color: var(--fg-muted);
+  font-size: 0.875em;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.type-btn:hover {
+  background: var(--bg-active);
+  color: var(--fg);
+}
+.type-btn.on {
+  background: var(--accent-soft);
+  color: var(--fg);
+}
+.type-btn .chev {
+  color: var(--fg-dim);
+  transition: transform var(--t-fast);
+}
+.type-btn.open .chev {
+  transform: rotate(180deg);
+}
+
+/* 类型下拉面板 */
+.type-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 30;
+  /* 与搜索控件同宽，避免菜单左侧漏出下层提示文字 */
+  width: calc(var(--sidebar-w) - 20px);
+  max-height: min(360px, calc(100vh - 160px));
+  padding: 6px;
+  overflow: auto;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-md);
+}
+.type-menu-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 6px;
-  min-height: 14px;
-  padding: 0 2px;
+  height: 24px;
+  padding: 0 4px 2px;
+}
+.type-menu-head .t {
   color: var(--fg-muted);
   font-size: 0.8333em;
-  line-height: 1.35;
+  font-weight: 600;
+  letter-spacing: 0.04em;
 }
-.search-meta .hint {
+.type-menu-head .reset {
+  padding: 1px 6px;
+  border-radius: 5px;
+  color: var(--fg-muted);
+  font-size: 0.8333em;
+}
+.type-menu-head .reset:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+.type-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px;
+}
+.type-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  height: 30px;
+  padding: 0 6px;
+  border-radius: 7px;
+  color: var(--fg-muted);
+  font-size: 0.9167em;
+  text-align: left;
+}
+.type-item:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+.type-item.on {
+  background: var(--accent-soft);
+  color: var(--fg);
+  font-weight: 600;
+}
+.ti-icon,
+.ti-badge {
+  flex: none;
+  width: 14px;
+  text-align: center;
+}
+.ti-badge {
+  font-family: var(--mono);
+  font-size: 0.62em;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.ti-label {
+  flex: 1;
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
-.search-meta .meta {
+.ti-check {
   flex: none;
-  color: var(--fg-muted);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
+  color: var(--fg);
+}
+.type-sep {
+  grid-column: 1 / -1;
+  height: 1px;
+  margin: 4px 2px;
+  background: var(--border);
 }
 
-/* ---- 类型筛选 ---- */
-.type-filter {
-  flex: none;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 10px;
-  border-top: 1px solid var(--border);
-}
-.filter-head {
+/* 已选筛选 + 结果统计 */
+.search-meta {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
+  min-height: 20px;
   padding: 0 2px;
 }
-.type-label {
+.hint {
+  min-width: 0;
+  overflow: hidden;
   color: var(--fg-muted);
   font-size: 0.8333em;
-  font-weight: 600;
-  letter-spacing: 0.08em;
+  line-height: 1.35;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
-.reset {
-  padding: 0 2px;
-  border-radius: 4px;
+.meta {
+  flex: none;
   color: var(--fg-muted);
   font-size: 0.8333em;
-}
-.reset:hover {
-  color: var(--fg);
-}
-.chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-}
-.chip {
-  height: 24px;
-  padding: 0 9px;
-  border: 1px solid transparent;
-  border-radius: 7px;
-  background: var(--bg-hover);
-  color: var(--fg-muted);
-  font-size: 0.875em;
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
-.chip:hover {
+.active-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  height: 20px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-hover);
+  color: var(--fg);
+  font-size: 0.8333em;
+}
+.active-filter:hover {
+  border-color: var(--border-strong);
   background: var(--bg-active);
+}
+.af-icon,
+.af-badge {
+  flex: none;
+}
+.af-badge {
+  font-family: var(--mono);
+  font-size: 0.85em;
+  font-weight: 700;
+}
+.af-label {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.af-x {
+  flex: none;
+  color: var(--fg-dim);
+}
+.active-filter:hover .af-x {
   color: var(--fg);
 }
-.chip.on {
-  background: var(--accent-soft);
-  border-color: var(--border-strong);
+
+/* ---- 引导区（未输入时） ---- */
+.search-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 8px 12px 40px;
+  overflow: auto;
+}
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  text-align: center;
+}
+.empty-icon {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  margin-bottom: 3px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-hover);
+  color: var(--fg-dim);
+}
+.empty-icon.folder {
+  color: var(--ico-folder);
+}
+.empty-title {
+  margin: 0;
   color: var(--fg);
+  font-size: 1em;
   font-weight: 600;
+}
+.empty-sub {
+  margin: 0;
+  max-width: 200px;
+  color: var(--fg-muted);
+  font-size: 0.8333em;
+  line-height: 1.5;
+}
+.scope-path {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  margin-top: 6px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--bg-hover);
+  color: var(--fg-muted);
+  font-size: 0.8333em;
+}
+.scope-path :deep(.icon) {
+  color: var(--ico-folder);
+}
+.scope-path span {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.syntax-card {
+  width: 100%;
+  margin-top: 14px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-hover);
+}
+.syntax-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 6px 5px;
+  color: var(--fg-muted);
+  font-size: 0.75em;
+  letter-spacing: 0.04em;
+}
+.syntax-head .note {
+  color: var(--fg-muted);
+  letter-spacing: 0;
+}
+.syntax-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 28px;
+  padding: 0 6px;
+  border-radius: 7px;
+  text-align: left;
+}
+.syntax-row:hover {
+  background: var(--bg-active);
+}
+.syntax-row .name {
+  flex: 1;
+  color: var(--fg-muted);
+  font-size: 0.875em;
+}
+.syntax-row code {
+  color: var(--fg-muted);
+  font-family: var(--mono);
+  font-size: 0.7917em;
+  background: transparent;
+}
+.syntax-row:hover .name,
+.syntax-row:hover code {
+  color: var(--fg);
+}
+
+/* ---- 底部索引状态 ---- */
+.search-status {
+  flex: none;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 10px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-panel);
+  color: var(--fg-muted);
+  font-size: 0.8333em;
+  overflow: hidden;
+}
+.search-status .spacer {
+  flex: 1;
+}
+.search-status .dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--fg-dim);
+  opacity: 0.7;
+}
+.search-status .dot.scanning {
+  background: var(--warn);
+  box-shadow: 0 0 0 3px var(--warn-soft);
+  opacity: 1;
+  animation: pulse 1s ease-in-out infinite;
+}
+.search-status .txt {
+  min-width: 0;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.search-status .state {
+  flex: none;
+}
+.search-status .state.busy {
+  color: var(--warn);
+}
+
+/* 下拉动效 */
+.pop-enter-active,
+.pop-leave-active {
+  transition:
+    opacity 0.12s ease,
+    transform 0.12s ease;
+  transform-origin: top right;
+}
+.pop-enter-from,
+.pop-leave-to {
+  opacity: 0;
+  transform: translateY(-4px) scale(0.98);
 }
 
 .spinner {
@@ -506,53 +1007,6 @@ async function submit() {
   to {
     transform: rotate(360deg);
   }
-}
-
-/* ---- 底部索引状态栏（索引状态统一在此展示）---- */
-.search-status {
-  margin-top: auto;
-  flex: none;
-  height: var(--status-bar-h);
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 0 10px;
-  border-top: 1px solid var(--border);
-  background: var(--bg-panel);
-  font-size: 0.8333em;
-  color: var(--fg-muted);
-  overflow: hidden;
-}
-.search-status .spacer {
-  flex: 1;
-}
-.search-status .dot {
-  flex: none;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--ok);
-  box-shadow: 0 0 0 3px var(--ok-soft);
-}
-.search-status .dot.scanning {
-  background: var(--warn);
-  box-shadow: 0 0 0 3px var(--warn-soft);
-  animation: pulse 1s ease-in-out infinite;
-}
-.search-status .txt {
-  min-width: 0;
-  font-family: var(--mono);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.search-status .state {
-  flex: none;
-  color: var(--fg-dim);
-}
-.search-status .state.busy {
-  color: var(--warn);
 }
 @keyframes pulse {
   0%,
