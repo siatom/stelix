@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // 单个窗格 = 标签栏 + 内嵌工具栏 + 面包屑 + 文件列表（虚拟滚动）（WS-D）
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { usePaneStore } from '../../stores/pane'
 import { isCapturingShortcut } from '../../stores/shortcuts'
 import { basename } from './utils'
@@ -26,17 +26,29 @@ function activate() {
   paneStore.activePaneId = props.paneId
 }
 
-// ---- 工具栏「新建」→ 文件列表行内编辑 ----
-// PaneToolbar 与 FileList 是兄弟组件，用一次性请求对象中转；FileList 处理完回发 create-handled。
+// ---- 顶部标题栏「新建 / 删除」→ 当前活动窗格 ----
+// 标题栏（App.vue）把操作写进 store 的 pendingAction（目标是活动窗格），
+// 对应窗格在这里消费：新建转成一次 createRequest 交给 FileList 行内编辑，删除直接开确认框。
+// Pane 与 FileList 是父子组件，用一次性请求对象中转；FileList 处理完回发 create-handled。
 const createRequest = ref<{ kind: 'mkdir' | 'createFile'; seq: number; tabId: string } | null>(null)
 let createSeq = 0
 
-function onCreate(kind: 'mkdir' | 'createFile') {
-  const t = tab.value
-  if (!t) return
-  createSeq += 1
-  createRequest.value = { kind, seq: createSeq, tabId: t.id }
-}
+watch(
+  () => paneStore.pendingAction,
+  (req) => {
+    if (!req || req.paneId !== props.paneId) return
+    paneStore.consumeAction(req.seq)
+    if (paneStore.activePaneId !== props.paneId) return // 请求派发后焦点已转移，丢弃
+    const t = tab.value
+    if (!t) return
+    if (req.kind === 'delete') {
+      if (paneStore.canDeleteInActivePane) openDelete([...t.selected])
+      return
+    }
+    createSeq += 1
+    createRequest.value = { kind: req.kind, seq: createSeq, tabId: t.id }
+  },
+)
 
 function onCreateHandled() {
   createRequest.value = null
@@ -86,7 +98,7 @@ async function confirmDelete() {
   <section class="pane" @mousedown="activate">
     <template v-if="tab">
       <div class="pane-topbar" :class="{ 'is-active': isActivePane }">
-        <PaneToolbar :pane-id="paneId" @create="onCreate" @delete="openDelete" />
+        <PaneToolbar :pane-id="paneId" />
         <div v-if="tab.kind === 'search'" class="search-heading" :title="tab.searchQuery">
           搜索结果：{{ tab.searchQuery }}
         </div>

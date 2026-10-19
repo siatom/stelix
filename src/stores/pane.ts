@@ -178,6 +178,9 @@ export interface CreateFoldersResult {
   failures: FolderCreateFailure[]
 }
 
+/** 顶部标题栏可派发给活动窗格的文件操作。 */
+export type PaneActionKind = 'mkdir' | 'createFile' | 'delete'
+
 export const usePaneStore = defineStore('pane', () => {
   let fallbackHome = 'C:\\'
   const savedLayout = readPaneLayout()
@@ -216,6 +219,35 @@ export const usePaneStore = defineStore('pane', () => {
     const pane = activePane.value
     if (!pane) return undefined
     return pane.tabs.find((t) => t.id === pane.activeTabId) ?? pane.tabs[0]
+  })
+
+  /**
+   * 顶部标题栏（App.vue）发起、目标窗格尚未消费的一次性操作。
+   * 标题栏是全局唯一入口，目标固定为**当前活动窗格**，由窗格在 watcher 里消费后置空。
+   */
+  const pendingAction = ref<{ paneId: string; kind: PaneActionKind; seq: number } | null>(null)
+  let actionSeq = 0
+
+  /** 派发一次文件操作给当前活动窗格（哪个窗格活动就控制哪个窗格）。 */
+  function requestAction(kind: PaneActionKind) {
+    actionSeq += 1
+    pendingAction.value = { paneId: activePaneId.value, kind, seq: actionSeq }
+  }
+
+  /** 目标窗格处理完请求后回执，避免重复消费。 */
+  function consumeAction(seq: number) {
+    if (pendingAction.value?.seq === seq) pendingAction.value = null
+  }
+
+  // 搜索结果与远程标签都没有本地「目录」写权限，禁用新建入口。
+  const canCreateInActivePane = computed(() => {
+    const tab = activeTab.value
+    return !!tab && tab.kind !== 'search' && tab.kind !== 'remote'
+  })
+  // 删除作用于选中项自身路径：搜索结果的命中项也是真实本地文件，与普通目录一样可删。
+  const canDeleteInActivePane = computed(() => {
+    const tab = activeTab.value
+    return !!tab && tab.kind !== 'remote' && tab.selected.length > 0
   })
 
   // ---- 内部小工具 ----
@@ -1355,6 +1387,11 @@ export const usePaneStore = defineStore('pane', () => {
     activePaneId,
     activePane,
     activeTab,
+    pendingAction,
+    requestAction,
+    consumeAction,
+    canCreateInActivePane,
+    canDeleteInActivePane,
     splitRatio,
     singlePane,
     clipboard,

@@ -10,6 +10,7 @@ import { match, isCapturingShortcut } from './stores/shortcuts'
 import ActivityBar from './components/Sidebar/ActivityBar.vue'
 import SidebarPanel from './components/Sidebar/SidebarPanel.vue'
 import DualPane from './components/Pane/DualPane.vue'
+import TitlebarActions from './components/TitlebarActions.vue'
 import CommandPalette from './components/CommandPalette.vue'
 import SettingsDialog from './components/SettingsDialog.vue'
 import FeedbackDialog from './components/FeedbackDialog.vue'
@@ -267,6 +268,7 @@ onBeforeUnmount(() => {
       @contextmenu="openTitlebarMenu"
     >
       <span class="titlebar-title">Stelix File Manager（星索）</span>
+      <TitlebarActions />
       <div class="titlebar-controls">
         <button class="titlebar-button" type="button" aria-label="最小化" title="最小化" @click="appWindow.minimize()">
           <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 6h8" /></svg>
