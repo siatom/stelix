@@ -298,7 +298,7 @@ async function submit() {
   <div class="search-wrap">
     <div class="search-controls">
       <div class="search-field" :class="{ focused: open }">
-        <Icon name="search" class="field-icon" :size="15" />
+        <Icon name="search" class="field-icon" :size="16" />
         <input
           ref="inputEl"
           v-model="text"
@@ -322,7 +322,7 @@ async function submit() {
             @mousedown.prevent
             @click="clearAll"
           >
-            <Icon name="x" :size="11" />
+            <Icon name="x" :size="12" />
           </button>
           <button
             v-if="canSearch"
@@ -333,7 +333,7 @@ async function submit() {
             @mousedown.prevent
             @click="submit"
           >
-            <Icon name="arrow-right" :size="13" />
+            <Icon name="arrow-right" :size="14" />
           </button>
         </template>
       </div>
@@ -371,7 +371,7 @@ async function submit() {
             @click="toggleTypeMenu"
           >
             <span>类型</span>
-            <Icon name="chevron-down" :size="12" class="chev" />
+            <Icon name="chevron-down" :size="13" class="chev" />
           </button>
 
           <transition name="pop">
@@ -404,7 +404,7 @@ async function submit() {
                     <Icon
                       v-if="c.visual.icon"
                       :name="c.visual.icon ?? 'file'"
-                      :size="14"
+                      :size="15"
                       class="ti-icon"
                       :style="{ color: c.visual.color }"
                     />
@@ -415,7 +415,7 @@ async function submit() {
                     <Icon
                       v-if="(search.typeKey ?? 'all') === c.key"
                       name="check"
-                      :size="12"
+                      :size="13"
                       class="ti-check"
                     />
                   </button>
@@ -437,7 +437,7 @@ async function submit() {
           <Icon
             v-if="activeVisual?.icon"
             :name="activeVisual.icon ?? 'file'"
-            :size="12"
+            :size="13"
             class="af-icon"
             :style="{ color: activeVisual.color }"
           />
@@ -445,7 +445,7 @@ async function submit() {
             {{ activeVisual?.badge }}
           </span>
           <span class="af-label">{{ search.typeLabel }}</span>
-          <Icon name="x" :size="10" class="af-x" />
+          <Icon name="x" :size="11" class="af-x" />
         </button>
         <span v-else class="hint">{{ syntaxHint }}</span>
         <span v-if="resultMeta" class="meta">{{ resultMeta }}</span>
@@ -463,7 +463,7 @@ async function submit() {
         </p>
 
         <div v-if="scope === 'current' && currentPathLabel" class="scope-path" :title="currentPath">
-          <Icon name="folder" :size="11" />
+          <Icon name="folder" :size="12" />
           <span>{{ currentPathLabel }}</span>
         </div>
 
@@ -521,7 +521,7 @@ async function submit() {
   display: flex;
   align-items: center;
   gap: 6px;
-  height: 36px;
+  height: 38px;
   padding: 0 7px 0 10px;
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -555,6 +555,7 @@ async function submit() {
   box-shadow: none;
   color: var(--fg);
   font: inherit;
+  font-size: 1.0769em;
   outline: none;
 }
 .search-field input:focus {
@@ -574,16 +575,16 @@ async function submit() {
   color: var(--fg-dim);
 }
 .field-btn.clear {
-  width: 20px;
-  height: 20px;
+  width: 22px;
+  height: 22px;
 }
 .field-btn.clear:hover {
   background: var(--bg-active);
   color: var(--fg);
 }
 .field-btn.go {
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
   border-radius: 50%;
   background: var(--accent);
   color: var(--accent-fg);
@@ -610,11 +611,11 @@ async function submit() {
 .scope-switch button {
   flex: 1;
   min-width: 0;
-  height: 26px;
+  height: 28px;
   padding: 0 6px;
   border-radius: 7px;
   color: var(--fg-muted);
-  font-size: 0.875em;
+  font-size: 0.9375em;
   font-weight: 500;
   white-space: nowrap;
 }
@@ -635,12 +636,12 @@ async function submit() {
   display: flex;
   align-items: center;
   gap: 3px;
-  height: 30px;
+  height: 32px;
   padding: 0 8px;
   border-radius: 9px;
   background: var(--bg-hover);
   color: var(--fg-muted);
-  font-size: 0.875em;
+  font-size: 0.9375em;
   font-weight: 500;
   white-space: nowrap;
 }
@@ -680,12 +681,12 @@ async function submit() {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 24px;
+  height: 26px;
   padding: 0 4px 2px;
 }
 .type-menu-head .t {
   color: var(--fg-muted);
-  font-size: 0.8333em;
+  font-size: 0.875em;
   font-weight: 600;
   letter-spacing: 0.04em;
 }
@@ -693,7 +694,7 @@ async function submit() {
   padding: 1px 6px;
   border-radius: 5px;
   color: var(--fg-muted);
-  font-size: 0.8333em;
+  font-size: 0.875em;
 }
 .type-menu-head .reset:hover {
   background: var(--bg-hover);
@@ -709,11 +710,11 @@ async function submit() {
   align-items: center;
   gap: 6px;
   min-width: 0;
-  height: 30px;
+  height: 32px;
   padding: 0 6px;
   border-radius: 7px;
   color: var(--fg-muted);
-  font-size: 0.9167em;
+  font-size: 1em;
   text-align: left;
 }
 .type-item:hover {
@@ -728,12 +729,12 @@ async function submit() {
 .ti-icon,
 .ti-badge {
   flex: none;
-  width: 14px;
+  width: 16px;
   text-align: center;
 }
 .ti-badge {
   font-family: var(--mono);
-  font-size: 0.62em;
+  font-size: 0.68em;
   font-weight: 700;
   letter-spacing: 0.02em;
 }
@@ -761,14 +762,14 @@ async function submit() {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  min-height: 20px;
+  min-height: 22px;
   padding: 0 2px;
 }
 .hint {
   min-width: 0;
   overflow: hidden;
   color: var(--fg-muted);
-  font-size: 0.8333em;
+  font-size: 0.9167em;
   line-height: 1.35;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -776,7 +777,7 @@ async function submit() {
 .meta {
   flex: none;
   color: var(--fg-muted);
-  font-size: 0.8333em;
+  font-size: 0.9167em;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -785,13 +786,13 @@ async function submit() {
   align-items: center;
   gap: 5px;
   min-width: 0;
-  height: 20px;
+  height: 22px;
   padding: 0 6px;
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--bg-hover);
   color: var(--fg);
-  font-size: 0.8333em;
+  font-size: 0.9167em;
 }
 .active-filter:hover {
   border-color: var(--border-strong);
@@ -803,7 +804,7 @@ async function submit() {
 }
 .af-badge {
   font-family: var(--mono);
-  font-size: 0.85em;
+  font-size: 0.88em;
   font-weight: 700;
 }
 .af-label {
@@ -854,14 +855,14 @@ async function submit() {
 .empty-title {
   margin: 0;
   color: var(--fg);
-  font-size: 1em;
+  font-size: 1.0769em;
   font-weight: 600;
 }
 .empty-sub {
   margin: 0;
-  max-width: 200px;
+  max-width: 210px;
   color: var(--fg-muted);
-  font-size: 0.8333em;
+  font-size: 0.9167em;
   line-height: 1.5;
 }
 .scope-path {
@@ -874,7 +875,7 @@ async function submit() {
   border-radius: 999px;
   background: var(--bg-hover);
   color: var(--fg-muted);
-  font-size: 0.8333em;
+  font-size: 0.9167em;
 }
 .scope-path :deep(.icon) {
   color: var(--ico-folder);
@@ -899,7 +900,7 @@ async function submit() {
   justify-content: space-between;
   padding: 4px 6px 5px;
   color: var(--fg-muted);
-  font-size: 0.75em;
+  font-size: 0.875em;
   letter-spacing: 0.04em;
 }
 .syntax-head .note {
@@ -911,7 +912,7 @@ async function submit() {
   align-items: center;
   gap: 8px;
   width: 100%;
-  height: 28px;
+  height: 30px;
   padding: 0 6px;
   border-radius: 7px;
   text-align: left;
@@ -922,12 +923,12 @@ async function submit() {
 .syntax-row .name {
   flex: 1;
   color: var(--fg-muted);
-  font-size: 0.875em;
+  font-size: 0.9375em;
 }
 .syntax-row code {
   color: var(--fg-muted);
   font-family: var(--mono);
-  font-size: 0.7917em;
+  font-size: 0.875em;
   background: transparent;
 }
 .syntax-row:hover .name,
@@ -938,7 +939,7 @@ async function submit() {
 /* ---- 底部索引状态 ---- */
 .search-status {
   flex: none;
-  height: 28px;
+  height: 30px;
   display: flex;
   align-items: center;
   gap: 7px;
@@ -946,7 +947,7 @@ async function submit() {
   border-top: 1px solid var(--border);
   background: var(--bg-panel);
   color: var(--fg-muted);
-  font-size: 0.8333em;
+  font-size: 0.9167em;
   overflow: hidden;
 }
 .search-status .spacer {
