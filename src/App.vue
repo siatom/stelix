@@ -31,6 +31,7 @@ let unlistenFsChanged: (() => void) | undefined
 let unlistenDirSize: (() => void) | undefined
 let unlistenAiToken: (() => void) | undefined
 let unlistenAiStep: (() => void) | undefined
+let unlistenRemoteTransfer: (() => void) | undefined
 let titlebarPointer: { x: number; y: number } | null = null
 let actionPosition: PhysicalPosition | null = null
 let actionSize: PhysicalSize | null = null
@@ -193,6 +194,13 @@ onMounted(async () => {
   unlistenAiStep = await events.onAiStep(({ requestId, step }) => {
     aiStore.applyStep(requestId, step)
   })
+  // 远程上传 / 下载进度：状态栏显示当前条目（传输本身在后台线程执行）。
+  unlistenRemoteTransfer = await events.onRemoteTransfer((progress) => {
+    const verb = progress.direction === 'download' ? '下载' : '上传'
+    const index = Math.min(progress.done + 1, progress.total)
+    const name = progress.current.split(/[\\/]/).filter(Boolean).pop() ?? progress.current
+    ui.setStatusText(`正在${verb} ${index}/${progress.total}：${name}`)
+  })
 })
 
 const SIDEBAR_WIDTH_KEY = 'stelix.sidebarWidth'
@@ -245,6 +253,7 @@ onBeforeUnmount(() => {
   unlistenDirSize?.()
   unlistenAiToken?.()
   unlistenAiStep?.()
+  unlistenRemoteTransfer?.()
   stopTrackingTitlebarDrag()
   window.removeEventListener('mousedown', dismissTitlebarMenu)
   window.removeEventListener('keydown', onTitlebarActionKeydown)

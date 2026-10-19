@@ -17,6 +17,9 @@ import type {
   FeedbackCreated,
   FeedbackRequest,
   IndexStatus,
+  RemoteTransferProgress,
+  RemoteTransferRequest,
+  RemoteTransferResult,
   ScheduledTask,
   SearchHit,
   SearchQuery,
@@ -30,9 +33,12 @@ import type {
 export const api = {
   listDir: (path: string) => invoke<DirListing>('list_dir', { path }),
   getRoots: () => invoke<DriveInfo[]>('get_roots'),
-  /** 列出 FTP / SFTP 目录（只读），条目带类型 / 大小 / 修改时间。 */
+  /** 列出 FTP / SFTP 目录，条目带类型 / 大小 / 修改时间。 */
   listRemoteDir: (request: { protocol: 'ftp' | 'sftp'; host: string; port: number; username: string; password: string; path: string }) =>
     invoke<DirListing>('list_remote_dir', { request }),
+  /** 在本地与 FTP / SFTP 之间上传或下载（目录递归）；进度见 `events.onRemoteTransfer`。 */
+  remoteTransfer: (request: RemoteTransferRequest) =>
+    invoke<RemoteTransferResult>('remote_transfer', { request }),
   discoverSmbNeighbors: () => invoke<{ server: string; shares: string[] }[]>('discover_smb_neighbors'),
   listSmbShares: (server: string) => invoke<string[]>('list_smb_shares', { server }),
   listWslDistros: () => invoke<string[]>('list_wsl_distros'),
@@ -125,4 +131,7 @@ export const events = {
   /** AI 工具执行步骤提示。 */
   onAiStep: (cb: (p: { requestId: string; step: string }) => void) =>
     listen('ai:step', (e) => cb(e.payload as { requestId: string; step: string })),
+  /** 远程传输进度（每开始一个顶层条目回调一次）。 */
+  onRemoteTransfer: (cb: (p: RemoteTransferProgress) => void) =>
+    listen('remote:transfer', (e) => cb(e.payload as RemoteTransferProgress)),
 }

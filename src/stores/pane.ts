@@ -2,12 +2,12 @@ import { defineStore } from 'pinia'
 import { computed, ref, watch } from 'vue'
 import { homeDir } from '@tauri-apps/api/path'
 import { api } from '../api'
-import type { DirListing, FileEntry, FsOp, FsOpResult, PaneState, RemoteLocation, SearchHit, TabState, ViewMode } from '../types'
+import type { DirListing, FileEntry, FsOp, FsOpResult, PaneState, RemoteLocation, RemoteTransferItem, RemoteTransferResult, SearchHit, TabState, ViewMode } from '../types'
 import { useUiStore } from './ui'
 import { basename, dirname, joinPath } from '../components/Pane/utils'
 import { matchesTypeFilter } from '../searchFilters'
 import { normalizePath, setWatchSource } from '../shell/dirWatch'
-import { remoteDirname, resolveRemotePassword } from '../shell/remote'
+import { normalizeRemotePath, remoteDirname, resolveRemotePassword } from '../shell/remote'
 
 /**
  * 双窗格 / 多标签状态 —— 由 **WS-D (feat/ui-panes)** 实现。
@@ -178,6 +178,16 @@ export interface CreateFoldersResult {
   failures: FolderCreateFailure[]
 }
 
+/** 剪贴板内容：本地路径与远程路径语义不同，远程来源额外记录连接信息与目录标记。 */
+interface PaneClipboard {
+  op: 'copy' | 'move'
+  paths: string[]
+  /** 来源为远程目录时有效；未设置表示本地来源 */
+  remote?: RemoteLocation
+  /** 远程来源的条目类型（下载目录时需要递归） */
+  items?: RemoteTransferItem[]
+}
+
 /** 顶部标题栏可派发给活动窗格的文件操作。 */
 export type PaneActionKind = 'mkdir' | 'createFile' | 'delete'
 
@@ -192,7 +202,7 @@ export const usePaneStore = defineStore('pane', () => {
   /** 是否只显示当前活动窗格 */
   const singlePane = ref(savedLayout.singlePane ?? false)
   /** 内部剪贴板（复制 / 剪切） */
-  const clipboard = ref<{ op: 'copy' | 'move'; paths: string[] } | null>(null)
+  const clipboard = ref<PaneClipboard | null>(null)
   /** 每个标签的浏览历史（存于 store，避免改动冻结的 types.ts） */
   const histories = ref<Record<string, HistoryEntry>>({})
   /** 外部请求定位到某个条目（搜索结果 / AI 操作后） */
@@ -1024,8 +1034,137 @@ export const usePaneStore = defineStore('pane', () => {
 
   // ---- 文件操作 ----
 
-  function setClipboard(op: 'copy' | 'move', paths: string[]) {
-    clipboard.value = { op, paths }
+  /** 对侧窗格的活动标签为普通本地目录时返回其路径。 */
+  function otherPaneLocalDir(paneId: string): string | null {
+    const other = panes.value.find((pane) => pane.id !== paneId)
+    const tab = other ? activeTabOf(other) : undefined
+    if (!tab) return null
+    return (tab.kind ?? 'files') === 'files' ? tab.path : null
+  }
+
+  /** 对侧窗格的活动标签为远程目录时返回连接信息与路径。 */
+  function otherPaneRemote(paneId: string): { location: RemoteLocation; path: string } | null {
+    const other = panes.value.find((pane) => pane.id !== paneId)
+    const tab = other ? activeTabOf(other) : undefined
+    if (!tab || tab.kind !== 'remote' || !tab.remote) return null
+    return { location: tab.remote, path: tab.path }
+  }
+
+  /** 刷新所有打开该远程目录的标签（跨窗格 / 后台标签）。 */
+  async function refreshRemoteTabs(location: RemoteLocation, path: string) {
+    const target = normalizeRemotePath(path)
+    const jobs: Promise<void>[] = []
+    for (const pane of panes.value) {
+      for (const tab of pane.tabs) {
+        if (tab.kind !== 'remote' || !tab.remote || tab.remote.id !== location.id) continue
+        if (normalizeRemotePath(tab.path) !== target) continue
+        jobs.push(load(tab))
+      }
+    }
+    await Promise.all(jobs)
+  }
+
+  function transferFailureText(action: string, result: RemoteTransferResult): string {
+    const failed = result.errors.length
+    const detail = result.errors.slice(0, 2).join('；')
+    if (result.transferred > 0) {
+      return `${action}完成 ${result.transferred} 项，${failed} 项失败：${detail}`
+    }
+    return `${action}失败：${detail || '未知错误'}`
+  }
+
+  /** 远端 → 本地：下载文件 / 目录（目录自动递归）。 */
+  async function downloadFromRemote(
+    _paneId: string,
+    location: RemoteLocation,
+    items: RemoteTransferItem[],
+    targetDir: string,
+    op: 'copy' | 'move' = 'copy',
+  ): Promise<RemoteTransferResult> {
+    if (!items.length) {
+      setStatus('未选择任何条目')
+      return { ok: false, errors: ['未选择任何条目'], transferred: 0, bytes: 0 }
+    }
+    setStatus(`正在下载 ${items.length} 项…`)
+    try {
+      const password = await resolveRemotePassword(location.id)
+      const result = await api.remoteTransfer({
+        ...location,
+        password,
+        direction: 'download',
+        target: targetDir,
+        items,
+        removeSources: op === 'move',
+      })
+      if (result.ok) {
+        setStatus(
+          op === 'move'
+            ? `已移动 ${result.transferred} 项到本地（远端源已删除）`
+            : `已下载 ${result.transferred} 项到 ${targetDir}`,
+        )
+      } else {
+        setStatus(transferFailureText('下载', result))
+      }
+      await reloadByPath(targetDir)
+      return result
+    } catch (error) {
+      setStatus(`下载失败：${String(error)}`)
+      return { ok: false, errors: [String(error)], transferred: 0, bytes: 0 }
+    }
+  }
+
+  /** 本地 → 远端：上传文件 / 目录（目录自动递归，空目录也会创建）。 */
+  async function uploadToRemote(
+    _paneId: string,
+    location: RemoteLocation,
+    items: RemoteTransferItem[],
+    targetDir: string,
+    op: 'copy' | 'move' = 'copy',
+  ): Promise<RemoteTransferResult> {
+    if (!items.length) {
+      setStatus('未选择任何条目')
+      return { ok: false, errors: ['未选择任何条目'], transferred: 0, bytes: 0 }
+    }
+    setStatus(`正在上传 ${items.length} 项…`)
+    try {
+      const password = await resolveRemotePassword(location.id)
+      const result = await api.remoteTransfer({
+        ...location,
+        password,
+        direction: 'upload',
+        target: targetDir,
+        items,
+        removeSources: op === 'move',
+      })
+      if (result.ok) {
+        setStatus(
+          op === 'move'
+            ? `已移动 ${result.transferred} 项到远程（本地源已删除）`
+            : `已上传 ${result.transferred} 项到 ${targetDir}`,
+        )
+      } else {
+        setStatus(transferFailureText('上传', result))
+      }
+      await refreshRemoteTabs(location, targetDir)
+      return result
+    } catch (error) {
+      setStatus(`上传失败：${String(error)}`)
+      return { ok: false, errors: [String(error)], transferred: 0, bytes: 0 }
+    }
+  }
+
+  function setClipboard(
+    op: 'copy' | 'move',
+    paths: string[],
+    remote?: RemoteLocation,
+    items?: RemoteTransferItem[],
+  ) {
+    clipboard.value = { op, paths, remote, items }
+    if (remote) {
+      // 远程路径不能写进系统文件剪贴板（Explorer 不认识），只保留在应用内。
+      setStatus(op === 'copy' ? `已复制 ${paths.length} 个远程项` : `已剪切 ${paths.length} 个远程项`)
+      return
+    }
     setStatus(op === 'copy' ? `已复制 ${paths.length} 项到剪贴板` : `已剪切 ${paths.length} 项`)
     void api.setFileClipboard(paths, op === 'move').catch((error) => {
       setStatus(`系统剪贴板写入失败：${String(error)}`)
@@ -1266,34 +1405,98 @@ export const usePaneStore = defineStore('pane', () => {
     return { created, failures }
   }
 
-  /** 把选中项（或指定项）复制到另一个窗格当前目录 */
-  async function copyToOtherPane(paneId: string, sources?: string[]) {
+  /** 从标签已知条目（含「原地展开」缓存）补齐每个路径的目录标记。 */
+  function itemsForPaths(
+    tab: TabState,
+    paths: string[],
+    provided?: RemoteTransferItem[],
+  ): RemoteTransferItem[] {
+    if (provided?.length) return provided
+    const known = new Map<string, FileEntry>()
+    for (const entry of tab.entries) known.set(entry.path, entry)
+    for (const children of Object.values(dirChildren.value)) {
+      for (const entry of children) known.set(entry.path, entry)
+    }
+    return paths.map((path) => ({
+      path,
+      isDir: known.get(path)?.isDir ?? false,
+    }))
+  }
+
+  /** 把选中项（或指定项）复制到另一个窗格当前目录（跨本地 / 远程时自动上传或下载）。 */
+  async function copyToOtherPane(
+    paneId: string,
+    sources?: string[],
+    items?: RemoteTransferItem[],
+  ) {
     const srcPane = paneById(paneId)
     const dstPane = panes.value.find((p) => p.id !== paneId)
     if (!srcPane || !dstPane) return
     const srcTab = activeTabOf(srcPane)
     const dstTab = activeTabOf(dstPane)
     if (!srcTab || !dstTab) return
+    if ((dstTab.kind ?? 'files') === 'search') {
+      setStatus('对侧窗格是搜索结果，无法作为传输目标')
+      return
+    }
     const paths = sources && sources.length ? sources : srcTab.selected
     if (!paths.length) {
       setStatus('未选择任何条目')
+      return
+    }
+    const srcRemote = srcTab.kind === 'remote' ? srcTab.remote : undefined
+    const dstRemote = dstTab.kind === 'remote' ? dstTab.remote : undefined
+    const planned = itemsForPaths(srcTab, paths, items)
+    if (srcRemote) {
+      if (dstRemote) {
+        setStatus('暂不支持在远程服务器之间直接传输，请先下载到本地')
+        return
+      }
+      await downloadFromRemote(dstPane.id, srcRemote, planned, dstTab.path, 'copy')
+      return
+    }
+    if (dstRemote) {
+      await uploadToRemote(dstPane.id, dstRemote, planned, dstTab.path, 'copy')
       return
     }
     await runFs(paneId, { op: 'copy', sources: paths, target: dstTab.path })
     await refresh(dstPane.id)
   }
 
-  /** 把选中项（或指定项）移动到另一个窗格当前目录 */
-  async function moveToOtherPane(paneId: string, sources?: string[]) {
+  /** 把选中项（或指定项）移动到另一个窗格当前目录（跨本地 / 远程时逐条成功后删源）。 */
+  async function moveToOtherPane(
+    paneId: string,
+    sources?: string[],
+    items?: RemoteTransferItem[],
+  ) {
     const srcPane = paneById(paneId)
     const dstPane = panes.value.find((p) => p.id !== paneId)
     if (!srcPane || !dstPane) return
     const srcTab = activeTabOf(srcPane)
     const dstTab = activeTabOf(dstPane)
     if (!srcTab || !dstTab) return
+    if ((dstTab.kind ?? 'files') === 'search') {
+      setStatus('对侧窗格是搜索结果，无法作为传输目标')
+      return
+    }
     const paths = sources && sources.length ? sources : srcTab.selected
     if (!paths.length) {
       setStatus('未选择任何条目')
+      return
+    }
+    const srcRemote = srcTab.kind === 'remote' ? srcTab.remote : undefined
+    const dstRemote = dstTab.kind === 'remote' ? dstTab.remote : undefined
+    const planned = itemsForPaths(srcTab, paths, items)
+    if (srcRemote) {
+      if (dstRemote) {
+        setStatus('暂不支持在远程服务器之间直接传输，请先下载到本地')
+        return
+      }
+      await downloadFromRemote(dstPane.id, srcRemote, planned, dstTab.path, 'move')
+      return
+    }
+    if (dstRemote) {
+      await uploadToRemote(dstPane.id, dstRemote, planned, dstTab.path, 'move')
       return
     }
     await runFs(paneId, { op: 'move', sources: paths, target: dstTab.path })
@@ -1330,22 +1533,53 @@ export const usePaneStore = defineStore('pane', () => {
     setStatus('已交换左右窗格')
   }
 
-  /** 把剪贴板内容粘贴到指定目录 */
+  /** 把剪贴板内容粘贴到指定目录（本地 / 远程目标均可用）。 */
   async function pasteInto(paneId: string, targetDir: string) {
-    let clip: { op: 'copy' | 'move'; paths: string[] } | null = null
+    const pane = paneById(paneId)
+    const tab = pane ? activeTabOf(pane) : undefined
+    const targetRemote = tab?.kind === 'remote' ? tab.remote : undefined
+
+    let systemClip: PaneClipboard | null = null
     try {
-      const systemClip = await api.getFileClipboard()
-      if (systemClip?.paths.length) {
-        clip = { op: systemClip.moveFiles ? 'move' : 'copy', paths: systemClip.paths }
+      const value = await api.getFileClipboard()
+      if (value?.paths.length) {
+        systemClip = { op: value.moveFiles ? 'move' : 'copy', paths: value.paths }
       }
     } catch {
       // 系统剪贴板不可读时，仍可使用应用内剪贴板。
     }
-    clip ??= clipboard.value
+
+    const internal = clipboard.value
+    // 远程剪贴板无法用系统剪贴板表达，必须优先；其余情况系统剪贴板更新更及时。
+    const clip = internal?.remote ? internal : (systemClip ?? internal)
     if (!clip || !clip.paths.length) {
       setStatus('剪贴板为空')
       return
     }
+
+    if (clip.remote) {
+      if (targetRemote) {
+        setStatus('暂不支持在远程服务器之间直接传输，请先下载到本地')
+        return
+      }
+      const items = clip.items?.length
+        ? clip.items
+        : clip.paths.map((path) => ({ path, isDir: false }))
+      await downloadFromRemote(paneId, clip.remote, items, targetDir, clip.op)
+      return
+    }
+
+    if (targetRemote) {
+      await uploadToRemote(
+        paneId,
+        targetRemote,
+        clip.paths.map((path) => ({ path, isDir: false })),
+        targetDir,
+        clip.op,
+      )
+      return
+    }
+
     await runFs(paneId, { op: clip.op, sources: clip.paths, target: targetDir })
   }
 
@@ -1433,6 +1667,11 @@ export const usePaneStore = defineStore('pane', () => {
     toggleSelect,
     clearSelection,
     setClipboard,
+    otherPaneLocalDir,
+    otherPaneRemote,
+    downloadFromRemote,
+    uploadToRemote,
+    refreshRemoteTabs,
     runFs,
     createFolders,
     copyToOtherPane,

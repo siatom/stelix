@@ -3,7 +3,8 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useVirtualizer } from '@tanstack/vue-virtual'
 import { openPath } from '@tauri-apps/plugin-opener'
-import type { FileEntry, TabState } from '../../types'
+import { open as openDialog } from '@tauri-apps/plugin-dialog'
+import type { FileEntry, RemoteLocation, RemoteTransferItem, TabState } from '../../types'
 import { usePaneStore } from '../../stores/pane'
 import { useUiStore } from '../../stores/ui'
 import { match, isCapturingShortcut } from '../../stores/shortcuts'
@@ -42,19 +43,21 @@ const dragOverPath = ref<string | null>(null)
 
 const viewMode = computed(() => paneStore.panes.find((p) => p.id === props.paneId)?.viewMode ?? 'details')
 /**
- * 远程（FTP / SFTP）标签：只读浏览。
+ * 远程（FTP / SFTP）标签：可浏览并上传 / 下载。
  *
- * 远程条目只能用矢量图标（`get_file_icon` 只认本地路径），且本地文件操作
- * （新建 / 重命名 / 删除 / 粘贴 / 拖拽对拷 / 终端 / 属性 / 收藏 / 递归大小）全部不适用。
+ * 远程条目只能用矢量图标（`get_file_icon` 只认本地路径）；本地的重命名 / 删除 /
+ * 终端 / 属性 / 收藏 / 递归大小等操作仍不适用于远程条目。
  */
 const isRemote = computed(() => props.tab.kind === 'remote' && !!props.tab.remote)
 /** 只有本地目录标签才有**目录级**本地操作（新建 / 粘贴，目标目录取 `tab.path`）。 */
 const isLocal = computed(() => props.tab.kind !== 'search' && props.tab.kind !== 'remote')
 /**
- * **条目级**本地操作（复制 / 剪切 / 重命名 / 删除 / 属性 / 终端 / 收藏等）作用于条目自身路径。
+ * **条目级**本地操作（重命名 / 删除 / 属性 / 终端 / 收藏等）作用于条目自身路径。
  * 搜索结果里的命中项同样是真实本地文件，因此与普通目录标签一样可用。
  */
 const canFileOp = computed(() => !isRemote.value)
+/** 远程与本地之间可以通过复制 / 剪切 / 拖拽传输（搜索结果命中项是本地文件，也可上传）。 */
+const canTransfer = computed(() => !isRemote.value || !!props.tab.remote)
 /** 搜索结果标签：命中项散落在各目录，需要「打开所在文件夹」这类定位操作。 */
 const isSearch = computed(() => props.tab.kind === 'search')
 // 先取 store 的过滤+排序结果，再按「隐藏受保护的操作系统文件」剔除（Explorer 语义：hidden && system）
@@ -379,8 +382,8 @@ async function openEntry(entry: FileEntry, countForFrequentDirectories = false) 
       await paneStore.navigateRemote(props.paneId, location, entry.path)
       return
     }
-    // 只读浏览：远程文件不在本轮范围内，不做下载 / 打开。
-    ui.statusText = '远程文件暂不支持打开（当前仅支持浏览目录）'
+    // 远程文件需要先下载到本地；通过右键菜单或复制到本地窗格完成。
+    ui.statusText = '远程文件请右键 → 下载…，或复制后粘贴到本地窗格'
     return
   }
   if (entry.isDir) {
@@ -649,7 +652,7 @@ function currentDirEntry(): FileEntry {
 
 /** 文件窗格空白处右键：对「当前所在文件夹」弹出与文件夹右键相同的菜单 */
 function onBlankContextMenu(ev: MouseEvent) {
-  if (!isLocal.value) return // 远程标签订单只读，空白处不弹菜单
+  if (!isLocal.value && !isRemote.value) return // 搜索结果没有目录语义
   const el = ev.target as HTMLElement | null
   // 条目行 / 图标格 / 表头 / 行内输入 / 已弹出的右键菜单 上各有处理，其余空白归属当前目录
   if (el?.closest('.row, .icon-cell, .header, .inline-new, .ctx-menu')) return
@@ -702,10 +705,96 @@ const ctxTargetCount = computed(() => ctxPaths().length)
 /** 空白处右键的合成「当前目录」条目（id 固定为 -1）：它不是列表里的条目，不能重命名。 */
 const ctxIsCurrentDir = computed(() => ctx.value?.entry.id === -1)
 
+/** 对侧窗格为本地目录 / 远程目录时可作为跨设备传输目标。 */
+const otherLocalDir = computed(() => paneStore.otherPaneLocalDir(props.paneId))
+const otherRemote = computed(() => paneStore.otherPaneRemote(props.paneId))
+
+/** 右键目标对应的传输条目（带目录标记，远端下载目录时需要）。 */
+function ctxTransferItems(): RemoteTransferItem[] {
+  const c = ctx.value
+  const paths = ctxPaths()
+  if (!c || !paths.length) return []
+  const known = new Map<string, FileEntry>()
+  for (const entry of props.tab.entries) known.set(entry.path, entry)
+  for (const row of treeRows.value) known.set(row.entry.path, row.entry)
+  return paths.map((path) => ({
+    path,
+    // 空白处右键的合成条目按目录处理；其余优先取列表里的真实类型。
+    isDir: known.get(path)?.isDir ?? (c.entry.id === -1 || c.entry.isDir),
+  }))
+}
+
+/** 远程条目：下载到对侧本地窗格。 */
+async function downloadContextToOtherPane() {
+  const location = props.tab.remote
+  const target = otherLocalDir.value
+  if (!location || !target) return
+  const items = ctxTransferItems()
+  closeCtx()
+  await paneStore.downloadFromRemote(props.paneId, location, items, target, 'copy')
+}
+
+/** 远程条目 / 目录：选择本地目录后下载。 */
+async function chooseDownload() {
+  const location = props.tab.remote
+  if (!location) return
+  const items = ctxTransferItems()
+  closeCtx()
+  try {
+    const picked = await openDialog({
+      directory: true,
+      multiple: false,
+      title: '选择下载位置',
+    })
+    if (typeof picked !== 'string' || !picked) return
+    await paneStore.downloadFromRemote(props.paneId, location, items, picked, 'copy')
+  } catch (error) {
+    ui.setStatusText(`无法选择下载位置：${String(error)}`)
+  }
+}
+
+/** 远程标签：选择本地文件 / 文件夹上传到指定远端目录。 */
+async function chooseUpload(kind: 'files' | 'folder', targetDir?: string) {
+  const location = props.tab.remote
+  if (!location) return
+  const c = ctx.value
+  const target =
+    targetDir ?? (c?.entry.isDir && !ctxIsCurrentDir.value ? c.entry.path : props.tab.path)
+  closeCtx()
+  try {
+    const picked = await openDialog({
+      multiple: kind === 'files',
+      directory: kind === 'folder',
+      title: kind === 'files' ? '选择要上传的文件' : '选择要上传的文件夹',
+    })
+    if (!picked) return
+    const paths = Array.isArray(picked) ? picked : [picked]
+    if (!paths.length) return
+    const items = paths.map((path) => ({ path, isDir: kind === 'folder' }))
+    await paneStore.uploadToRemote(props.paneId, location, items, target, 'copy')
+  } catch (error) {
+    ui.setStatusText(`无法选择上传内容：${String(error)}`)
+  }
+}
+
+/** 本地条目：上传到对侧远程窗格当前目录。 */
+async function uploadContextToOtherPane() {
+  const target = otherRemote.value
+  if (!target) return
+  const items = ctxTransferItems()
+  closeCtx()
+  await paneStore.uploadToRemote(props.paneId, target.location, items, target.path, 'copy')
+}
+
 function copyToClipboard(op: 'copy' | 'move') {
   const c = ctx.value
   if (!c) return
-  paneStore.setClipboard(op, ctxPaths())
+  const location = props.tab.remote
+  if (location) {
+    paneStore.setClipboard(op, ctxPaths(), location, ctxTransferItems())
+  } else {
+    paneStore.setClipboard(op, ctxPaths())
+  }
   closeCtx()
 }
 
@@ -772,9 +861,15 @@ async function showMoreMenu(entry: FileEntry, event: MouseEvent) {
   }
 }
 
-async function paste() {
+async function paste(targetDir = props.tab.path) {
   closeCtx()
-  await paneStore.pasteInto(props.paneId, props.tab.path)
+  await paneStore.pasteInto(props.paneId, targetDir)
+}
+
+/** 右键目标为文件夹且不是当前目录时，粘贴到该文件夹；否则粘贴到当前目录。 */
+function ctxPasteTarget(): string {
+  const c = ctx.value
+  return c?.entry.isDir && !ctxIsCurrentDir.value ? c.entry.path : props.tab.path
 }
 
 function onDocClick() {
@@ -814,30 +909,40 @@ function onGlobalKey(ev: KeyboardEvent) {
     return
   }
 
-  // 以下为条目级文件操作：远程标签只读，其余（含搜索结果）都可用 —— 命中项就是真实本地文件。
-  if (!canFileOp.value) return
-
   switch (id) {
     case 'copy':
     case 'cut': {
       const sel = props.tab.selected
       if (!sel.length) return // 无选中项静默忽略
-      paneStore.setClipboard(id === 'copy' ? 'copy' : 'move', [...sel])
+      const location = props.tab.remote
+      if (location) {
+        paneStore.setClipboard(
+          id === 'copy' ? 'copy' : 'move',
+          [...sel],
+          location,
+          transferItemsFor([...sel]),
+        )
+      } else {
+        paneStore.setClipboard(id === 'copy' ? 'copy' : 'move', [...sel])
+      }
       ev.preventDefault()
       return
     }
     case 'paste':
-      if (!isLocal.value) return // 粘贴目标目录取 `tab.path`，搜索结果没有目录语义
+      // 远程标签的粘贴目标就是当前远端目录（本地上传 / 远端剪贴板下载）。
+      if (!isLocal.value && !isRemote.value) return
       ev.preventDefault()
       void paneStore.pasteInto(props.paneId, props.tab.path)
       return
     case 'rename':
+      if (!canFileOp.value) return // 远程条目不提供本地重命名
       if (props.tab.selected.length === 1) {
         ev.preventDefault()
         startRename(props.tab.selected[0])
       }
       return
     case 'delete':
+      if (!canFileOp.value) return // 远程删除不在本轮本地文件操作范围内
       if (props.tab.selected.length) {
         ev.preventDefault()
         emit('delete', [...props.tab.selected])
@@ -921,7 +1026,11 @@ const emptyByFilter = computed(
     (!!props.tab.filter.trim() || !!props.tab.typeFilter),
 )
 const emptyText = computed(() =>
-  props.tab.kind === 'search' ? '没有找到匹配项' : isRemote.value ? '远程目录为空' : '此目录为空',
+  props.tab.kind === 'search'
+    ? '没有找到匹配项'
+    : isRemote.value
+      ? '远程目录为空（右键可上传文件）'
+      : '此目录为空',
 )
 
 // ---- 详情视图：文件夹大小按需统计（仅可见行） ----
@@ -953,7 +1062,20 @@ function sizeText(entry: FileEntry): string {
 
 interface DragPayload {
   paneId: string
-  paths: string[]
+  items: RemoteTransferItem[]
+  /** 来源为远程标签时带上连接信息 */
+  remote?: RemoteLocation
+}
+
+/** 由选中路径补齐目录标记（含原地展开的子项），供拖拽 / 复制 / 剪切使用。 */
+function transferItemsFor(paths: string[]): RemoteTransferItem[] {
+  const known = new Map<string, FileEntry>()
+  for (const entry of props.tab.entries) known.set(entry.path, entry)
+  for (const row of treeRows.value) known.set(row.entry.path, row.entry)
+  for (const children of Object.values(paneStore.dirChildren)) {
+    for (const entry of children) known.set(entry.path, entry)
+  }
+  return paths.map((path) => ({ path, isDir: known.get(path)?.isDir ?? false }))
 }
 
 function readDragPayload(ev: DragEvent): DragPayload | null {
@@ -963,10 +1085,28 @@ function readDragPayload(ev: DragEvent): DragPayload | null {
   const raw = custom || (plain.startsWith(DRAG_PREFIX) ? plain.slice(DRAG_PREFIX.length) : '')
   if (!raw) return null
   try {
-    const payload = JSON.parse(raw) as Partial<DragPayload>
-    if (typeof payload.paneId !== 'string' || !Array.isArray(payload.paths)) return null
-    const paths = payload.paths.filter((path): path is string => typeof path === 'string' && !!path)
-    return paths.length ? { paneId: payload.paneId, paths } : null
+    const payload = JSON.parse(raw) as Partial<DragPayload> & { paths?: unknown }
+    if (typeof payload.paneId !== 'string') return null
+    const items = Array.isArray(payload.items)
+      ? payload.items
+      : Array.isArray(payload.paths)
+        ? payload.paths.map((path) => ({ path, isDir: false }))
+        : []
+    const parsed = items
+      .filter(
+        (item): item is RemoteTransferItem =>
+          !!item &&
+          typeof item === 'object' &&
+          typeof (item as RemoteTransferItem).path === 'string' &&
+          !!(item as RemoteTransferItem).path,
+      )
+      .map((item) => ({ path: item.path, isDir: !!item.isDir }))
+    if (!parsed.length) return null
+    return {
+      paneId: payload.paneId,
+      items: parsed,
+      remote: payload.remote,
+    }
   } catch {
     return null
   }
@@ -974,14 +1114,12 @@ function readDragPayload(ev: DragEvent): DragPayload | null {
 
 function onDragStart(ev: DragEvent, entry: FileEntry) {
   if (!ev.dataTransfer) return
-  if (!isLocal.value) {
-    ev.preventDefault() // 远程条目不可拖出（本地复制 / 移动不适用）
-    return
-  }
   if (!props.tab.selected.includes(entry.path)) props.tab.selected = [entry.path]
+  const paths = props.tab.selected.length ? [...props.tab.selected] : [entry.path]
   const payload: DragPayload = {
     paneId: props.paneId,
-    paths: props.tab.selected.length ? [...props.tab.selected] : [entry.path],
+    items: transferItemsFor(paths),
+    remote: props.tab.remote,
   }
   const data = JSON.stringify(payload)
   ev.dataTransfer.setData(DRAG_TYPE, data)
@@ -1002,18 +1140,19 @@ function isInternalDrag(ev: DragEvent): boolean {
 }
 
 function onDragOver(ev: DragEvent) {
-  if (!isLocal.value) return // 远程目录不能作为本地拖放目标
-  if (isInternalDrag(ev) && ev.dataTransfer) {
-    ev.dataTransfer.dropEffect = ev.shiftKey ? 'copy' : 'move'
-  }
+  if (!isInternalDrag(ev) || !ev.dataTransfer) return
+  if (!isRemote.value && !isLocal.value) return
+  // 跨本地 / 远程默认复制：远端删除需逐条成功后追加 quote 操作，拖拽不隐含删除。
+  ev.dataTransfer.dropEffect = isRemote.value || ev.shiftKey ? 'copy' : 'move'
 }
 
 function onEntryDragOver(ev: DragEvent, entry: FileEntry) {
-  if (!isLocal.value || !entry.isDir) return
-  if (!isInternalDrag(ev)) return
+  if (!entry.isDir || !isInternalDrag(ev)) return
   ev.preventDefault()
   ev.stopPropagation()
-  if (ev.dataTransfer) ev.dataTransfer.dropEffect = ev.shiftKey ? 'copy' : 'move'
+  if (ev.dataTransfer) {
+    ev.dataTransfer.dropEffect = isRemote.value || ev.shiftKey ? 'copy' : 'move'
+  }
   dragOverPath.value = entry.path
 }
 
@@ -1024,27 +1163,74 @@ function onEntryDragLeave(ev: DragEvent, path: string) {
 }
 
 async function onEntryDrop(ev: DragEvent, entry: FileEntry) {
-  if (!isLocal.value || !entry.isDir) return
+  if (!entry.isDir) return
   ev.preventDefault()
   ev.stopPropagation()
   dragOverPath.value = null
   const payload = readDragPayload(ev)
   if (!payload) return
+
+  if (isRemote.value) {
+    const target = props.tab.remote
+    if (!target) return
+    if (payload.remote) {
+      ui.setStatusText('暂不支持在远程服务器之间直接传输，请先下载到本地')
+      return
+    }
+    await paneStore.uploadToRemote(props.paneId, target, payload.items, entry.path, 'copy')
+    return
+  }
+
+  if (payload.remote) {
+    await paneStore.downloadFromRemote(
+      props.paneId,
+      payload.remote,
+      payload.items,
+      entry.path,
+      'copy',
+    )
+    return
+  }
+
   const result = await paneStore.runFs(props.paneId, {
     op: ev.shiftKey ? 'copy' : 'move',
-    sources: payload.paths,
+    sources: payload.items.map((item) => item.path),
     target: entry.path,
   })
   if (result.ok) await paneStore.reloadByPath(entry.path)
 }
 
 function onDrop(ev: DragEvent) {
-  if (!isLocal.value) return // 远程目录不能接收本地复制 / 移动
   dragOverPath.value = null
   const payload = readDragPayload(ev)
   if (!payload || payload.paneId === props.paneId) return
-  if (ev.shiftKey) void paneStore.copyToOtherPane(payload.paneId, payload.paths)
-  else void paneStore.moveToOtherPane(payload.paneId, payload.paths)
+
+  if (isRemote.value) {
+    const target = props.tab.remote
+    if (!target) return
+    if (payload.remote) {
+      ui.setStatusText('暂不支持在远程服务器之间直接传输，请先下载到本地')
+      return
+    }
+    // 跨设备默认复制：不因拖拽意外删除本地源文件。
+    void paneStore.uploadToRemote(props.paneId, target, payload.items, props.tab.path, 'copy')
+    return
+  }
+
+  if (payload.remote) {
+    void paneStore.downloadFromRemote(
+      props.paneId,
+      payload.remote,
+      payload.items,
+      props.tab.path,
+      'copy',
+    )
+    return
+  }
+
+  const paths = payload.items.map((item) => item.path)
+  if (ev.shiftKey) void paneStore.copyToOtherPane(payload.paneId, paths, payload.items)
+  else void paneStore.moveToOtherPane(payload.paneId, paths, payload.items)
 }
 </script>
 
@@ -1303,24 +1489,33 @@ function onDrop(ev: DragEvent) {
       @click.stop
       @contextmenu.prevent
     >
+      <template v-if="isRemote">
+        <button @click="chooseUpload('files')"><Icon name="upload" :size="14" />上传文件…</button>
+        <button @click="chooseUpload('folder')"><Icon name="upload" :size="14" />上传文件夹…</button>
+        <button @click="paste(ctxPasteTarget())"><Icon name="folder-open" :size="14" /><span>粘贴到此目录</span><kbd>Ctrl+V</kbd></button>
+        <div class="sep" />
+      </template>
       <template v-if="isLocal">
         <button @click="startCreate('mkdir'); closeCtx()"><Icon name="folder-plus" :size="14" />新建文件夹</button>
         <button @click="startCreate('createFile'); closeCtx()"><Icon name="file-plus" :size="14" />新建文件</button>
         <div class="sep" />
       </template>
       <button @click="openEntry(ctx.entry); closeCtx()"><Icon :name="ctx.entry.isDir ? 'folder-open' : 'file'" :size="14" />打开</button>
+      <button v-if="isRemote" @click="downloadContextToOtherPane" :disabled="!otherLocalDir"><Icon name="download" :size="14" />下载到对侧窗格</button>
+      <button v-if="isRemote" @click="chooseDownload"><Icon name="download" :size="14" />下载到…</button>
+      <button v-if="!isRemote && otherRemote" @click="uploadContextToOtherPane"><Icon name="upload" :size="14" />上传到对侧窗格</button>
       <button v-if="!ctx.entry.isDir && canFileOp && ctxTargetCount === 1" @click="openWith(ctx.entry)"><Icon name="external-link" :size="14" />打开方式…</button>
       <button v-if="isSearch" @click="openContainingFolder(ctx.entry)"><Icon name="folder-arrow" :size="14" />打开所在文件夹</button>
       <button v-if="ctx.entry.isDir && canFileOp" @click="searchFolder(ctx.entry)"><Icon name="search" :size="14" />搜索此文件夹</button>
       <button v-if="ctx.entry.isDir && canFileOp" @click="openInNewTab(ctx.entry)"><Icon name="plus" :size="14" />在新标签页打开</button>
       <button v-if="ctx.entry.isDir && canFileOp" :disabled="favoritePaths.has(ctx.entry.path)" @click="addEntryFavorite(ctx.entry)"><Icon name="star" :size="14" />{{ favoritePaths.has(ctx.entry.path) ? '已在收藏中' : '添加到收藏' }}</button>
       <button v-if="ctx.entry.isDir && canFileOp" @click="openInTerminal(ctx.entry)"><Icon name="terminal" :size="14" />在终端打开</button>
-      <template v-if="canFileOp">
+      <template v-if="canTransfer">
         <div class="sep" />
         <button @click="copyToClipboard('copy')"><Icon name="copy" :size="14" /><span>复制{{ ctxTargetCount > 1 ? ` (${ctxTargetCount} 项)` : '' }}</span><kbd>Ctrl+C</kbd></button>
         <button @click="copyToClipboard('move')"><Icon name="arrow-right" :size="14" /><span>剪切{{ ctxTargetCount > 1 ? ` (${ctxTargetCount} 项)` : '' }}</span><kbd>Ctrl+X</kbd></button>
       </template>
-      <button v-if="isLocal" @click="paste"><Icon name="folder-open" :size="14" /><span>粘贴到此目录</span><kbd>Ctrl+V</kbd></button>
+      <button v-if="isLocal || isRemote" @click="paste(ctxPasteTarget())"><Icon name="folder-open" :size="14" /><span>粘贴到此目录</span><kbd>Ctrl+V</kbd></button>
       <template v-if="canFileOp">
         <div class="sep" />
         <button v-if="!ctxIsCurrentDir" @click="startRename(ctx.entry.path); closeCtx()"><Icon name="pencil" :size="14" /><span>重命名</span><kbd>F2</kbd></button>
