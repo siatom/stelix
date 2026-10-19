@@ -20,6 +20,8 @@ export const SEARCH_CATEGORIES: SearchTypeCategory[] = [
   { key: 'audio', label: '音频', exts: extsOfKind('audio') },
   { key: 'video', label: '视频', exts: extsOfKind('video') },
   { key: 'archive', label: '压缩包', exts: extsOfKind('archive') },
+  // 可执行程序：与图标分类里的 app 不完全一致，排除 dll / sys / lnk 这类库、驱动与快捷方式
+  { key: 'app', label: '可执行程序', exts: 'exe msi msix appx bat cmd com scr jar'.split(' ') },
   { key: 'code', label: '代码', exts: extsOfKind('code') },
   { key: 'word', label: 'Word', exts: 'doc docx docm dot dotx dotm'.split(' ') },
   { key: 'excel', label: 'Excel', exts: 'xls xlsx xlsm xlsb et'.split(' ') },
