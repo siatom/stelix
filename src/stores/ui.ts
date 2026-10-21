@@ -13,6 +13,18 @@ export type SettingsTab = 'general' | 'index' | 'shortcuts' | 'ai' | 'about'
 /** 主题模式 */
 export type ThemeMode = 'system' | 'dark' | 'light'
 
+/** 详细视图的列（表头可拖动调整宽度） */
+export type DetailColumnKey = 'name' | 'path' | 'size' | 'time' | 'type'
+
+/** 详细视图各列宽度（px）；`name: null` 表示自动占满剩余空间。 */
+export interface DetailColumnWidths {
+  name: number | null
+  path: number
+  size: number
+  time: number
+  type: number
+}
+
 // ---- 本地偏好持久化（localStorage）----
 const LS_THEME = 'stelix.theme'
 const LS_HIDE_PROTECTED = 'stelix.hideProtected'
@@ -23,6 +35,44 @@ const LS_SIDEBAR_FONT_SIZE = 'stelix.sidebarFontSize'
 const LS_FILE_FONT_SIZE = 'stelix.fileFontSize'
 const LS_SIDEBAR_ROW_H = 'stelix.sidebarRowHeight'
 const LS_FILE_ROW_H = 'stelix.fileRowHeight'
+const LS_DETAIL_COLUMNS = 'stelix.detailColumnWidths'
+
+// 详细视图列宽：默认值与 FileList 原有布局一致；名称列默认自适应（null）。
+const DETAIL_COL_DEF: DetailColumnWidths = { name: null, path: 240, size: 90, time: 140, type: 90 }
+const DETAIL_COL_MIN = 56
+const DETAIL_NAME_MIN = 120
+const DETAIL_COL_MAX = 1600
+
+function clampColumnWidth(value: number, min: number): number {
+  return Math.min(DETAIL_COL_MAX, Math.max(min, Math.round(value)))
+}
+
+/** 校验并读取持久化的列宽（无效 / 缺失的字段回落到默认值）。 */
+function readDetailColumnWidths(): DetailColumnWidths {
+  try {
+    const raw = localStorage.getItem(LS_DETAIL_COLUMNS)
+    if (!raw) return { ...DETAIL_COL_DEF }
+    const saved = JSON.parse(raw) as Partial<Record<DetailColumnKey, unknown>>
+    const width = (key: DetailColumnKey, min: number): number => {
+      const value = saved[key]
+      return typeof value === 'number' && Number.isFinite(value)
+        ? clampColumnWidth(value, min)
+        : (DETAIL_COL_DEF[key] as number)
+    }
+    return {
+      name:
+        typeof saved.name === 'number' && Number.isFinite(saved.name)
+          ? clampColumnWidth(saved.name, DETAIL_NAME_MIN)
+          : null,
+      path: width('path', DETAIL_COL_MIN),
+      size: width('size', DETAIL_COL_MIN),
+      time: width('time', DETAIL_COL_MIN),
+      type: width('type', DETAIL_COL_MIN),
+    }
+  } catch {
+    return { ...DETAIL_COL_DEF }
+  }
+}
 
 // 行高可选范围与默认值（px）。默认值与 tokens.css 的 --sidebar-row-h / --file-row-h 保持一致。
 const SIDEBAR_ROW_MIN = 20
@@ -119,6 +169,8 @@ export const useUiStore = defineStore('ui', () => {
   const resolvedTheme = computed(() => theme.value === 'system' ? systemTheme() : theme.value)
   const hideProtected = ref(readBool(LS_HIDE_PROTECTED, HIDE_PROTECTED_DEF))
   const hideFileExtensions = ref(readBool(LS_HIDE_FILE_EXTENSIONS, HIDE_FILE_EXTENSIONS_DEF))
+  /** 详细视图列宽（表头拖动后持久化） */
+  const detailColumnWidths = ref<DetailColumnWidths>(readDetailColumnWidths())
   // 每次启动都落在「文件导航」面板（不持久化上次停留的面板）
   const activePanel = ref<PanelKey>('files')
   const searchScope = ref<'global' | 'current'>('global')
@@ -281,6 +333,38 @@ export const useUiStore = defineStore('ui', () => {
     }
   }
 
+  function persistDetailColumnWidths() {
+    try {
+      localStorage.setItem(LS_DETAIL_COLUMNS, JSON.stringify(detailColumnWidths.value))
+    } catch {
+      /* ignore */
+    }
+  }
+
+  /**
+   * 设置某列宽度；`name` 传 null 表示恢复自适应。
+   * 宽度会被夹到 [最小值, 上限]，写入 localStorage 以便下次启动沿用。
+   */
+  function setDetailColumnWidth(key: DetailColumnKey, width: number | null) {
+    const min = key === 'name' ? DETAIL_NAME_MIN : DETAIL_COL_MIN
+    const next: DetailColumnWidths = { ...detailColumnWidths.value }
+    if (key === 'name') {
+      next.name = width === null ? null : clampColumnWidth(width, min)
+    } else {
+      next[key] = clampColumnWidth(width ?? DETAIL_COL_DEF[key], min)
+    }
+    if (next[key] === detailColumnWidths.value[key]) return
+    detailColumnWidths.value = next
+    persistDetailColumnWidths()
+  }
+
+  /** 双击表头分隔线：该列恢复默认宽度（名称列回到自适应）。 */
+  function resetDetailColumnWidth(key: DetailColumnKey) {
+    if (detailColumnWidths.value[key] === DETAIL_COL_DEF[key]) return
+    detailColumnWidths.value = { ...detailColumnWidths.value, [key]: DETAIL_COL_DEF[key] }
+    persistDetailColumnWidths()
+  }
+
   function setHideProtected(value: boolean) {
     hideProtected.value = value
     try {
@@ -313,6 +397,7 @@ export const useUiStore = defineStore('ui', () => {
       localStorage.removeItem(LS_FILE_ROW_H)
       localStorage.removeItem(LS_HIDE_PROTECTED)
       localStorage.removeItem(LS_HIDE_FILE_EXTENSIONS)
+      localStorage.removeItem(LS_DETAIL_COLUMNS)
     } catch {
       /* ignore */
     }
@@ -323,6 +408,7 @@ export const useUiStore = defineStore('ui', () => {
     fileRowHeight.value = FILE_ROW_DEF
     hideProtected.value = HIDE_PROTECTED_DEF
     hideFileExtensions.value = HIDE_FILE_EXTENSIONS_DEF
+    detailColumnWidths.value = { ...DETAIL_COL_DEF }
     applyFontSize(fontSize.value)
     applySidebarFontSize(sidebarFontSize.value)
     applyFileFontSize(fileFontSize.value)
@@ -418,6 +504,9 @@ export const useUiStore = defineStore('ui', () => {
     setHideProtected,
     toggleHideProtected,
     setHideFileExtensions,
+    detailColumnWidths,
+    setDetailColumnWidth,
+    resetDetailColumnWidth,
     resetViewDefaults,
     displayFileName,
     setIndexRoots,

@@ -6,7 +6,7 @@ import { openPath } from '@tauri-apps/plugin-opener'
 import { open as openDialog } from '@tauri-apps/plugin-dialog'
 import type { FileEntry, RemoteLocation, RemoteTransferItem, TabState } from '../../types'
 import { usePaneStore } from '../../stores/pane'
-import { useUiStore } from '../../stores/ui'
+import { useUiStore, type DetailColumnKey } from '../../stores/ui'
 import { match, isCapturingShortcut } from '../../stores/shortcuts'
 import { api } from '../../api'
 import { basename, dirname, fileIcon, fileKind, formatSize, formatTime, joinPath, typeLabel } from './utils'
@@ -42,6 +42,115 @@ const DRAG_PREFIX = 'stelix:'
 const dragOverPath = ref<string | null>(null)
 
 const viewMode = computed(() => paneStore.panes.find((p) => p.id === props.paneId)?.viewMode ?? 'details')
+
+// ---- 详细视图列宽（表头拖动调整，ui store 持久化） ----
+
+/** 行 / 表头左侧内边距，计算最小表格宽度时补上，保证表头与行严格对齐。 */
+const TABLE_PAD_LEFT = 8
+/** 名称列自适应（未手动调整）时的最小宽度。 */
+const NAME_COL_MIN = 120
+
+const columnWidths = computed(() => ui.detailColumnWidths)
+/** 详情视图的 grid 列定义：名称列在未手动调整时占满剩余空间。 */
+const columnTemplate = computed(() => {
+  const w = columnWidths.value
+  const cols = [w.name === null ? `minmax(${NAME_COL_MIN}px, 1fr)` : `${w.name}px`]
+  if (isSearch.value) cols.push(`${w.path}px`)
+  cols.push(`${w.size}px`, `${w.time}px`, `${w.type}px`)
+  return cols.join(' ')
+})
+/** 各列宽度之和：内容超出窗格时出现横向滚动，而不是挤压列宽。 */
+const tableWidth = computed(() => {
+  const w = columnWidths.value
+  return (w.name ?? NAME_COL_MIN) + (isSearch.value ? w.path : 0) + w.size + w.time + w.type
+})
+const tableMinWidth = computed(() => `${tableWidth.value + TABLE_PAD_LEFT}px`)
+/**
+ * 列表可视区宽度（不含垂直滚动条）。
+ * 表头在滚动容器之外，若直接用 100% 宽度会比行内容宽出滚动条那一截，
+ * 导致右侧列错位；用实测宽度让表头与行严格对齐。
+ */
+const scrollPortWidth = ref(0)
+const headerScrollX = ref(0)
+/** 表头 / 行内新建行的实际宽度：至少铺满可视区，列宽总和超出时随内容变宽。 */
+const tableDisplayWidth = computed(() =>
+  Math.max(scrollPortWidth.value, tableWidth.value + TABLE_PAD_LEFT),
+)
+const rowStyle = computed(() =>
+  viewMode.value === 'details' ? { gridTemplateColumns: columnTemplate.value } : undefined,
+)
+const innerStyle = computed(() =>
+  viewMode.value === 'details' ? { minWidth: tableMinWidth.value } : undefined,
+)
+const headerStyle = computed(() =>
+  viewMode.value === 'details'
+    ? {
+        gridTemplateColumns: columnTemplate.value,
+        width: `${tableDisplayWidth.value}px`,
+        transform: `translateX(-${headerScrollX.value}px)`,
+      }
+    : undefined,
+)
+/** 行内新建行与表头同步横向偏移。 */
+const inlineNewStyle = computed(() =>
+  viewMode.value === 'details'
+    ? {
+        gridTemplateColumns: columnTemplate.value,
+        width: `${tableDisplayWidth.value}px`,
+        transform: `translateX(-${headerScrollX.value}px)`,
+      }
+    : undefined,
+)
+
+/** 表格独立横向滚动时，表头跟随内容平移，保持列对齐。 */
+function onListScroll() {
+  const x = scrollRef.value?.scrollLeft ?? 0
+  if (x !== headerScrollX.value) headerScrollX.value = x
+}
+
+interface ColumnDrag {
+  key: DetailColumnKey
+  startX: number
+  startWidth: number
+}
+let columnDrag: ColumnDrag | null = null
+
+/** 表头当前真实列宽（名称列自适应时也能拿到实际像素值）。 */
+function measureColumn(key: DetailColumnKey): number {
+  const el = rootRef.value?.querySelector<HTMLElement>(`.header .col[data-col="${key}"]`)
+  if (el) return el.getBoundingClientRect().width
+  return columnWidths.value[key] ?? NAME_COL_MIN
+}
+
+function startColumnResize(ev: MouseEvent, key: DetailColumnKey) {
+  if (ev.button !== 0) return
+  ev.preventDefault()
+  ev.stopPropagation()
+  cancelPendingRename()
+  // 名称列自适应时先固定为当前像素宽度：否则它会把相邻列的增量全部吸收，
+  // 拖动的分隔线不跟手（其余列宽看不出变化）。
+  if (columnWidths.value.name === null) ui.setDetailColumnWidth('name', measureColumn('name'))
+  columnDrag = { key, startX: ev.clientX, startWidth: measureColumn(key) }
+  document.body.classList.add('col-resizing')
+  window.addEventListener('mousemove', onColumnResizeMove)
+  window.addEventListener('mouseup', stopColumnResize)
+  // 拖到窗口外松手 / 切走窗口时收尾，避免监听器残留。
+  window.addEventListener('blur', stopColumnResize)
+}
+
+function onColumnResizeMove(ev: MouseEvent) {
+  if (!columnDrag) return
+  ui.setDetailColumnWidth(columnDrag.key, columnDrag.startWidth + ev.clientX - columnDrag.startX)
+}
+
+function stopColumnResize() {
+  if (!columnDrag) return
+  columnDrag = null
+  document.body.classList.remove('col-resizing')
+  window.removeEventListener('mousemove', onColumnResizeMove)
+  window.removeEventListener('mouseup', stopColumnResize)
+  window.removeEventListener('blur', stopColumnResize)
+}
 /**
  * 远程（FTP / SFTP）标签：可浏览并上传 / 下载。
  *
@@ -147,8 +256,18 @@ function resyncScrollOffset() {
   el.dispatchEvent(new Event('scroll'))
 }
 
+/** 监听列表可视区宽度，供表头与行内容对齐（垂直滚动条出现 / 消失时也会触发）。 */
+let scrollPortObserver: ResizeObserver | null = null
 watch(scrollRef, (el) => {
-  if (el) void nextTick(resyncScrollOffset)
+  scrollPortObserver?.disconnect()
+  scrollPortObserver = null
+  if (!el) return
+  scrollPortWidth.value = el.clientWidth
+  scrollPortObserver = new ResizeObserver(() => {
+    scrollPortWidth.value = el.clientWidth
+  })
+  scrollPortObserver.observe(el)
+  void nextTick(resyncScrollOffset)
 })
 
 let anchor = -1
@@ -959,6 +1078,9 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  stopColumnResize()
+  scrollPortObserver?.disconnect()
+  scrollPortObserver = null
   cancelPendingRename()
   document.removeEventListener('click', onDocClick)
   document.removeEventListener('keydown', onKey)
@@ -997,6 +1119,9 @@ watch(
   () => [props.tab.id, props.tab.path],
   () => {
     anchor = -1
+    // 切换标签 / 目录后回到表格最左侧，表头同步复位。
+    if (scrollRef.value) scrollRef.value.scrollLeft = 0
+    headerScrollX.value = 0
     cancelPendingRename()
     closeCtx()
     cancelEdit()
@@ -1006,6 +1131,8 @@ watch(
 // 详情/列表与图标视图的下标基准不同（treeRows 含展开子项），切换视图后旧锚点不再有效。
 watch(viewMode, () => {
   anchor = -1
+  // 列表视图没有横向滚动，切回详情时以真实偏移为准重新同步表头。
+  headerScrollX.value = 0
 })
 
 const hasEntries = computed(() => props.tab.entries.length > 0)
@@ -1273,28 +1400,81 @@ function onDrop(ev: DragEvent) {
 
     <!-- 详细 / 列表视图（虚拟滚动） -->
     <template v-else-if="viewMode !== 'icons'">
-      <div v-if="viewMode === 'details'" class="header">
-        <button class="col name" @click="paneStore.toggleSort(tab, 'name')">
-          名称 <Icon v-if="tab.sortKey === 'name'" :name="tab.sortAsc ? 'chevron-up' : 'chevron-down'" :size="11" />
-        </button>
-        <button v-if="isSearch" class="col path" @click="paneStore.toggleSort(tab, 'path')">
-          路径 <Icon v-if="tab.sortKey === 'path'" :name="tab.sortAsc ? 'chevron-up' : 'chevron-down'" :size="11" />
-        </button>
-        <button class="col size" @click="paneStore.toggleSort(tab, 'size')">
-          大小 <Icon v-if="tab.sortKey === 'size'" :name="tab.sortAsc ? 'chevron-up' : 'chevron-down'" :size="11" />
-        </button>
-        <button class="col time" @click="paneStore.toggleSort(tab, 'modified')">
-          修改时间 <Icon v-if="tab.sortKey === 'modified'" :name="tab.sortAsc ? 'chevron-up' : 'chevron-down'" :size="11" />
-        </button>
-        <button class="col type" @click="paneStore.toggleSort(tab, 'ext')">
-          类型 <Icon v-if="tab.sortKey === 'ext'" :name="tab.sortAsc ? 'chevron-up' : 'chevron-down'" :size="11" />
-        </button>
+      <div v-if="viewMode === 'details'" class="header-clip">
+        <div class="header" :style="headerStyle">
+          <button class="col name" data-col="name" @click="paneStore.toggleSort(tab, 'name')">
+            名称 <Icon v-if="tab.sortKey === 'name'" :name="tab.sortAsc ? 'chevron-up' : 'chevron-down'" :size="11" />
+            <span
+              class="col-resizer"
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="调整名称列宽度"
+              title="拖动调整「名称」列宽，双击恢复默认"
+              @mousedown="startColumnResize($event, 'name')"
+              @click.stop
+              @dblclick.stop="ui.resetDetailColumnWidth('name')"
+            />
+          </button>
+          <button v-if="isSearch" class="col path" data-col="path" @click="paneStore.toggleSort(tab, 'path')">
+            路径 <Icon v-if="tab.sortKey === 'path'" :name="tab.sortAsc ? 'chevron-up' : 'chevron-down'" :size="11" />
+            <span
+              class="col-resizer"
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="调整路径列宽度"
+              title="拖动调整「路径」列宽，双击恢复默认"
+              @mousedown="startColumnResize($event, 'path')"
+              @click.stop
+              @dblclick.stop="ui.resetDetailColumnWidth('path')"
+            />
+          </button>
+          <button class="col size" data-col="size" @click="paneStore.toggleSort(tab, 'size')">
+            大小 <Icon v-if="tab.sortKey === 'size'" :name="tab.sortAsc ? 'chevron-up' : 'chevron-down'" :size="11" />
+            <span
+              class="col-resizer"
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="调整大小列宽度"
+              title="拖动调整「大小」列宽，双击恢复默认"
+              @mousedown="startColumnResize($event, 'size')"
+              @click.stop
+              @dblclick.stop="ui.resetDetailColumnWidth('size')"
+            />
+          </button>
+          <button class="col time" data-col="time" @click="paneStore.toggleSort(tab, 'modified')">
+            修改时间 <Icon v-if="tab.sortKey === 'modified'" :name="tab.sortAsc ? 'chevron-up' : 'chevron-down'" :size="11" />
+            <span
+              class="col-resizer"
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="调整修改时间列宽度"
+              title="拖动调整「修改时间」列宽，双击恢复默认"
+              @mousedown="startColumnResize($event, 'time')"
+              @click.stop
+              @dblclick.stop="ui.resetDetailColumnWidth('time')"
+            />
+          </button>
+          <button class="col type" data-col="type" @click="paneStore.toggleSort(tab, 'ext')">
+            类型 <Icon v-if="tab.sortKey === 'ext'" :name="tab.sortAsc ? 'chevron-up' : 'chevron-down'" :size="11" />
+            <span
+              class="col-resizer"
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="调整类型列宽度"
+              title="拖动调整「类型」列宽，双击恢复默认"
+              @mousedown="startColumnResize($event, 'type')"
+              @click.stop
+              @dblclick.stop="ui.resetDetailColumnWidth('type')"
+            />
+          </button>
+        </div>
       </div>
 
       <div
         v-if="editingCreate && editing"
         class="inline-new"
         :class="{ file: editing.mode === 'createFile', multi: editing.mode === 'mkdir' }"
+        :style="inlineNewStyle"
       >
         <span class="name-cell">
           <span class="twisty placeholder" />
@@ -1328,8 +1508,8 @@ function onDrop(ev: DragEvent) {
         </span>
       </div>
 
-      <div ref="scrollRef" class="fl-scroll" @click.self="onBlankClick">
-        <div class="fl-inner" :style="{ height: `${virtualizer.getTotalSize()}px` }">
+      <div ref="scrollRef" class="fl-scroll" @click.self="onBlankClick" @scroll.passive="onListScroll">
+        <div class="fl-inner" :style="[{ height: `${virtualizer.getTotalSize()}px` }, innerStyle]">
           <div
             v-for="vr in virtualRows"
             :key="String(vr.key)"
@@ -1337,7 +1517,7 @@ function onDrop(ev: DragEvent) {
             :data-selection-path="vr.row.entry.path"
             :draggable="!editing"
             :class="{ selected: tab.selected.includes(vr.row.entry.path), dir: vr.row.entry.isDir, 'drop-target': dragOverPath === vr.row.entry.path }"
-            :style="{ height: `${vr.size}px`, transform: `translateY(${vr.start}px)` }"
+            :style="[{ height: `${vr.size}px`, transform: `translateY(${vr.start}px)` }, rowStyle]"
             @click="onClick($event, vr.index, vr.row.entry)"
             @dblclick="onDblClick(vr.row.entry)"
             @contextmenu="openCtx($event, vr.row.entry)"
@@ -1609,22 +1789,62 @@ function onDrop(ev: DragEvent) {
 }
 
 /* 表头 */
+/* 横向滚动时裁掉移出视口的表头，避免盖到窗格边缘之外 */
+.header-clip {
+  flex: none;
+  overflow: hidden;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+}
 .header {
   display: grid;
   grid-template-columns: 1fr 90px 140px 90px;
-  height: 24px;
+  height: 23px;
   padding-left: 8px;
-  background: var(--bg-panel);
-  border-bottom: 1px solid var(--border);
   flex: none;
+  /* 表头随表格横向滚动，用 transform 跟随（见 headerStyle） */
+  will-change: transform;
 }
 .header .col {
+  position: relative;
   text-align: left;
   padding: 0 6px;
   font-size: 0.9167em;
   color: var(--fg-muted);
   white-space: nowrap;
   overflow: hidden;
+}
+/* 列宽拖动手柄：贴在列右边缘，悬停时显示强调色分隔线 */
+.col-resizer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 1;
+  width: 7px;
+  height: 100%;
+  cursor: col-resize;
+  touch-action: none;
+}
+.col-resizer::after {
+  content: '';
+  position: absolute;
+  top: 5px;
+  bottom: 5px;
+  right: 0;
+  width: 1px;
+  background: transparent;
+  transition: background 120ms ease;
+}
+.col-resizer:hover::after,
+.col-resizer:active::after {
+  width: 2px;
+  background: var(--accent);
+}
+/* 拖动列宽期间统一光标，避免划过其他元素时闪烁 */
+:global(body.col-resizing),
+:global(body.col-resizing *) {
+  cursor: col-resize !important;
+  user-select: none !important;
 }
 /* 「名称」左移与文件名的文字对齐（让开 三角 + 图标 的位置） */
 .header .col.name {
@@ -1637,12 +1857,6 @@ function onDrop(ev: DragEvent) {
   color: var(--accent);
   vertical-align: -0.1em;
 }
-/* 搜索结果：名称列后新增「路径」列（表头与行同步扩为 5 列；名称列需容纳图标与缩进，故略宽） */
-.file-list.search:not(.list) .header,
-.file-list.search:not(.list) .row {
-  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr) 90px 140px 90px;
-}
-
 /* 虚拟滚动 */
 .fl-scroll {
   flex: 1;
