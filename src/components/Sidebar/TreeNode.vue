@@ -6,6 +6,7 @@ import { useUiStore } from '../../stores/ui'
 import type { FileEntry } from '../../types'
 import type { TreeNodeData } from './shared'
 import { clearWatchSource, FS_CHANGED_EVENT, normalizePath, setWatchSource } from '../../shell/dirWatch'
+import { compareNames } from '../../naturalSort'
 import Icon from '../icons/Icon.vue'
 import FileIcon from '../icons/FileIcon.vue'
 import { folderIcon } from '../Pane/utils'
@@ -32,7 +33,7 @@ function toNodes(entries: FileEntry[]): TreeNodeData[] {
       .filter((e) => e.isDir)
       // 「隐藏受保护的操作系统文件」（hidden && system）时同样过滤子树目录
       .filter((e) => !(ui.hideProtected && e.hidden && e.system))
-      .sort((a, b) => a.name.localeCompare(b.name))
+      .sort((a, b) => compareNames(a.name, b.name))
       .map((e) => ({ name: e.name, path: e.path }))
   )
 }

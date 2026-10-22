@@ -3,6 +3,7 @@ import { ref } from 'vue'
 import { api } from '../../api'
 import { usePaneStore } from '../../stores/pane'
 import { setRemotePassword } from '../../shell/remote'
+import { compareNames } from '../../naturalSort'
 import TreeNode from './TreeNode.vue'
 import RemoteTreeNode from './RemoteTreeNode.vue'
 import Icon from '../icons/Icon.vue'
@@ -249,6 +250,7 @@ async function loadHost(item: RemoteHost) {
     hostEntries.value[item.id] = listing.entries
       .filter((entry) => entry.isDir)
       .map((entry) => ({ name: entry.name, path: entry.path }))
+      .sort((a, b) => compareNames(a.name, b.name))
   } catch (cause) {
     // 密码统一在「编辑主机」里维护，这里只在未设置密码时补一句提示。
     const hint = passwords.value[item.id] ? '' : '（可在「编辑主机」中填写密码）'
