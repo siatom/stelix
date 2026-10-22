@@ -4,6 +4,7 @@ import { ref } from 'vue'
 import { api } from '../../api'
 import { usePaneStore } from '../../stores/pane'
 import { setRemotePassword } from '../../shell/remote'
+import { compareNames } from '../../naturalSort'
 import type { RemoteLocation } from '../../types'
 import Icon from '../icons/Icon.vue'
 
@@ -43,6 +44,7 @@ async function toggle() {
     children.value = listing.entries
       .filter((entry) => entry.isDir)
       .map((entry) => ({ name: entry.name, path: entry.path }))
+      .sort((a, b) => compareNames(a.name, b.name))
     loaded.value = true
   } catch (cause) {
     error.value = String(cause)

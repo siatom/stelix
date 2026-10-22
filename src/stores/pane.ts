@@ -8,6 +8,7 @@ import { basename, dirname, joinPath } from '../components/Pane/utils'
 import { matchesTypeFilter } from '../searchFilters'
 import { normalizePath, setWatchSource } from '../shell/dirWatch'
 import { normalizeRemotePath, remoteDirname, resolveRemotePassword } from '../shell/remote'
+import { compareNames } from '../naturalSort'
 
 /**
  * 双窗格 / 多标签状态 —— 由 **WS-D (feat/ui-panes)** 实现。
@@ -21,13 +22,14 @@ const PANE_PATHS_KEY = 'stelix.panePaths'
 const PANE_LAYOUT_KEY = 'stelix.paneLayout'
 /** 文件夹大小看门狗的重试间隔（毫秒）。 */
 const DIR_SIZE_RETRY_MS = 800
-/**
- * 文件列表名称排序共用的 collator。
- *
- * 必须复用同一个实例：`String.prototype.localeCompare` 传 locale/options 时
- * 每次比较都会重建比较器，大目录（上万条）排序会额外付出 20 倍以上的时间。
- */
-const nameCollator = new Intl.Collator('zh-Hans-CN', { numeric: true, sensitivity: 'base' })
+
+/** 目录在前、同类按名称自然排序（与文件列表保持一致）。 */
+function sortEntries(entries: FileEntry[]): FileEntry[] {
+  return [...entries].sort((a, b) => {
+    if (a.isDir !== b.isDir) return a.isDir ? -1 : 1
+    return compareNames(a.name, b.name)
+  })
+}
 
 interface SavedPaneLayout {
   activePaneId?: 'left' | 'right'
@@ -796,7 +798,7 @@ export const usePaneStore = defineStore('pane', () => {
     if (dirChildren.value[path]) return
     try {
       const listing = await api.listDir(path)
-      dirChildren.value = { ...dirChildren.value, [path]: listing.entries }
+      dirChildren.value = { ...dirChildren.value, [path]: sortEntries(listing.entries) }
     } catch (e) {
       const now = expandedDirs.value[tabId] ?? []
       expandedDirs.value = { ...expandedDirs.value, [tabId]: now.filter((p) => p !== path) }
@@ -822,7 +824,7 @@ export const usePaneStore = defineStore('pane', () => {
     if (!key) return
     try {
       const listing = await api.listDir(dir)
-      dirChildren.value = { ...dirChildren.value, [key]: listing.entries }
+      dirChildren.value = { ...dirChildren.value, [key]: sortEntries(listing.entries) }
     } catch {
       /* 目录可能刚被删除，静默忽略 */
     }
@@ -995,8 +997,8 @@ export const usePaneStore = defineStore('pane', () => {
       switch (tab.sortKey) {
         case 'path':
           // 按所在目录排序（同一目录内按名称），用于搜索结果页的「路径」列。
-          cmp = nameCollator.compare(dirOf?.get(a.path) ?? '', dirOf?.get(b.path) ?? '')
-          if (cmp === 0) cmp = nameCollator.compare(a.name, b.name)
+          cmp = compareNames(dirOf?.get(a.path) ?? '', dirOf?.get(b.path) ?? '')
+          if (cmp === 0) cmp = compareNames(a.name, b.name)
           break
         case 'size':
           cmp = sortSize(a) - sortSize(b)
@@ -1008,7 +1010,7 @@ export const usePaneStore = defineStore('pane', () => {
           cmp = (a.ext ?? '').localeCompare(b.ext ?? '')
           break
         default:
-          cmp = nameCollator.compare(a.name, b.name)
+          cmp = compareNames(a.name, b.name)
       }
       return cmp * dir
     })
