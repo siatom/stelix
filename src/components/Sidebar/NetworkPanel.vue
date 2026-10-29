@@ -84,6 +84,7 @@ const serverErrors = ref<Record<string, string>>({})
 const scanLoading = ref(false)
 const scanError = ref('')
 const hosts = ref(readHosts())
+const openHostMenuId = ref<string | null>(null)
 const sections = ref({ smb: false, remote: false, cloud: false })
 const smbDraft = ref('')
 const showSmbForm = ref(false)
@@ -462,6 +463,20 @@ async function openTerminal(item: RemoteHost) {
   await pane.openTerminal(pane.activePaneId, toLocation(item))
 }
 
+function toggleHostMenu(id: string) {
+  openHostMenuId.value = openHostMenuId.value === id ? null : id
+}
+
+function editHostFromMenu(item: RemoteHost) {
+  openHostMenuId.value = null
+  editHost(item)
+}
+
+function removeHostFromMenu(id: string) {
+  openHostMenuId.value = null
+  removeHost(id)
+}
+
 function toggleHost(item: RemoteHost) {
   expandedHosts.value[item.id] = !expandedHosts.value[item.id]
   // 每次展开都重新列一次（这就是该主机唯一的刷新入口 —— 密码在「编辑主机」里维护）。
@@ -512,7 +527,7 @@ function toggleHost(item: RemoteHost) {
       <div class="tree-row category">
         <button class="row-main" @click="sections.remote = !sections.remote">
           <span class="twist" :class="{ open: sections.remote }"><Icon name="chevron-right" :size="11" /></span>
-          <Icon class="category-icon category-remote" name="swap" :size="18" /><span>远程 · SSH / FTP / SFTP</span>
+          <Icon class="category-icon category-remote" name="swap" :size="18" /><span>远程服务器</span>
         </button>
         <button class="action" title="添加主机" aria-label="添加 SSH、FTP 或 SFTP 主机" @click="openHostForm"><Icon name="plus" :size="13" /></button>
       </div>
@@ -529,10 +544,15 @@ function toggleHost(item: RemoteHost) {
             <button class="row-main" :title="`打开 ${item.protocol}://${item.host}:${item.port}`" @click="openHostInPane(item)">
               <Icon name="drive" :size="18" /><span class="label">{{ item.label }}</span><small>{{ item.protocol.toUpperCase() }}{{ item.authMethod === 'key' ? ' · 密钥' : '' }}</small>
             </button>
-            <div class="host-actions">
+            <div class="host-actions" @keydown.esc.stop="openHostMenuId = null">
               <button v-if="item.protocol === 'sftp'" class="remove" title="打开 SSH 终端" aria-label="打开 SSH 终端" @click="openTerminal(item)"><Icon name="terminal" :size="12" /></button>
-              <button class="remove" title="编辑主机" aria-label="编辑主机" @click="editHost(item)"><Icon name="pencil" :size="12" /></button>
-              <button class="remove" title="移除主机" aria-label="移除主机" @click="removeHost(item.id)"><Icon name="x" :size="11" /></button>
+              <div class="host-menu-wrap">
+                <button class="remove" title="更多操作" :aria-label="`${item.label}更多操作`" aria-haspopup="menu" :aria-expanded="openHostMenuId === item.id" @click.stop="toggleHostMenu(item.id)"><Icon name="more" :size="14" /></button>
+                <div v-if="openHostMenuId === item.id" class="host-menu" role="menu" @click.stop>
+                  <button role="menuitem" @click="editHostFromMenu(item)"><Icon name="pencil" :size="13" />编辑</button>
+                  <button role="menuitem" @click="removeHostFromMenu(item.id)"><Icon name="x" :size="13" />删除</button>
+                </div>
+              </div>
             </div>
           </div>
           <div v-if="expandedHosts[item.id]">
@@ -639,6 +659,10 @@ function toggleHost(item: RemoteHost) {
 .category-cloud { color: #22a98b; }
 .host-row .twist { margin-left: 18px; }
 .host-actions { display: flex; align-items: center; gap: 2px; flex: none; }
+.host-menu-wrap { position: relative; }
+.host-menu { position: absolute; z-index: 20; top: calc(100% + 3px); right: 0; min-width: 104px; padding: 4px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-panel); box-shadow: var(--shadow-md, var(--shadow-lg)); }
+.host-menu button { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 8px; border-radius: var(--radius); color: var(--fg); text-align: left; font-size: 0.9167em; white-space: nowrap; }
+.host-menu button:hover { background: var(--bg-hover); }
 .server-row .row-main { padding-left: 18px; }
 .twist { display: flex; align-items: center; justify-content: center; width: 12px; flex: none; color: var(--fg-dim); cursor: pointer; transition: transform .12s ease; }
 .twist:hover { color: var(--fg); }
