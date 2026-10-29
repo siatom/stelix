@@ -7,6 +7,7 @@ use crate::dir_size::DirSizeService;
 use crate::index_engine::IndexStore;
 use crate::schedule::ScheduleService;
 use crate::shell_icon::IconCache;
+use crate::ssh::SshManager;
 use crate::watcher::WatchService;
 
 pub struct AppState {
@@ -22,6 +23,8 @@ pub struct AppState {
     pub watcher: Arc<WatchService>,
     /// 目录大小统计（详情视图按需计算，见 dir_size/mod.rs）
     pub dir_sizes: Arc<DirSizeService>,
+    /// SSH 终端会话（见 ssh.rs）
+    pub ssh: Arc<SshManager>,
 }
 
 impl AppState {
@@ -33,6 +36,7 @@ impl AppState {
             tasks: Arc::new(ScheduleService::new()),
             watcher: Arc::new(WatchService::new()),
             dir_sizes: Arc::new(DirSizeService::new()),
+            ssh: Arc::new(SshManager::new()),
         }
     }
 }

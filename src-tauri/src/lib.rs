@@ -20,6 +20,7 @@ mod shell_icon;
 #[cfg(windows)]
 mod shell_menu;
 mod smb_discovery;
+mod ssh;
 mod state;
 mod types;
 mod watcher;
@@ -119,6 +120,58 @@ async fn delete_remote_password(host_id: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || credentials::delete_remote_password(&host_id))
         .await
         .map_err(|error| format!("密码删除任务失败: {error}"))?
+}
+
+#[tauri::command]
+async fn save_remote_key_passphrase(host_id: String, passphrase: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        credentials::save_remote_key_passphrase(&host_id, &passphrase)
+    })
+    .await
+    .map_err(|error| format!("私钥口令保存任务失败: {error}"))?
+}
+
+#[tauri::command]
+async fn get_remote_key_passphrase(host_id: String) -> Result<Option<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || credentials::get_remote_key_passphrase(&host_id))
+        .await
+        .map_err(|error| format!("私钥口令读取任务失败: {error}"))?
+}
+
+#[tauri::command]
+async fn delete_remote_key_passphrase(host_id: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        credentials::delete_remote_key_passphrase(&host_id)
+    })
+    .await
+    .map_err(|error| format!("私钥口令删除任务失败: {error}"))?
+}
+
+// ---------------------------------------------------------------- SSH 终端
+
+#[tauri::command]
+async fn ssh_connect(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    request: ssh::SshConnectRequest,
+) -> Result<ssh::SshSessionInfo, String> {
+    let manager = state.ssh.clone();
+    manager.connect(app, request).await
+}
+
+#[tauri::command]
+fn ssh_write(state: State<'_, AppState>, session_id: String, data: String) -> Result<(), String> {
+    state.ssh.write(&session_id, data)
+}
+
+#[tauri::command]
+fn ssh_resize(state: State<'_, AppState>, session_id: String, cols: u32, rows: u32) {
+    state.ssh.resize(&session_id, cols, rows);
+}
+
+#[tauri::command]
+fn ssh_close(state: State<'_, AppState>, session_id: String) {
+    state.ssh.close(&session_id);
 }
 
 /// 执行一次文件操作（复制 / 移动 / 删除 / 重命名 / 新建）。
@@ -815,6 +868,13 @@ pub fn run() {
             save_remote_password,
             get_remote_password,
             delete_remote_password,
+            save_remote_key_passphrase,
+            get_remote_key_passphrase,
+            delete_remote_key_passphrase,
+            ssh_connect,
+            ssh_write,
+            ssh_resize,
+            ssh_close,
             fs_operation,
             fs_operation_elevated,
             get_file_icon,

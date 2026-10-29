@@ -23,6 +23,10 @@ import type {
   ScheduledTask,
   SearchHit,
   SearchQuery,
+  SshConnectRequest,
+  SshSessionInfo,
+  SshDataEvent,
+  SshExitEvent,
   TaskAction,
   TaskPlanReply,
   TaskPreview,
@@ -34,8 +38,17 @@ export const api = {
   listDir: (path: string) => invoke<DirListing>('list_dir', { path }),
   getRoots: () => invoke<DriveInfo[]>('get_roots'),
   /** 列出 FTP / SFTP 目录，条目带类型 / 大小 / 修改时间。 */
-  listRemoteDir: (request: { protocol: 'ftp' | 'sftp'; host: string; port: number; username: string; password: string; path: string }) =>
-    invoke<DirListing>('list_remote_dir', { request }),
+  listRemoteDir: (request: {
+    protocol: 'ftp' | 'sftp'
+    host: string
+    port: number
+    username: string
+    password: string
+    authMethod?: 'password' | 'key'
+    privateKey?: string
+    keyPassphrase?: string
+    path: string
+  }) => invoke<DirListing>('list_remote_dir', { request }),
   /** 在本地与 FTP / SFTP 之间上传或下载（目录递归）；进度见 `events.onRemoteTransfer`。 */
   remoteTransfer: (request: RemoteTransferRequest) =>
     invoke<RemoteTransferResult>('remote_transfer', { request }),
@@ -45,6 +58,21 @@ export const api = {
   saveRemotePassword: (hostId: string, password: string) => invoke<void>('save_remote_password', { hostId, password }),
   getRemotePassword: (hostId: string) => invoke<string | null>('get_remote_password', { hostId }),
   deleteRemotePassword: (hostId: string) => invoke<void>('delete_remote_password', { hostId }),
+  saveRemoteKeyPassphrase: (hostId: string, passphrase: string) =>
+    invoke<void>('save_remote_key_passphrase', { hostId, passphrase }),
+  getRemoteKeyPassphrase: (hostId: string) =>
+    invoke<string | null>('get_remote_key_passphrase', { hostId }),
+  deleteRemoteKeyPassphrase: (hostId: string) =>
+    invoke<void>('delete_remote_key_passphrase', { hostId }),
+
+  /** 建立 SSH 终端会话（密码 / 私钥认证）；输出经 `ssh:data`、结束经 `ssh:exit` 事件回传。 */
+  sshConnect: (request: SshConnectRequest) =>
+    invoke<SshSessionInfo>('ssh_connect', { request }),
+  sshWrite: (sessionId: string, data: string) =>
+    invoke<void>('ssh_write', { sessionId, data }),
+  sshResize: (sessionId: string, cols: number, rows: number) =>
+    invoke<void>('ssh_resize', { sessionId, cols, rows }),
+  sshClose: (sessionId: string) => invoke<void>('ssh_close', { sessionId }),
   fsOperation: (op: FsOp) => invoke<FsOpResult>('fs_operation', { op }),
   /** 提权执行一次因权限不足失败的文件操作（Windows UAC）。 */
   fsOperationElevated: (op: FsOp) => invoke<FsOpResult>('fs_operation_elevated', { op }),
@@ -134,4 +162,10 @@ export const events = {
   /** 远程传输进度（每开始一个顶层条目回调一次）。 */
   onRemoteTransfer: (cb: (p: RemoteTransferProgress) => void) =>
     listen('remote:transfer', (e) => cb(e.payload as RemoteTransferProgress)),
+  /** SSH 终端输出（base64 字节）。 */
+  onSshData: (cb: (p: SshDataEvent) => void) =>
+    listen('ssh:data', (e) => cb(e.payload as SshDataEvent)),
+  /** SSH 会话结束（远程 shell 退出 / 网络断开 / 主动关闭）。 */
+  onSshExit: (cb: (p: SshExitEvent) => void) =>
+    listen('ssh:exit', (e) => cb(e.payload as SshExitEvent)),
 }

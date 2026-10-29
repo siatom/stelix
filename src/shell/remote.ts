@@ -1,18 +1,20 @@
-// 远程（FTP / SFTP）连接的前端辅助：密码内存缓存 + POSIX 路径工具。
+// 远程（FTP / SFTP / SSH 终端）连接的前端辅助：凭据内存缓存 + POSIX 路径工具。
 import { api } from '../api'
 import type { RemoteLocation } from '../types'
 
 /**
- * 连接密码的内存缓存。
+ * 连接密码 / 私钥口令的内存缓存。
  *
  * - 密码**不**进 `TabState`，也**不**落 localStorage（标签页持久化会跳过远程标签）；
  * - 未命中时回落到系统凭据库（`api.getRemotePassword`）；侧栏输入的新密码写回这里，
  *   这样「侧栏改密码 → 窗格重连」不需要重新读取凭据库。
  */
 const passwords = new Map<string, string>()
+const keyPassphrases = new Map<string, string>()
 
 export function setRemotePassword(hostId: string, password: string) {
   if (password) passwords.set(hostId, password)
+  else passwords.delete(hostId)
 }
 
 export async function resolveRemotePassword(hostId: string): Promise<string> {
@@ -25,6 +27,50 @@ export async function resolveRemotePassword(hostId: string): Promise<string> {
   } catch {
     // 凭据库不可用时按空密码尝试（允许匿名 FTP）。
     return ''
+  }
+}
+
+export function setRemoteKeyPassphrase(hostId: string, passphrase: string) {
+  if (passphrase) keyPassphrases.set(hostId, passphrase)
+  else keyPassphrases.delete(hostId)
+}
+
+export async function resolveRemoteKeyPassphrase(hostId: string): Promise<string> {
+  const cached = keyPassphrases.get(hostId)
+  if (cached !== undefined) return cached
+  try {
+    const stored = (await api.getRemoteKeyPassphrase(hostId)) ?? ''
+    keyPassphrases.set(hostId, stored)
+    return stored
+  } catch {
+    // 没有口令的私钥是常见情况，读取失败按空口令处理。
+    return ''
+  }
+}
+
+/** 一次连接实际要传给后端的认证信息。 */
+export interface ResolvedRemoteAuth {
+  password: string
+  authMethod: 'password' | 'key'
+  privateKey: string
+  keyPassphrase: string
+}
+
+/** 依据主机配置解析出密码或私钥 + 口令（需要读系统凭据库）。 */
+export async function resolveRemoteAuth(location: RemoteLocation): Promise<ResolvedRemoteAuth> {
+  if (location.authMethod === 'key') {
+    return {
+      password: '',
+      authMethod: 'key',
+      privateKey: location.privateKey ?? '',
+      keyPassphrase: await resolveRemoteKeyPassphrase(location.id),
+    }
+  }
+  return {
+    password: await resolveRemotePassword(location.id),
+    authMethod: 'password',
+    privateKey: '',
+    keyPassphrase: '',
   }
 }
 
@@ -44,5 +90,6 @@ export function remoteDirname(path: string): string {
 
 /** 展示用地址：`sftp://host:22/var/www`。 */
 export function formatRemoteUrl(location: RemoteLocation, path: string): string {
-  return `${location.protocol}://${location.host}:${location.port}${normalizeRemotePath(path)}`
+  const protocol = location.protocol === 'sftp' ? 'sftp' : 'ftp'
+  return `${protocol}://${location.host}:${location.port}${normalizeRemotePath(path)}`
 }

@@ -22,7 +22,7 @@ flowchart TB
 
     FILES --> NAV[双窗格导航]
     FILES --> LOCAL[本地磁盘 / 驱动器]
-    FILES --> REMOTE[远程资源\nFTP / SFTP / SMB / WSL]
+    FILES --> REMOTE[远程资源\nFTP / SFTP / SMB / WSL / SSH 终端]
     FILES --> OPS[文件操作\n复制 / 移动 / 删除 / 重命名 / 新建]
     FILES --> SYSTEM[Windows 系统集成\n图标 / 右键菜单 / 属性 / 终端 / 打开方式]
     FILES --> CLIP[剪贴板与提权操作]
@@ -53,7 +53,7 @@ flowchart TB
 flowchart TB
     USER[用户 / Windows 桌面]
     OS[Windows OS\n文件系统 · Shell · 注册表 · UAC · 托盘]
-    NET[网络资源\nFTP / SFTP / SMB / WSL]
+    NET[网络资源\nFTP / SFTP / SMB / WSL / SSH]
     LLM[外部 AI Provider]
 
     subgraph DESKTOP[Tauri 2 桌面容器]
@@ -69,7 +69,7 @@ flowchart TB
             CMD[命令注册表\nsrc-tauri/src/lib.rs]
             STATE[AppState\n共享服务句柄]
             FSC[fs_core\n本地文件系统与递归操作]
-            NETC[network / smb_discovery / wsl\n远程与网络资源]
+            NETC[network / smb_discovery / wsl / ssh\n远程与网络资源]
             INDEX[index_engine\n索引构建 / MFT / SQLite 缓存]
             SEARCHC[search_engine\n查询与过滤]
             WATCHER[watcher / dir_size\n变更事件与大小统计]
@@ -112,7 +112,7 @@ flowchart TB
     WATCHER -. fs:changed / fs:dir-size .-> BRIDGE
     INDEX -. index:progress / index:done .-> BRIDGE
     AIS -. ai:token / ai:step .-> BRIDGE
-    NETC -. remote:transfer .-> BRIDGE
+    NETC -. remote:transfer / ssh:data / ssh:exit .-> BRIDGE
 ```
 
 ## 关键边界
