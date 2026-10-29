@@ -214,6 +214,40 @@ export interface RemoteTransferProgress {
   current: string
 }
 
+// ---- SSH 终端 ----
+
+export interface SshConnectRequest {
+  /** 前端生成，用于事件路由 */
+  sessionId: string
+  host: string
+  port: number
+  username: string
+  authMethod?: RemoteAuthMethod
+  password?: string
+  privateKey?: string
+  keyPassphrase?: string
+  cols?: number
+  rows?: number
+}
+
+export interface SshSessionInfo {
+  sessionId: string
+  /** 服务器主机密钥 SHA256 指纹（展示给用户核对） */
+  fingerprint: string
+}
+
+/** 终端输出：`data` 为 base64 编码的原始字节。 */
+export interface SshDataEvent {
+  sessionId: string
+  data: string
+}
+
+export interface SshExitEvent {
+  sessionId: string
+  message: string
+  code: number | null
+}
+
 export interface TabState {
   id: string
   path: string

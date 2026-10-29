@@ -23,4 +23,8 @@ pub mod events {
     pub const FS_PROGRESS: &str = "fs:progress";
     /// 远程传输进度：payload = RemoteTransferProgress
     pub const REMOTE_TRANSFER: &str = "remote:transfer";
+    /// SSH 终端输出：payload = SshDataEvent（data 为 base64 字节）
+    pub const SSH_DATA: &str = "ssh:data";
+    /// SSH 会话结束：payload = SshExitEvent
+    pub const SSH_EXIT: &str = "ssh:exit";
 }

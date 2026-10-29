@@ -51,6 +51,8 @@ Windows 首次启动时会建立 NTFS MFT 索引，并将索引缓存保存在�
 - 远程窗格右键「上传文件… / 上传文件夹… / 下载到…」可直接选择本机文件或下载位置。
 - 远程与本地之间拖拽默认按复制处理；使用剪切（Ctrl+X）粘贴时，源文件会在传输成功后删除。
 
+SFTP 主机行右侧的终端按钮可打开 SSH 终端（底部面板，多会话标签，支持窗口尺寸同步与 Ctrl+Shift+C / Ctrl+Shift+V 复制粘贴）。SSH 终端使用独立的主机密钥校验：首次连接自动记录到 `~/.ssh/known_hosts`，之后密钥变化会拒绝连接。
+
 SFTP 依赖带 libssh2 的 `curl.exe`（Windows 自带的 `System32\curl.exe` 不含 SFTP）。应用会自动从 PATH、Git for Windows 安装目录与常见 curl 安装位置中查找；也可以通过环境变量 `STELIX_CURL` 指定 curl 的完整路径。
 
 ## AI 大模型接入

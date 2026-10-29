@@ -3,6 +3,7 @@ import { ref } from 'vue'
 import { open as openFileDialog } from '@tauri-apps/plugin-dialog'
 import { api } from '../../api'
 import { usePaneStore } from '../../stores/pane'
+import { useTerminalStore } from '../../stores/terminal'
 import { resolveRemoteAuth, setRemoteKeyPassphrase, setRemotePassword } from '../../shell/remote'
 import { compareNames } from '../../naturalSort'
 import TreeNode from './TreeNode.vue'
@@ -75,6 +76,7 @@ function toLocation(item: RemoteHost) {
 }
 
 const pane = usePaneStore()
+const terminal = useTerminalStore()
 const shares = ref(readShares())
 const neighbors = ref<SmbNeighbor[]>([])
 const expandedServers = ref<Record<string, boolean>>({})
@@ -385,6 +387,12 @@ async function openHostInPane(item: RemoteHost) {
   await pane.openRemoteWorkspace(toLocation(item), '/')
 }
 
+/** 打开 SSH 终端（仅 SFTP 主机，即 SSH 会话）。 */
+async function openTerminal(item: RemoteHost) {
+  if (item.protocol !== 'sftp') return
+  await terminal.open(toLocation(item))
+}
+
 function toggleHost(item: RemoteHost) {
   expandedHosts.value[item.id] = !expandedHosts.value[item.id]
   // 每次展开都重新列一次（这就是该主机唯一的刷新入口 —— 密码在「编辑主机」里维护）。
@@ -453,6 +461,7 @@ function toggleHost(item: RemoteHost) {
               <Icon name="drive" :size="18" /><span class="label">{{ item.label }}</span><small>{{ item.protocol.toUpperCase() }}{{ item.authMethod === 'key' ? ' · 密钥' : '' }}</small>
             </button>
             <div class="host-actions">
+              <button v-if="item.protocol === 'sftp'" class="remove" title="打开 SSH 终端" aria-label="打开 SSH 终端" @click="openTerminal(item)"><Icon name="terminal" :size="12" /></button>
               <button class="remove" title="编辑主机" aria-label="编辑主机" @click="editHost(item)"><Icon name="pencil" :size="12" /></button>
               <button class="remove" title="移除主机" aria-label="移除主机" @click="removeHost(item.id)"><Icon name="x" :size="11" /></button>
             </div>

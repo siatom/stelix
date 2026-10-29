@@ -20,6 +20,7 @@ mod shell_icon;
 #[cfg(windows)]
 mod shell_menu;
 mod smb_discovery;
+mod ssh;
 mod state;
 mod types;
 mod watcher;
@@ -145,6 +146,34 @@ async fn delete_remote_key_passphrase(host_id: String) -> Result<(), String> {
     .await
     .map_err(|error| format!("私钥口令删除任务失败: {error}"))?
 }
+
+// ---------------------------------------------------------------- SSH 终端
+
+#[tauri::command]
+async fn ssh_connect(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    request: ssh::SshConnectRequest,
+) -> Result<ssh::SshSessionInfo, String> {
+    let manager = state.ssh.clone();
+    manager.connect(app, request).await
+}
+
+#[tauri::command]
+fn ssh_write(state: State<'_, AppState>, session_id: String, data: String) -> Result<(), String> {
+    state.ssh.write(&session_id, data)
+}
+
+#[tauri::command]
+fn ssh_resize(state: State<'_, AppState>, session_id: String, cols: u32, rows: u32) {
+    state.ssh.resize(&session_id, cols, rows);
+}
+
+#[tauri::command]
+fn ssh_close(state: State<'_, AppState>, session_id: String) {
+    state.ssh.close(&session_id);
+}
+
 /// 执行一次文件操作（复制 / 移动 / 删除 / 重命名 / 新建）。
 ///
 /// 递归复制、移动、删除都是重负载阻塞操作，走后台线程执行，避免卡死 UI。
@@ -842,6 +871,10 @@ pub fn run() {
             save_remote_key_passphrase,
             get_remote_key_passphrase,
             delete_remote_key_passphrase,
+            ssh_connect,
+            ssh_write,
+            ssh_resize,
+            ssh_close,
             fs_operation,
             fs_operation_elevated,
             get_file_icon,

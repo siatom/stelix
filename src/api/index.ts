@@ -23,6 +23,10 @@ import type {
   ScheduledTask,
   SearchHit,
   SearchQuery,
+  SshConnectRequest,
+  SshSessionInfo,
+  SshDataEvent,
+  SshExitEvent,
   TaskAction,
   TaskPlanReply,
   TaskPreview,
@@ -60,6 +64,15 @@ export const api = {
     invoke<string | null>('get_remote_key_passphrase', { hostId }),
   deleteRemoteKeyPassphrase: (hostId: string) =>
     invoke<void>('delete_remote_key_passphrase', { hostId }),
+
+  /** 建立 SSH 终端会话（密码 / 私钥认证）；输出经 `ssh:data`、结束经 `ssh:exit` 事件回传。 */
+  sshConnect: (request: SshConnectRequest) =>
+    invoke<SshSessionInfo>('ssh_connect', { request }),
+  sshWrite: (sessionId: string, data: string) =>
+    invoke<void>('ssh_write', { sessionId, data }),
+  sshResize: (sessionId: string, cols: number, rows: number) =>
+    invoke<void>('ssh_resize', { sessionId, cols, rows }),
+  sshClose: (sessionId: string) => invoke<void>('ssh_close', { sessionId }),
   fsOperation: (op: FsOp) => invoke<FsOpResult>('fs_operation', { op }),
   /** 提权执行一次因权限不足失败的文件操作（Windows UAC）。 */
   fsOperationElevated: (op: FsOp) => invoke<FsOpResult>('fs_operation_elevated', { op }),
@@ -149,4 +162,10 @@ export const events = {
   /** 远程传输进度（每开始一个顶层条目回调一次）。 */
   onRemoteTransfer: (cb: (p: RemoteTransferProgress) => void) =>
     listen('remote:transfer', (e) => cb(e.payload as RemoteTransferProgress)),
+  /** SSH 终端输出（base64 字节）。 */
+  onSshData: (cb: (p: SshDataEvent) => void) =>
+    listen('ssh:data', (e) => cb(e.payload as SshDataEvent)),
+  /** SSH 会话结束（远程 shell 退出 / 网络断开 / 主动关闭）。 */
+  onSshExit: (cb: (p: SshExitEvent) => void) =>
+    listen('ssh:exit', (e) => cb(e.payload as SshExitEvent)),
 }
