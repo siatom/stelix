@@ -157,6 +157,9 @@ export interface AiProvider {
 
 // ---- 视图模型（前端专用） ----
 
+/** FTP / SFTP 的认证方式：密码 / SSH 私钥。 */
+export type RemoteAuthMethod = 'password' | 'key'
+
 /** 一个 FTP / SFTP 连接的连接信息（密码不在此结构中，见 `src/shell/remote.ts`）。 */
 export interface RemoteLocation {
   /** 侧栏主机的稳定 id（也用于系统凭据库的 service 名） */
@@ -167,6 +170,10 @@ export interface RemoteLocation {
   username: string
   /** 侧栏显示名（用作标签标题） */
   label: string
+  /** 认证方式；缺省为密码，兼容旧配置 */
+  authMethod?: RemoteAuthMethod
+  /** 私钥文件路径（`authMethod === 'key'` 时有效） */
+  privateKey?: string
 }
 
 /** 一个待传输条目：下载时 path 为远端 POSIX 路径，上传时为本地路径。 */
@@ -181,6 +188,10 @@ export interface RemoteTransferRequest {
   port: number
   username: string
   password: string
+  /** 认证方式与私钥信息（缺省为密码认证） */
+  authMethod?: RemoteAuthMethod
+  privateKey?: string
+  keyPassphrase?: string
   direction: 'download' | 'upload'
   /** 下载目标本地目录 / 上传目标远端目录 */
   target: string

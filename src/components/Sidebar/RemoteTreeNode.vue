@@ -3,15 +3,13 @@
 import { ref } from 'vue'
 import { api } from '../../api'
 import { usePaneStore } from '../../stores/pane'
-import { setRemotePassword } from '../../shell/remote'
+import { resolveRemoteAuth } from '../../shell/remote'
 import { compareNames } from '../../naturalSort'
 import type { RemoteLocation } from '../../types'
 import Icon from '../icons/Icon.vue'
 
 const props = defineProps<{
   location: RemoteLocation
-  /** 当前密码（由侧栏密码输入框提供，内存态） */
-  password: string
   path: string
   name: string
   depth: number
@@ -36,9 +34,10 @@ async function toggle() {
   loading.value = true
   error.value = ''
   try {
+    const auth = await resolveRemoteAuth(props.location)
     const listing = await api.listRemoteDir({
       ...props.location,
-      password: props.password,
+      ...auth,
       path: props.path,
     })
     children.value = listing.entries
@@ -53,9 +52,8 @@ async function toggle() {
   }
 }
 
-/** 点名称：在（当前活动的）文件窗格打开该远程目录。 */
+/** 点名称：在文件窗格打开该远程目录（必要时自动切为左本地 / 右远程）。 */
 function openInPane() {
-  setRemotePassword(props.location.id, props.password)
   void pane.openRemote(pane.activePaneId, props.location, props.path)
 }
 </script>
@@ -85,7 +83,6 @@ function openInPane() {
         v-for="child in children"
         :key="child.path"
         :location="location"
-        :password="password"
         :name="child.name"
         :path="child.path"
         :depth="depth + 1"

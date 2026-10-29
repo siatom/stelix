@@ -1,38 +1,67 @@
 //! Secure storage for remote connection credentials.
+//!
+//! 密码与私钥口令分别存放在系统凭据库的不同 service 下：同一主机的两种认证方式
+//! 可以并存，切换认证方式时不会互相覆盖。
 
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
 
 const SERVICE: &str = "stelix.remote-host";
+const KEY_SERVICE: &str = "stelix.remote-host-key";
 static CREDENTIALS_LOCK: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
 
-fn entry(host_id: &str) -> Result<keyring::Entry, String> {
+fn entry(service: &str, host_id: &str) -> Result<keyring::Entry, String> {
     if host_id.is_empty() || host_id.len() > 256 {
         return Err("主机标识无效".into());
     }
-    keyring::Entry::new(SERVICE, host_id).map_err(|error| format!("无法访问系统凭据库：{error}"))
+    keyring::Entry::new(service, host_id).map_err(|error| format!("无法访问系统凭据库：{error}"))
+}
+
+fn save(service: &str, host_id: &str, secret: &str) -> Result<(), String> {
+    let _guard = CREDENTIALS_LOCK.lock();
+    entry(service, host_id)?
+        .set_password(secret)
+        .map_err(|error| format!("无法保存主机凭据：{error}"))
+}
+
+fn load(service: &str, host_id: &str) -> Result<Option<String>, String> {
+    let _guard = CREDENTIALS_LOCK.lock();
+    match entry(service, host_id)?.get_password() {
+        Ok(secret) => Ok(Some(secret)),
+        Err(keyring::Error::NoEntry) => Ok(None),
+        Err(error) => Err(format!("无法读取主机凭据：{error}")),
+    }
+}
+
+fn delete(service: &str, host_id: &str) -> Result<(), String> {
+    let _guard = CREDENTIALS_LOCK.lock();
+    match entry(service, host_id)?.delete_credential() {
+        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+        Err(error) => Err(format!("无法删除主机凭据：{error}")),
+    }
 }
 
 pub fn save_remote_password(host_id: &str, password: &str) -> Result<(), String> {
-    let _guard = CREDENTIALS_LOCK.lock();
-    entry(host_id)?
-        .set_password(password)
-        .map_err(|error| format!("无法保存主机密码：{error}"))
+    save(SERVICE, host_id, password)
 }
 
 pub fn get_remote_password(host_id: &str) -> Result<Option<String>, String> {
-    let _guard = CREDENTIALS_LOCK.lock();
-    match entry(host_id)?.get_password() {
-        Ok(password) => Ok(Some(password)),
-        Err(keyring::Error::NoEntry) => Ok(None),
-        Err(error) => Err(format!("无法读取主机密码：{error}")),
-    }
+    load(SERVICE, host_id)
 }
 
 pub fn delete_remote_password(host_id: &str) -> Result<(), String> {
-    let _guard = CREDENTIALS_LOCK.lock();
-    match entry(host_id)?.delete_credential() {
-        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-        Err(error) => Err(format!("无法删除主机密码：{error}")),
-    }
+    delete(SERVICE, host_id)
+}
+
+/// 私钥口令（有密码短语的私钥）：与登录密码分开保存，避免切换认证方式时丢失。
+pub fn save_remote_key_passphrase(host_id: &str, passphrase: &str) -> Result<(), String> {
+    save(KEY_SERVICE, host_id, passphrase)
+}
+
+pub fn get_remote_key_passphrase(host_id: &str) -> Result<Option<String>, String> {
+    load(KEY_SERVICE, host_id)
+}
+
+pub fn delete_remote_key_passphrase(host_id: &str) -> Result<(), String> {
+    delete(KEY_SERVICE, host_id)
 }

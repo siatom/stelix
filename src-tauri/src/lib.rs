@@ -121,6 +121,30 @@ async fn delete_remote_password(host_id: String) -> Result<(), String> {
         .map_err(|error| format!("密码删除任务失败: {error}"))?
 }
 
+#[tauri::command]
+async fn save_remote_key_passphrase(host_id: String, passphrase: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        credentials::save_remote_key_passphrase(&host_id, &passphrase)
+    })
+    .await
+    .map_err(|error| format!("私钥口令保存任务失败: {error}"))?
+}
+
+#[tauri::command]
+async fn get_remote_key_passphrase(host_id: String) -> Result<Option<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || credentials::get_remote_key_passphrase(&host_id))
+        .await
+        .map_err(|error| format!("私钥口令读取任务失败: {error}"))?
+}
+
+#[tauri::command]
+async fn delete_remote_key_passphrase(host_id: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        credentials::delete_remote_key_passphrase(&host_id)
+    })
+    .await
+    .map_err(|error| format!("私钥口令删除任务失败: {error}"))?
+}
 /// 执行一次文件操作（复制 / 移动 / 删除 / 重命名 / 新建）。
 ///
 /// 递归复制、移动、删除都是重负载阻塞操作，走后台线程执行，避免卡死 UI。
@@ -815,6 +839,9 @@ pub fn run() {
             save_remote_password,
             get_remote_password,
             delete_remote_password,
+            save_remote_key_passphrase,
+            get_remote_key_passphrase,
+            delete_remote_key_passphrase,
             fs_operation,
             fs_operation_elevated,
             get_file_icon,

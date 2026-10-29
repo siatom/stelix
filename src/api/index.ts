@@ -34,8 +34,17 @@ export const api = {
   listDir: (path: string) => invoke<DirListing>('list_dir', { path }),
   getRoots: () => invoke<DriveInfo[]>('get_roots'),
   /** 列出 FTP / SFTP 目录，条目带类型 / 大小 / 修改时间。 */
-  listRemoteDir: (request: { protocol: 'ftp' | 'sftp'; host: string; port: number; username: string; password: string; path: string }) =>
-    invoke<DirListing>('list_remote_dir', { request }),
+  listRemoteDir: (request: {
+    protocol: 'ftp' | 'sftp'
+    host: string
+    port: number
+    username: string
+    password: string
+    authMethod?: 'password' | 'key'
+    privateKey?: string
+    keyPassphrase?: string
+    path: string
+  }) => invoke<DirListing>('list_remote_dir', { request }),
   /** 在本地与 FTP / SFTP 之间上传或下载（目录递归）；进度见 `events.onRemoteTransfer`。 */
   remoteTransfer: (request: RemoteTransferRequest) =>
     invoke<RemoteTransferResult>('remote_transfer', { request }),
@@ -45,6 +54,12 @@ export const api = {
   saveRemotePassword: (hostId: string, password: string) => invoke<void>('save_remote_password', { hostId, password }),
   getRemotePassword: (hostId: string) => invoke<string | null>('get_remote_password', { hostId }),
   deleteRemotePassword: (hostId: string) => invoke<void>('delete_remote_password', { hostId }),
+  saveRemoteKeyPassphrase: (hostId: string, passphrase: string) =>
+    invoke<void>('save_remote_key_passphrase', { hostId, passphrase }),
+  getRemoteKeyPassphrase: (hostId: string) =>
+    invoke<string | null>('get_remote_key_passphrase', { hostId }),
+  deleteRemoteKeyPassphrase: (hostId: string) =>
+    invoke<void>('delete_remote_key_passphrase', { hostId }),
   fsOperation: (op: FsOp) => invoke<FsOpResult>('fs_operation', { op }),
   /** 提权执行一次因权限不足失败的文件操作（Windows UAC）。 */
   fsOperationElevated: (op: FsOp) => invoke<FsOpResult>('fs_operation_elevated', { op }),

@@ -19,6 +19,17 @@ use serde::{Deserialize, Serialize};
 use crate::fs_core::path_id;
 use crate::types::{DirListing, FileEntry};
 
+/// 远程认证方式。
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum RemoteAuth {
+    /// 用户名 + 密码（也兼容匿名 FTP：空用户名 / 空密码）。
+    #[default]
+    Password,
+    /// SSH 私钥（可带密码短语）；仅 SFTP 可用。
+    Key,
+}
+
 /// 一次远程连接所需的凭据与地址。
 #[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -27,7 +38,17 @@ pub struct RemoteConnection {
     pub host: String,
     pub port: u16,
     pub username: String,
+    #[serde(default)]
     pub password: String,
+    /// 认证方式；缺省为密码，兼容旧版前端与旧配置。
+    #[serde(default)]
+    pub auth_method: RemoteAuth,
+    /// 私钥文件路径（`authMethod = "key"` 时必填）。
+    #[serde(default)]
+    pub private_key: String,
+    /// 私钥密码短语（没有密码短语时为空）。
+    #[serde(default)]
+    pub key_passphrase: String,
 }
 
 #[derive(Deserialize)]
@@ -123,6 +144,43 @@ fn validate_connection(connection: &RemoteConnection) -> Result<(), String> {
         return Err("端口无效".into());
     }
     Ok(())
+}
+
+/// 生成 curl 配置里的认证段（密码 / 私钥 + 可选密码短语）。
+///
+/// 凭据只随 `--config -` 从标准输入传入，不会出现在进程命令行里。
+fn curl_auth_config(connection: &RemoteConnection) -> Result<String, String> {
+    match connection.auth_method {
+        RemoteAuth::Password => Ok(format!(
+            "user = {}\n",
+            quote_config(&format!("{}:{}", connection.username, connection.password))
+        )),
+        RemoteAuth::Key => {
+            if connection.protocol != "sftp" {
+                return Err("私钥认证仅支持 SFTP".into());
+            }
+            let key = connection.private_key.trim();
+            if key.is_empty() {
+                return Err("请选择 SSH 私钥文件".into());
+            }
+            if !Path::new(key).is_file() {
+                return Err(format!("私钥文件不存在：{key}"));
+            }
+            // `username:`（带冒号）表示不提供密码，让 curl 只走私钥认证。
+            let mut config = format!(
+                "user = {}\nkey = {}\n",
+                quote_config(&format!("{}:", connection.username)),
+                quote_config(key)
+            );
+            if !connection.key_passphrase.is_empty() {
+                config.push_str(&format!(
+                    "pass = {}\n",
+                    quote_config(&connection.key_passphrase)
+                ));
+            }
+            Ok(config)
+        }
+    }
 }
 
 /// 远程路径校验：只接受 POSIX 绝对路径，拒绝 `..` 与控制字符（防目录穿越 / 配置注入）。
@@ -326,9 +384,9 @@ fn run_curl(protocol: &str, config: &str, args: &[&str]) -> Result<Vec<u8>, Stri
 fn run_curl_listing(connection: &RemoteConnection, path: &str) -> Result<Vec<u8>, String> {
     let url = build_remote_url(connection, path, true)?;
     let config = format!(
-        "url = {}\nuser = {}\n",
+        "url = {}\n{}",
         quote_config(url.as_str()),
-        quote_config(&format!("{}:{}", connection.username, connection.password))
+        curl_auth_config(connection)?
     );
     run_curl(&connection.protocol, &config, &["--max-time", "20"])
         .map_err(|error| format!("连接或目录读取失败：{error}"))
@@ -531,8 +589,8 @@ fn download_file(
     let temp = local_path.with_file_name(format!(".stelix-{}.part", uuid::Uuid::new_v4()));
     let url = build_remote_url(connection, remote_path, false)?;
     let config = format!(
-        "user = {}\noutput = {}\nurl = {}\n",
-        quote_config(&format!("{}:{}", connection.username, connection.password)),
+        "{}output = {}\nurl = {}\n",
+        curl_auth_config(connection)?,
         quote_config(&temp.to_string_lossy()),
         quote_config(url.as_str())
     );
@@ -693,8 +751,8 @@ fn upload_file(
     let url = build_remote_url(connection, remote_path, false)?;
     let size = fs::metadata(local_path).map(|meta| meta.len()).unwrap_or(0);
     let config = format!(
-        "user = {}\nftp-create-dirs\nupload-file = {}\nurl = {}\n",
-        quote_config(&format!("{}:{}", connection.username, connection.password)),
+        "{}ftp-create-dirs\nupload-file = {}\nurl = {}\n",
+        curl_auth_config(connection)?,
         quote_config(&local_path.to_string_lossy()),
         quote_config(url.as_str())
     );
@@ -710,10 +768,7 @@ fn create_remote_dirs(connection: &RemoteConnection, dirs: &[String]) -> Result<
         return Ok(());
     }
     let root = build_remote_url(connection, "/", true)?;
-    let mut config = format!(
-        "user = {}\n",
-        quote_config(&format!("{}:{}", connection.username, connection.password))
-    );
+    let mut config = curl_auth_config(connection)?;
     for dir in dirs {
         let command = if connection.protocol == "sftp" {
             format!("*mkdir \"{}\"", escape_sftp_operand(dir))
@@ -775,10 +830,7 @@ fn run_quote_commands(connection: &RemoteConnection, commands: &[String]) -> Res
         return Ok(());
     }
     let root = build_remote_url(connection, "/", true)?;
-    let mut config = format!(
-        "user = {}\n",
-        quote_config(&format!("{}:{}", connection.username, connection.password))
-    );
+    let mut config = curl_auth_config(connection)?;
     for command in commands {
         config.push_str(&format!("quote = {}\n", quote_config(command)));
     }
@@ -1356,6 +1408,9 @@ mod tests {
             port: 80,
             username: String::new(),
             password: String::new(),
+            auth_method: RemoteAuth::Password,
+            private_key: String::new(),
+            key_passphrase: String::new(),
         };
         assert!(build_remote_url(&connection, "/", true).is_err());
 
@@ -1365,6 +1420,9 @@ mod tests {
             port: 22,
             username: String::new(),
             password: String::new(),
+            auth_method: RemoteAuth::Password,
+            private_key: String::new(),
+            key_passphrase: String::new(),
         };
         assert!(build_remote_url(&connection, "/../etc", true).is_err());
     }
@@ -1377,6 +1435,9 @@ mod tests {
             port: 22,
             username: "user".into(),
             password: "secret".into(),
+            auth_method: RemoteAuth::Password,
+            private_key: String::new(),
+            key_passphrase: String::new(),
         };
 
         let dir = build_remote_url(&connection, "/var/www", true).unwrap();
@@ -1438,6 +1499,9 @@ mod tests {
                 port: 22,
                 username: String::new(),
                 password: String::new(),
+                auth_method: RemoteAuth::Password,
+                private_key: String::new(),
+                key_passphrase: String::new(),
             },
             direction: TransferDirection::Download,
             target: "C:\\Temp".into(),
@@ -1447,6 +1511,53 @@ mod tests {
         let result = transfer_remote(request, &mut |_| {});
         assert!(!result.ok);
         assert_eq!(result.errors[0], "没有要传输的条目");
+    }
+
+    #[test]
+    fn builds_curl_auth_config_for_password_and_key() {
+        let mut connection = RemoteConnection {
+            protocol: "sftp".into(),
+            host: "example.com".into(),
+            port: 22,
+            username: "user".into(),
+            password: "secret".into(),
+            auth_method: RemoteAuth::Password,
+            private_key: String::new(),
+            key_passphrase: String::new(),
+        };
+        assert_eq!(
+            curl_auth_config(&connection).unwrap(),
+            "user = \"user:secret\"\n"
+        );
+
+        // 私钥认证：`user:` 表示空密码，路径与口令都进入 stdin 配置。
+        let key_path =
+            std::env::temp_dir().join(format!("stelix-key-{}.txt", uuid::Uuid::new_v4()));
+        fs::write(&key_path, "dummy-key").unwrap();
+        connection.auth_method = RemoteAuth::Key;
+        connection.private_key = key_path.to_string_lossy().into_owned();
+        connection.key_passphrase = "p@ss".into();
+        let config = curl_auth_config(&connection).unwrap();
+        assert!(config.starts_with("user = \"user:\"\n"));
+        assert!(config.contains("key = "));
+        assert!(config.contains("pass = \"p@ss\"\n"));
+        assert!(!config.contains("secret"));
+
+        // 缺少私钥 / FTP 使用私钥都必须在使用 curl 之前被拦下。
+        connection.private_key = key_path
+            .with_extension("missing")
+            .to_string_lossy()
+            .into_owned();
+        assert!(curl_auth_config(&connection)
+            .unwrap_err()
+            .contains("私钥文件不存在"));
+        connection.private_key = key_path.to_string_lossy().into_owned();
+        connection.protocol = "ftp".into();
+        assert!(curl_auth_config(&connection)
+            .unwrap_err()
+            .contains("仅支持 SFTP"));
+
+        let _ = fs::remove_file(key_path);
     }
 
     #[test]

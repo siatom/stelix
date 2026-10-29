@@ -7,7 +7,7 @@ import { useUiStore } from './ui'
 import { basename, dirname, joinPath } from '../components/Pane/utils'
 import { matchesTypeFilter } from '../searchFilters'
 import { normalizePath, setWatchSource } from '../shell/dirWatch'
-import { normalizeRemotePath, remoteDirname, resolveRemotePassword } from '../shell/remote'
+import { normalizeRemotePath, remoteDirname, resolveRemoteAuth } from '../shell/remote'
 import { compareNames } from '../naturalSort'
 
 /**
@@ -203,6 +203,8 @@ export const usePaneStore = defineStore('pane', () => {
   const splitRatio = ref(savedLayout.splitRatio ?? 0.5)
   /** 是否只显示当前活动窗格 */
   const singlePane = ref(savedLayout.singlePane ?? false)
+  /** 各窗格最近停留的本地目录（远程工作区需要把左窗格固定在本地）。 */
+  const lastLocalPaths = ref<Record<string, string>>({ left: fallbackHome, right: fallbackHome })
   /** 内部剪贴板（复制 / 剪切） */
   const clipboard = ref<PaneClipboard | null>(null)
   /** 每个标签的浏览历史（存于 store，避免改动冻结的 types.ts） */
@@ -270,6 +272,15 @@ export const usePaneStore = defineStore('pane', () => {
 
   function activeTabOf(pane: PaneState): TabState | undefined {
     return pane.tabs.find((t) => t.id === pane.activeTabId) ?? pane.tabs[0]
+  }
+
+  /** 普通本地目录标签（搜索 / 远程标签都不可作为传输目标）。 */
+  function isLocalTab(tab: TabState | undefined): tab is TabState {
+    return !!tab && (tab.kind ?? 'files') === 'files'
+  }
+
+  function rememberLocalPath(paneId: string, path: string) {
+    lastLocalPaths.value = { ...lastLocalPaths.value, [paneId]: path }
   }
 
   function savePanePaths() {
@@ -394,12 +405,12 @@ export const usePaneStore = defineStore('pane', () => {
 
   // ---- 加载 / 导航 ----
 
-  /** 远程标签：取（内存 / 凭据库里的）密码后列出 FTP / SFTP 目录。 */
+  /** 远程标签：取（内存 / 凭据库里的）密码或私钥口令后列出 FTP / SFTP 目录。 */
   async function listRemoteTab(tab: TabState): Promise<DirListing> {
     const location = tab.remote
     if (!location) throw new Error('远程连接信息缺失')
-    const password = await resolveRemotePassword(location.id)
-    return api.listRemoteDir({ ...location, password, path: tab.path })
+    const auth = await resolveRemoteAuth(location)
+    return api.listRemoteDir({ ...location, ...auth, path: tab.path })
   }
 
   async function load(tab: TabState) {
@@ -446,6 +457,7 @@ export const usePaneStore = defineStore('pane', () => {
     // 进入其它目录：折叠该标签内原地展开的子树（展开态属于旧目录）。
     if (tab.path !== path) clearExpand(tab.id)
     tab.path = path
+    rememberLocalPath(paneId, path)
     if (pushHistory) recordHistory(tab)
     await load(tab)
   }
@@ -453,11 +465,81 @@ export const usePaneStore = defineStore('pane', () => {
   /**
    * 在文件窗格打开一个远程（FTP / SFTP）目录。
    *
-   * 与本地 `navigateTo` 分开：`navigateTo` 会把标签强制打回本地（`kind = 'files'`），
-   * 而远程标签要在整段浏览过程中保持 `kind = 'remote'` 与连接信息。
+   * - 当前活动标签已经是同一台主机的远程目录：直接在该标签内导航；
+   * - 否则进入「远程工作区」：自动展开双窗格，左本地 / 右远程，多台主机在右窗格
+   *   以独立标签并存（支持同时连接多个服务器）。
    */
   async function openRemote(paneId: string, location: RemoteLocation, path = '/') {
-    await navigateRemote(paneId, location, path)
+    const pane = paneById(paneId)
+    const tab = pane ? activeTabOf(pane) : undefined
+    if (tab && tab.kind === 'remote' && tab.remote?.id === location.id) {
+      await navigateRemote(paneId, location, path)
+      return
+    }
+    await openRemoteWorkspace(location, path)
+  }
+
+  /** 在指定窗格新建一个远程标签（不替换现有本地 / 远程标签）。 */
+  async function addRemoteTab(paneId: string, location: RemoteLocation, path = '/') {
+    const pane = paneById(paneId)
+    if (!pane) return
+    const tab = makeTab(path)
+    tab.kind = 'remote'
+    tab.remote = location
+    tab.title = location.label
+    pane.tabs.push(tab)
+    pane.activeTabId = tab.id
+    recordHistory(tab)
+    const reactiveTab = pane.tabs.find((item) => item.id === tab.id)
+    if (reactiveTab) await load(reactiveTab)
+  }
+
+  /**
+   * 远程工作区：固定「左本地 / 右远程」。
+   *
+   * 用户从侧栏连接主机时调用。左窗格保持当前本地目录（若左窗格原本是远程，
+   * 则回到它最近一次停留的本地目录）；右窗格为远程目录，同一主机的不同目录
+   * 复用标签，不同主机则新增标签，从而支持多服务器同时连接。
+   */
+  async function openRemoteWorkspace(location: RemoteLocation, path = '/') {
+    // 活动窗格是本地目录时，以它作为左窗格的本地目录（常见于单窗格使用）。
+    const activePane = panes.value.find((pane) => pane.id === activePaneId.value)
+    const activeTab = activePane ? activeTabOf(activePane) : undefined
+    const activeLocal = isLocalTab(activeTab) ? activeTab?.path : undefined
+
+    const left = paneById('left')
+    const right = paneById('right')
+    if (!left || !right) return
+
+    const leftTab = activeTabOf(left)
+    const desiredLocal =
+      activeLocal ?? lastLocalPaths.value.left ?? lastLocalPaths.value.right ?? fallbackHome
+    if (!isLocalTab(leftTab)) {
+      await navigateTo('left', desiredLocal)
+      const restored = activeTabOf(left)
+      // 最近目录可能已被删除 / 不可访问：退回用户主目录，保证左窗格始终有可用本地目录。
+      if (restored?.error && desiredLocal !== fallbackHome) {
+        await navigateTo('left', fallbackHome)
+      }
+    } else if (activeLocal && activePane?.id === 'right' && leftTab.path !== activeLocal) {
+      // 用户正在右窗格浏览本地目录：把它镜像到左侧，右侧腾给远程。
+      await navigateTo('left', activeLocal)
+    }
+
+    // 恢复双窗格布局（单窗格模式下无法同时看到本地与远程）。
+    if (singlePane.value) singlePane.value = false
+
+    const existing = right.tabs.find(
+      (tab) => tab.kind === 'remote' && tab.remote?.id === location.id,
+    )
+    if (existing) {
+      right.activeTabId = existing.id
+      await navigateRemote('right', location, path, existing.id)
+    } else {
+      await addRemoteTab('right', location, path)
+    }
+    activePaneId.value = 'right'
+    setStatus(`已连接 ${location.label || location.host}`)
   }
 
   async function navigateRemote(
@@ -1089,10 +1171,10 @@ export const usePaneStore = defineStore('pane', () => {
     }
     setStatus(`正在下载 ${items.length} 项…`)
     try {
-      const password = await resolveRemotePassword(location.id)
+      const auth = await resolveRemoteAuth(location)
       const result = await api.remoteTransfer({
         ...location,
-        password,
+        ...auth,
         direction: 'download',
         target: targetDir,
         items,
@@ -1129,10 +1211,10 @@ export const usePaneStore = defineStore('pane', () => {
     }
     setStatus(`正在上传 ${items.length} 项…`)
     try {
-      const password = await resolveRemotePassword(location.id)
+      const auth = await resolveRemoteAuth(location)
       const result = await api.remoteTransfer({
         ...location,
-        password,
+        ...auth,
         direction: 'upload',
         target: targetDir,
         items,
@@ -1613,6 +1695,8 @@ export const usePaneStore = defineStore('pane', () => {
         }
         recordHistory(tab)
       }
+      const local = pane.tabs.find(isLocalTab)
+      if (local) rememberLocalPath(pane.id, local.path)
     }))
     pathsReady = true
     savePanePaths()
@@ -1645,6 +1729,8 @@ export const usePaneStore = defineStore('pane', () => {
     navigate,
     navigateTo,
     openRemote,
+    openRemoteWorkspace,
+    addRemoteTab,
     navigateRemote,
     load,
     goUp,
