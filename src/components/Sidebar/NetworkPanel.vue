@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import { open as openFileDialog } from '@tauri-apps/plugin-dialog'
 import { api } from '../../api'
 import { usePaneStore } from '../../stores/pane'
@@ -108,6 +108,11 @@ const passphrases = ref<Record<string, string>>({})
 const hostLoading = ref<Record<string, boolean>>({})
 const hostErrors = ref<Record<string, string>>({})
 const error = ref('')
+/** 表单内的「测试连接」：连接中状态与结果（成功 / 失败 + 耗时）。 */
+const testing = ref(false)
+const testResult = ref<{ ok: boolean; message: string } | null>(null)
+/** 递增序号：表单变化或重新测试时作废仍在进行的旧结果。 */
+let testToken = 0
 
 async function scanNeighbors() {
   scanLoading.value = true
@@ -154,6 +159,7 @@ function openHostForm() {
   privateKeyPath.value = ''
   draftPassword.value = ''
   draftPassphrase.value = ''
+  testResult.value = null
   showHostForm.value = true
   error.value = ''
 }
@@ -170,6 +176,7 @@ function closeHostForm() {
   privateKeyPath.value = ''
   draftPassword.value = ''
   draftPassphrase.value = ''
+  testResult.value = null
   error.value = ''
 }
 
@@ -191,7 +198,70 @@ async function pickPrivateKey() {
 function onProtocolChange() {
   port.value = protocol.value === 'sftp' ? 22 : 21
   if (protocol.value === 'ftp') authMethod.value = 'password'
+  testResult.value = null
 }
+
+/**
+ * 用当前表单内容试连一次（不保存主机、不写凭据库）。
+ *
+ * 走与浏览远端目录相同的命令：SFTP 会连同 SSH 认证与主机密钥校验一起验证，
+ * FTP 验证账号密码与网络可达性。`path = "/"` 即可，不做递归。
+ */
+async function testConnection() {
+  const address = host.value.trim()
+  if (!address || !(port.value >= 1 && port.value <= 65535)) {
+    testResult.value = { ok: false, message: '请填写有效的主机地址和端口' }
+    return
+  }
+  if (authMethod.value === 'key') {
+    if (protocol.value !== 'sftp') {
+      testResult.value = { ok: false, message: '私钥认证仅支持 SFTP' }
+      return
+    }
+    if (!privateKeyPath.value.trim()) {
+      testResult.value = { ok: false, message: '请选择 SSH 私钥文件' }
+      return
+    }
+  }
+  testing.value = true
+  testResult.value = null
+  const token = ++testToken
+  const started = performance.now()
+  try {
+    const listing = await api.listRemoteDir({
+      protocol: protocol.value,
+      host: address,
+      port: port.value,
+      username: username.value.trim(),
+      password: authMethod.value === 'password' ? draftPassword.value : '',
+      authMethod: authMethod.value,
+      privateKey: authMethod.value === 'key' ? privateKeyPath.value.trim() : '',
+      keyPassphrase: authMethod.value === 'key' ? draftPassphrase.value : '',
+      path: '/',
+    })
+    if (token !== testToken) return // 测试期间表单已改，结果作废
+    const elapsed = Math.round(performance.now() - started)
+    testResult.value = {
+      ok: true,
+      message: `连接成功（${elapsed} ms），根目录 ${listing.entries.length} 项`,
+    }
+  } catch (cause) {
+    if (token !== testToken) return
+    testResult.value = { ok: false, message: String(cause) }
+  } finally {
+    if (token === testToken) testing.value = false
+  }
+}
+
+// 表单内容变化后，上一次的测试结果不再可信，清掉避免误导。
+watch(
+  [protocol, host, port, username, authMethod, privateKeyPath, draftPassword, draftPassphrase],
+  () => {
+    testToken += 1
+    testResult.value = null
+    testing.value = false
+  },
+)
 
 function refreshSmb() {
   sections.value.smb = true
@@ -319,6 +389,7 @@ async function editHost(item: RemoteHost) {
   sections.value.remote = true
   showHostForm.value = true
   error.value = ''
+  testResult.value = null
   try {
     if (item.authMethod === 'key') {
       const stored = await api.getRemoteKeyPassphrase(item.id)
@@ -538,7 +609,15 @@ function toggleHost(item: RemoteHost) {
               </label>
             </template>
             <p v-if="error" class="dialog-error">{{ error }}</p>
+            <p v-if="testResult" class="test-result" :class="{ ok: testResult.ok, failed: !testResult.ok }">
+              <Icon :name="testResult.ok ? 'check' : 'x'" :size="12" />
+              <span>{{ testResult.message }}</span>
+            </p>
             <div class="dialog-actions">
+              <button type="button" class="secondary" :disabled="testing" @click="testConnection">
+                {{ testing ? '测试中…' : '测试连接' }}
+              </button>
+              <span class="actions-spacer" />
               <button type="button" class="secondary" @click="closeHostForm">取消</button>
               <button type="submit" class="primary">{{ editingHostId ? '保存修改' : '保存主机' }}</button>
             </div>
@@ -587,8 +666,14 @@ function toggleHost(item: RemoteHost) {
 .browse { flex: none; padding: 7px 10px; border: 1px solid var(--border-strong); border-radius: var(--radius); background: var(--bg-hover); color: var(--fg); font-size: 0.9167em; }
 .browse:hover { background: var(--bg-active); }
 .dialog-error { margin: 0; color: var(--danger); font-size: 0.9167em; overflow-wrap: anywhere; }
-.dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+.test-result { display: flex; align-items: flex-start; gap: 6px; margin: 0; padding: 6px 8px; border: 1px solid var(--border); border-radius: var(--radius); font-size: 0.9167em; overflow-wrap: anywhere; }
+.test-result :deep(svg) { flex: none; margin-top: 2px; }
+.test-result.ok { border-color: color-mix(in srgb, #3fb950 45%, var(--border)); background: color-mix(in srgb, #3fb950 12%, transparent); color: #4aa552; }
+.test-result.failed { border-color: color-mix(in srgb, var(--danger) 45%, var(--border)); background: color-mix(in srgb, var(--danger) 10%, transparent); color: var(--danger); }
+.dialog-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+.actions-spacer { flex: 1; }
 .dialog-actions button { padding: 6px 12px; border: 1px solid var(--border); border-radius: var(--radius); font-size: 0.9167em; }
+.dialog-actions button:disabled { opacity: 0.6; cursor: default; }
 .dialog-actions .secondary { color: var(--fg); background: var(--bg-hover); }
 .dialog-actions .primary { border-color: var(--accent); color: var(--accent-fg); background: var(--accent); }
 </style>
