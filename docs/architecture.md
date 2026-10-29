@@ -60,7 +60,7 @@ flowchart TB
         WEB[WebView2]
         subgraph FRONTEND[Vue 3 + TypeScript 前端]
             VIEW[组件层\nApp / DualPane / Sidebar / Dialogs]
-            STORE[Pinia 状态层\nui · pane · search · ai · tasks · shortcuts]
+            STORE[Pinia 状态层\nui · pane · search · ai · tasks · shortcuts · terminal]
             BRIDGE[桥接层\nsrc/api/index.ts\ninvoke + listen]
             SHELLJS[桌面行为\nshell/native.ts · dirWatch.ts · remote.ts]
         end

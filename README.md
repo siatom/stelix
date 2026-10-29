@@ -51,7 +51,7 @@ Windows 首次启动时会建立 NTFS MFT 索引，并将索引缓存保存在�
 - 远程窗格右键「上传文件… / 上传文件夹… / 下载到…」可直接选择本机文件或下载位置。
 - 远程与本地之间拖拽默认按复制处理；使用剪切（Ctrl+X）粘贴时，源文件会在传输成功后删除。
 
-SFTP 主机行右侧的终端按钮可打开 SSH 终端（底部面板，多会话标签，支持窗口尺寸同步与 Ctrl+Shift+C / Ctrl+Shift+V 复制粘贴）。SFTP 文件传输与 SSH 终端共用内置 SSH 实现（russh），不依赖 curl，支持 `ssh-ed25519` / ECDSA / RSA 主机密钥；主机密钥按 accept-new 校验：首次连接自动记录到 `~/.ssh/known_hosts`，之后密钥变化会拒绝连接。
+SFTP 主机行右侧的终端按钮会在文件窗格中新增一个 SSH 终端标签（与目录标签、多主机标签并存，支持窗口尺寸同步与 Ctrl+Shift+C / Ctrl+Shift+V 复制粘贴）。SFTP 文件传输与 SSH 终端共用内置 SSH 实现（russh），不依赖 curl，支持 `ssh-ed25519` / ECDSA / RSA 主机密钥；主机密钥按 accept-new 校验：首次连接自动记录到 `~/.ssh/known_hosts`，之后密钥变化会拒绝连接。
 
 FTP 仍使用系统 `curl.exe`，可通过环境变量 `STELIX_CURL` 指定 curl 的完整路径。
 
