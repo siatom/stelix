@@ -28,7 +28,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
 # 异步 / 并发
-tokio = { version = "1", features = ["sync", "time", "macros", "net", "io-util", "rt"] }
+tokio = { version = "1", features = ["sync", "time", "macros", "net", "io-util", "fs", "rt"] }
 rayon = "1"
 dashmap = "6"
 parking_lot = "0.12"
@@ -49,6 +49,8 @@ keyring = { version = "3.6.3", default-features = false, features = ["windows-na
 
 # SSH 终端：纯 Rust 客户端（ring 加密后端，避免额外 C/OpenSSL 依赖）
 russh = { version = "0.65", default-features = false, features = ["ring", "rsa"] }
+# SFTP 文件传输：与 SSH 终端共用 russh 连接（不依赖 curl 的 libssh2 主机密钥支持）
+russh-sftp = "3"
 
 # 系统图标：HICON -> 像素 -> PNG 编码 / base64（见 shell_icon.rs）
 png = "0.17"

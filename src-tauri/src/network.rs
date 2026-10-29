@@ -1,7 +1,10 @@
-//! FTP/SFTP 目录浏览与文件传输。凭据仅随本次调用传入 curl 的标准输入，不写入配置文件。
+//! FTP 目录浏览与文件传输。凭据仅随本次调用传入 curl 的标准输入，不写入配置文件。
 //!
-//! 列目录取 curl 的**长格式**输出（FTP 的 `LIST`、SFTP 的 readdir 长名），再解析为
-//! 带类型 / 大小 / 修改时间的 `DirListing`，供文件窗格浏览远程目录。
+//! SFTP 不走 curl（curl 的 libssh2 构建对 ed25519 / ECDSA 主机密钥支持有限），
+//! 由 `sftp.rs` 基于 russh 实现，与 SSH 终端共用连接与认证逻辑。
+//!
+//! 列目录取 curl 的**长格式**输出（FTP 的 `LIST`），再解析为带类型 / 大小 /
+//! 修改时间的 `DirListing`，供文件窗格浏览远程目录。
 //! 上传 / 下载同样复用 curl：单文件用 `--output` / `--upload-file`，目录由本模块
 //! 递归展开，远端空目录用 `--quote` 补齐。
 //! 解析与路径规则全部是纯函数（`parse_listing` / `build_remote_url` 等），便于用固定
@@ -12,8 +15,6 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use chrono::{Datelike, Local, NaiveDate};
-use once_cell::sync::Lazy;
-use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 
 use crate::fs_core::path_id;
@@ -133,7 +134,7 @@ fn quote_config(value: &str) -> String {
     format!("\"{escaped}\"")
 }
 
-fn validate_connection(connection: &RemoteConnection) -> Result<(), String> {
+pub(crate) fn validate_connection(connection: &RemoteConnection) -> Result<(), String> {
     if connection.protocol != "ftp" && connection.protocol != "sftp" {
         return Err("仅支持 FTP 和 SFTP".into());
     }
@@ -146,45 +147,18 @@ fn validate_connection(connection: &RemoteConnection) -> Result<(), String> {
     Ok(())
 }
 
-/// 生成 curl 配置里的认证段（密码 / 私钥 + 可选密码短语）。
+/// 生成 curl 配置里的认证段（仅 FTP 走 curl；SFTP 由 `sftp.rs` 直连）。
 ///
 /// 凭据只随 `--config -` 从标准输入传入，不会出现在进程命令行里。
-fn curl_auth_config(connection: &RemoteConnection) -> Result<String, String> {
-    match connection.auth_method {
-        RemoteAuth::Password => Ok(format!(
-            "user = {}\n",
-            quote_config(&format!("{}:{}", connection.username, connection.password))
-        )),
-        RemoteAuth::Key => {
-            if connection.protocol != "sftp" {
-                return Err("私钥认证仅支持 SFTP".into());
-            }
-            let key = connection.private_key.trim();
-            if key.is_empty() {
-                return Err("请选择 SSH 私钥文件".into());
-            }
-            if !Path::new(key).is_file() {
-                return Err(format!("私钥文件不存在：{key}"));
-            }
-            // `username:`（带冒号）表示不提供密码，让 curl 只走私钥认证。
-            let mut config = format!(
-                "user = {}\nkey = {}\n",
-                quote_config(&format!("{}:", connection.username)),
-                quote_config(key)
-            );
-            if !connection.key_passphrase.is_empty() {
-                config.push_str(&format!(
-                    "pass = {}\n",
-                    quote_config(&connection.key_passphrase)
-                ));
-            }
-            Ok(config)
-        }
-    }
+fn curl_auth_config(connection: &RemoteConnection) -> String {
+    format!(
+        "user = {}\n",
+        quote_config(&format!("{}:{}", connection.username, connection.password))
+    )
 }
 
 /// 远程路径校验：只接受 POSIX 绝对路径，拒绝 `..` 与控制字符（防目录穿越 / 配置注入）。
-fn validate_remote_path(path: &str) -> Result<(), String> {
+pub(crate) fn validate_remote_path(path: &str) -> Result<(), String> {
     if path.contains(['\n', '\r', '\0']) {
         return Err("远程路径包含非法字符".into());
     }
@@ -224,120 +198,19 @@ fn build_remote_url(
     Ok(url)
 }
 
-/// 找到的「支持 SFTP」的 curl 缓存。Windows 自带的 `System32\curl.exe` 未编译
-/// libssh2，不能用于 SFTP；Git for Windows 等发行版自带支持 SFTP 的 curl。
-static SFTP_CURL: Lazy<Mutex<Option<PathBuf>>> = Lazy::new(|| Mutex::new(None));
-
-/// 选择 curl 可执行文件。
+/// 运行 curl 时使用的可执行文件（FTP 用；SFTP 已改为 russh 内置实现）。
 ///
-/// Windows 10/11 自带的 `curl.exe` 不包含 SFTP 协议；SFTP 连接必须找到带 libssh2
-/// 的 curl（Git for Windows、scoop / chocolatey 安装的 curl 等）。这里按 PATH、
-/// Git 安装目录与常见位置依次探测，并缓存结果。
-fn resolve_curl(protocol: &str) -> Result<PathBuf, String> {
-    if protocol != "sftp" {
-        return Ok(PathBuf::from("curl.exe"));
-    }
-
-    if let Some(path) = SFTP_CURL.lock().clone() {
-        return Ok(path);
-    }
-
-    for candidate in curl_candidates() {
-        if candidate.is_file() && curl_supports_sftp(&candidate) {
-            *SFTP_CURL.lock() = Some(candidate.clone());
-            return Ok(candidate);
-        }
-    }
-    Err(
-        "未找到支持 SFTP 的 curl。请安装 Git for Windows，或把支持 libssh2 的 curl.exe 加入 PATH"
-            .into(),
-    )
-}
-
-fn curl_candidates() -> Vec<PathBuf> {
-    let mut candidates = Vec::new();
-    let mut push = |path: PathBuf| {
-        if !candidates.iter().any(|item| item == &path) {
-            candidates.push(path);
-        }
-    };
-
-    if let Ok(custom) = std::env::var("STELIX_CURL") {
-        if !custom.trim().is_empty() {
-            push(PathBuf::from(custom.trim()));
-        }
-    }
-
-    if let Some(path) = std::env::var_os("PATH") {
-        for dir in std::env::split_paths(&path) {
-            push(dir.join("curl.exe"));
-            // Git 的 cmd 目录在 PATH 里时，真正的 curl 位于 ../mingw64/bin 或 ../usr/bin。
-            if dir.join("git.exe").is_file() {
-                if let Some(root) = dir.parent() {
-                    push(root.join("mingw64").join("bin").join("curl.exe"));
-                    push(root.join("usr").join("bin").join("curl.exe"));
-                }
-            }
-        }
-    }
-
-    for key in [
-        "ProgramFiles",
-        "ProgramFiles(x86)",
-        "LOCALAPPDATA",
-        "USERPROFILE",
-        "ProgramData",
-    ] {
-        if let Some(base) = std::env::var_os(key) {
-            let base = PathBuf::from(base);
-            let relatives: [&[&str]; 6] = [
-                &["Git", "mingw64", "bin", "curl.exe"],
-                &["Git", "usr", "bin", "curl.exe"],
-                &["Programs", "Git", "mingw64", "bin", "curl.exe"],
-                &[
-                    "scoop", "apps", "git", "current", "mingw64", "bin", "curl.exe",
-                ],
-                &["chocolatey", "bin", "curl.exe"],
-                &[
-                    "chocolatey",
-                    "lib",
-                    "curl",
-                    "tools",
-                    "curl",
-                    "bin",
-                    "curl.exe",
-                ],
-            ];
-            for relative in relatives {
-                push(base.join(relative.iter().collect::<PathBuf>()));
-            }
-        }
-    }
-    push(PathBuf::from(r"C:\Program Files\curl\bin\curl.exe"));
-
-    candidates
-}
-
-fn curl_supports_sftp(path: &Path) -> bool {
-    let mut command = Command::new(path);
-    command.arg("--version");
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        command.creation_flags(CREATE_NO_WINDOW);
-    }
-    match command.output() {
-        Ok(output) => String::from_utf8_lossy(&output.stdout)
-            .to_ascii_lowercase()
-            .contains("sftp"),
-        Err(_) => false,
+/// 允许通过环境变量 `STELIX_CURL` 指定自定义 curl 路径。
+fn curl_program() -> PathBuf {
+    match std::env::var("STELIX_CURL") {
+        Ok(custom) if !custom.trim().is_empty() => PathBuf::from(custom.trim()),
+        _ => PathBuf::from("curl.exe"),
     }
 }
 
 /// 运行 curl（连接参数经 stdin 传入，避免密码出现在进程命令行里）。
-fn run_curl(protocol: &str, config: &str, args: &[&str]) -> Result<Vec<u8>, String> {
-    let program = resolve_curl(protocol)?;
+fn run_curl(config: &str, args: &[&str]) -> Result<Vec<u8>, String> {
+    let program = curl_program();
     let mut command = Command::new(&program);
     command
         .args([
@@ -379,17 +252,16 @@ fn run_curl(protocol: &str, config: &str, args: &[&str]) -> Result<Vec<u8>, Stri
 
 /// 运行 curl 取目录长格式列表（返回 stdout 原始字节，可能不是 UTF-8）。
 ///
-/// 不带 `--list-only`：FTP 会走 `LIST`、SFTP 走 readdir 长名，从而带上类型与大小；
+/// 不带 `--list-only`：FTP 会走 `LIST`，从而带上类型与大小；
 /// 仅返回名字的 NLST 无法区分目录与文件。
 fn run_curl_listing(connection: &RemoteConnection, path: &str) -> Result<Vec<u8>, String> {
     let url = build_remote_url(connection, path, true)?;
     let config = format!(
         "url = {}\n{}",
         quote_config(url.as_str()),
-        curl_auth_config(connection)?
+        curl_auth_config(connection)
     );
-    run_curl(&connection.protocol, &config, &["--max-time", "20"])
-        .map_err(|error| format!("连接或目录读取失败：{error}"))
+    run_curl(&config, &["--max-time", "20"]).map_err(|error| format!("连接或目录读取失败：{error}"))
 }
 
 /// UTF-8 优先，失败时用 lossy 兜底（中文 FTP 服务器的 GBK 文件名会显示为替换字符）。
@@ -400,8 +272,11 @@ fn decode(bytes: &[u8]) -> String {
     }
 }
 
-/// 列出远程目录。
+/// 列出 FTP 目录（SFTP 由 `sftp::list_remote_dir` 处理）。
 pub fn list_remote_dir(request: RemoteRequest) -> Result<DirListing, String> {
+    if request.connection.protocol != "ftp" {
+        return Err("SFTP 目录读取请使用内置 SSH 实现".into());
+    }
     let raw = run_curl_listing(&request.connection, &request.path)?;
     let text = decode(&raw);
     Ok(DirListing {
@@ -590,11 +465,11 @@ fn download_file(
     let url = build_remote_url(connection, remote_path, false)?;
     let config = format!(
         "{}output = {}\nurl = {}\n",
-        curl_auth_config(connection)?,
+        curl_auth_config(connection),
         quote_config(&temp.to_string_lossy()),
         quote_config(url.as_str())
     );
-    if let Err(error) = run_curl(&connection.protocol, &config, &["--connect-timeout", "20"]) {
+    if let Err(error) = run_curl(&config, &["--connect-timeout", "20"]) {
         let _ = fs::remove_file(&temp);
         return Err(error);
     }
@@ -752,15 +627,15 @@ fn upload_file(
     let size = fs::metadata(local_path).map(|meta| meta.len()).unwrap_or(0);
     let config = format!(
         "{}ftp-create-dirs\nupload-file = {}\nurl = {}\n",
-        curl_auth_config(connection)?,
+        curl_auth_config(connection),
         quote_config(&local_path.to_string_lossy()),
         quote_config(url.as_str())
     );
-    run_curl(&connection.protocol, &config, &["--connect-timeout", "20"])?;
+    run_curl(&config, &["--connect-timeout", "20"])?;
     Ok(size)
 }
 
-/// 用 `--quote mkdir` 一次性补齐上传所需的全部远端目录。
+/// 用 `--quote MKD` 一次性补齐上传所需的全部远端目录。
 ///
 /// `*` 前缀让 curl 忽略「目录已存在」等单条失败，避免重复上传时整体中止。
 fn create_remote_dirs(connection: &RemoteConnection, dirs: &[String]) -> Result<(), String> {
@@ -768,17 +643,15 @@ fn create_remote_dirs(connection: &RemoteConnection, dirs: &[String]) -> Result<
         return Ok(());
     }
     let root = build_remote_url(connection, "/", true)?;
-    let mut config = curl_auth_config(connection)?;
+    let mut config = curl_auth_config(connection);
     for dir in dirs {
-        let command = if connection.protocol == "sftp" {
-            format!("*mkdir \"{}\"", escape_sftp_operand(dir))
-        } else {
-            format!("*MKD {dir}")
-        };
-        config.push_str(&format!("quote = {}\n", quote_config(&command)));
+        config.push_str(&format!(
+            "quote = {}\n",
+            quote_config(&format!("*MKD {dir}"))
+        ));
     }
     config.push_str(&format!("url = {}\n", quote_config(root.as_str())));
-    run_curl(&connection.protocol, &config, &[])?;
+    run_curl(&config, &[])?;
     Ok(())
 }
 
@@ -810,17 +683,9 @@ fn collect_delete_commands(
         for entry in listing.entries {
             collect_delete_commands(connection, &entry.path, entry.is_dir, commands)?;
         }
-        commands.push(if connection.protocol == "sftp" {
-            format!("rmdir \"{}\"", escape_sftp_operand(path))
-        } else {
-            format!("RMD {path}")
-        });
+        commands.push(format!("RMD {path}"));
     } else {
-        commands.push(if connection.protocol == "sftp" {
-            format!("rm \"{}\"", escape_sftp_operand(path))
-        } else {
-            format!("DELE {path}")
-        });
+        commands.push(format!("DELE {path}"));
     }
     Ok(())
 }
@@ -830,25 +695,17 @@ fn run_quote_commands(connection: &RemoteConnection, commands: &[String]) -> Res
         return Ok(());
     }
     let root = build_remote_url(connection, "/", true)?;
-    let mut config = curl_auth_config(connection)?;
+    let mut config = curl_auth_config(connection);
     for command in commands {
         config.push_str(&format!("quote = {}\n", quote_config(command)));
     }
     config.push_str(&format!("url = {}\n", quote_config(root.as_str())));
-    run_curl(&connection.protocol, &config, &[])?;
+    run_curl(&config, &[])?;
     Ok(())
 }
 
-/// SFTP quote 命令里的文件名操作数需要转义反斜杠、双引号与单引号。
-fn escape_sftp_operand(value: &str) -> String {
-    value
-        .replace('\\', "\\\\")
-        .replace('"', "\\\"")
-        .replace('\'', "\\'")
-}
-
 /// 远端 POSIX 目录规范化：保证以 `/` 开头且不以 `/` 结尾（根目录除外）。
-fn normalize_remote_dir(path: &str) -> String {
+pub(crate) fn normalize_remote_dir(path: &str) -> String {
     let trimmed = path.trim();
     if trimmed.is_empty() || trimmed == "/" {
         return "/".into();
@@ -862,7 +719,7 @@ fn normalize_remote_dir(path: &str) -> String {
 }
 
 /// 远端路径的最后一段（去掉结尾斜杠）。
-fn remote_file_name(path: &str) -> Result<String, String> {
+pub(crate) fn remote_file_name(path: &str) -> Result<String, String> {
     let name = path.trim_end_matches('/').rsplit('/').next().unwrap_or("");
     if name.is_empty() || name == "." || name == ".." {
         return Err("远程文件名无效".into());
@@ -871,7 +728,7 @@ fn remote_file_name(path: &str) -> Result<String, String> {
 }
 
 /// 把远端名字转换为安全的本地文件名：替换 Windows 非法字符，避开保留设备名。
-fn safe_local_name(name: &str) -> Result<String, String> {
+pub(crate) fn safe_local_name(name: &str) -> Result<String, String> {
     if name.is_empty() || name == "." || name == ".." {
         return Err("文件名无效".into());
     }
@@ -926,7 +783,7 @@ fn safe_local_name(name: &str) -> Result<String, String> {
 }
 
 /// 把本地相对路径拼到远端目录下（本地分隔符统一转成 POSIX `/`）。
-fn join_relative_remote(remote_root: &str, relative: &Path) -> String {
+pub(crate) fn join_relative_remote(remote_root: &str, relative: &Path) -> String {
     let mut path = normalize_remote_dir(remote_root);
     for part in relative.components() {
         if let std::path::Component::Normal(value) = part {
@@ -1026,7 +883,7 @@ fn is_total_line(line: &str) -> bool {
 }
 
 /// POSIX 拼接（`base` 为 `/` 或空时返回 `/name`）。
-fn join_remote(base: &str, name: &str) -> String {
+pub(crate) fn join_remote(base: &str, name: &str) -> String {
     let name = name.trim_start_matches('/');
     let base = base.trim_end_matches('/');
     if base.is_empty() {
@@ -1036,7 +893,7 @@ fn join_remote(base: &str, name: &str) -> String {
     }
 }
 
-fn remote_ext(name: &str) -> Option<String> {
+pub(crate) fn remote_ext(name: &str) -> Option<String> {
     let index = name.rfind('.')?;
     if index == 0 || index == name.len() - 1 {
         return None;
@@ -1485,12 +1342,6 @@ mod tests {
     }
 
     #[test]
-    fn escapes_sftp_quote_operands() {
-        assert_eq!(escape_sftp_operand("/a b"), "/a b");
-        assert_eq!(escape_sftp_operand("/a\"b\\c'd"), "/a\\\"b\\\\c\\'d");
-    }
-
-    #[test]
     fn rejects_empty_transfer_before_running_curl() {
         let request = RemoteTransferRequest {
             connection: RemoteConnection {
@@ -1514,50 +1365,23 @@ mod tests {
     }
 
     #[test]
-    fn builds_curl_auth_config_for_password_and_key() {
-        let mut connection = RemoteConnection {
-            protocol: "sftp".into(),
+    fn builds_curl_auth_config_for_ftp_password() {
+        let connection = RemoteConnection {
+            protocol: "ftp".into(),
             host: "example.com".into(),
-            port: 22,
+            port: 21,
             username: "user".into(),
             password: "secret".into(),
             auth_method: RemoteAuth::Password,
             private_key: String::new(),
             key_passphrase: String::new(),
         };
+        // 凭据只进 stdin 配置，且带引号以支持特殊字符。
         assert_eq!(
-            curl_auth_config(&connection).unwrap(),
-            "user = \"user:secret\"\n"
+            curl_auth_config(&connection),
+            "user = \"user:secret\"
+"
         );
-
-        // 私钥认证：`user:` 表示空密码，路径与口令都进入 stdin 配置。
-        let key_path =
-            std::env::temp_dir().join(format!("stelix-key-{}.txt", uuid::Uuid::new_v4()));
-        fs::write(&key_path, "dummy-key").unwrap();
-        connection.auth_method = RemoteAuth::Key;
-        connection.private_key = key_path.to_string_lossy().into_owned();
-        connection.key_passphrase = "p@ss".into();
-        let config = curl_auth_config(&connection).unwrap();
-        assert!(config.starts_with("user = \"user:\"\n"));
-        assert!(config.contains("key = "));
-        assert!(config.contains("pass = \"p@ss\"\n"));
-        assert!(!config.contains("secret"));
-
-        // 缺少私钥 / FTP 使用私钥都必须在使用 curl 之前被拦下。
-        connection.private_key = key_path
-            .with_extension("missing")
-            .to_string_lossy()
-            .into_owned();
-        assert!(curl_auth_config(&connection)
-            .unwrap_err()
-            .contains("私钥文件不存在"));
-        connection.private_key = key_path.to_string_lossy().into_owned();
-        connection.protocol = "ftp".into();
-        assert!(curl_auth_config(&connection)
-            .unwrap_err()
-            .contains("仅支持 SFTP"));
-
-        let _ = fs::remove_file(key_path);
     }
 
     #[test]
