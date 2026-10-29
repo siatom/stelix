@@ -8,18 +8,62 @@ import TabBar from './TabBar.vue'
 import PaneToolbar from './PaneToolbar.vue'
 import PathBar from './PathBar.vue'
 import FileList from './FileList.vue'
+import TerminalView from '../Terminal/TerminalView.vue'
 import StatusBar from '../StatusBar.vue'
 import Icon from '../icons/Icon.vue'
+import { useTerminalStore } from '../../stores/terminal'
+import type { TabState } from '../../types'
+import type { TerminalSession } from '../../stores/terminal'
 
 const props = defineProps<{ paneId: string }>()
 
 const paneStore = usePaneStore()
+const terminalStore = useTerminalStore()
 const pane = computed(() => paneStore.panes.find((p) => p.id === props.paneId))
 const isActivePane = computed(() => paneStore.activePaneId === props.paneId)
 const tab = computed(() => {
   const p = pane.value
   if (!p) return undefined
   return p.tabs.find((t) => t.id === p.activeTabId) ?? p.tabs[0]
+})
+
+/** 终端标签对应的 SSH 会话（会话在标签创建时同步登记）。 */
+const terminalSession = computed(() => {
+  const id = tab.value?.terminalId
+  return id ? terminalStore.sessions.find((session) => session.id === id) : undefined
+})
+
+/**
+ * 本窗格内的所有终端标签。
+ *
+ * xterm 实例按标签常驻（`v-show` 切换）：切到目录标签再切回来时滚动历史仍在，
+ * 会话输出也不会因为组件卸载而丢缓冲。
+ */
+const terminalTabs = computed(() =>
+  (pane.value?.tabs ?? [])
+    .filter((item) => item.kind === 'terminal' && !!item.terminalId)
+    .map((item) => ({
+      tab: item,
+      session: terminalStore.sessions.find((session) => session.id === item.terminalId),
+    }))
+    .filter(
+      (item): item is { tab: TabState; session: TerminalSession } => !!item.session,
+    ),
+)
+
+const terminalStatusText = computed(() => {
+  switch (terminalSession.value?.status) {
+    case 'connecting':
+      return '连接中'
+    case 'connected':
+      return '已连接'
+    case 'closed':
+      return '已断开'
+    case 'error':
+      return '连接失败'
+    default:
+      return ''
+  }
 })
 
 function activate() {
@@ -98,18 +142,39 @@ async function confirmDelete() {
   <section class="pane" @mousedown="activate">
     <template v-if="tab">
       <div class="pane-topbar" :class="{ 'is-active': isActivePane }">
-        <PaneToolbar :pane-id="paneId" />
-        <div v-if="tab.kind === 'search'" class="search-heading" :title="tab.searchQuery">
-          搜索结果：{{ tab.searchQuery }}
+        <div v-if="tab.kind === 'terminal'" class="terminal-heading">
+          <Icon name="terminal" :size="13" />
+          <span class="terminal-host">
+            {{ terminalSession ? `${terminalSession.location.username}@${terminalSession.location.host}:${terminalSession.location.port}` : tab.title }}
+          </span>
+          <span class="terminal-state" :class="terminalSession?.status">{{ terminalStatusText }}</span>
+          <span v-if="terminalSession?.fingerprint" class="terminal-fingerprint" :title="`主机密钥 ${terminalSession.fingerprint}`">
+            {{ terminalSession.fingerprint }}
+          </span>
         </div>
-        <PathBar v-else :pane-id="paneId" :tab="tab" />
+        <template v-else>
+          <PaneToolbar :pane-id="paneId" />
+          <div v-if="tab.kind === 'search'" class="search-heading" :title="tab.searchQuery">
+            搜索结果：{{ tab.searchQuery }}
+          </div>
+          <PathBar v-else :pane-id="paneId" :tab="tab" />
+        </template>
       </div>
       <FileList
+        v-if="tab.kind !== 'terminal'"
         :pane-id="paneId"
         :tab="tab"
         :create-request="createRequest"
         @delete="openDelete"
         @create-handled="onCreateHandled"
+      />
+      <TerminalView
+        v-for="item in terminalTabs"
+        v-show="tab.kind === 'terminal' && tab.id === item.tab.id"
+        :key="item.tab.id"
+        class="pane-terminal"
+        :session="item.session"
+        :active="isActivePane && tab.id === item.tab.id"
       />
     </template>
     <div v-else class="state">没有可用标签</div>
@@ -183,6 +248,51 @@ async function confirmDelete() {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.terminal-heading {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  color: var(--fg-muted);
+  font-size: 1rem;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.terminal-host {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: 'Cascadia Mono', 'JetBrains Mono', Consolas, monospace;
+  color: var(--fg);
+}
+.terminal-state {
+  flex: none;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--bg-hover);
+  color: var(--fg-dim);
+  font-size: 0.8333rem;
+}
+.terminal-state.connected {
+  color: #4aa552;
+}
+.terminal-state.error {
+  color: var(--danger);
+}
+.terminal-fingerprint {
+  flex: none;
+  margin-left: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--fg-dim);
+  font-size: 0.8rem;
+}
+.pane-terminal {
+  flex: 1;
+  min-height: 0;
 }
 .pane-topbar.is-active {
   background: var(--pane-title-bg-active);

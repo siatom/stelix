@@ -251,12 +251,14 @@ export interface SshExitEvent {
 export interface TabState {
   id: string
   path: string
-  /** 标签页类型：普通目录 / 搜索结果 / 远程（FTP/SFTP）目录 */
-  kind?: 'files' | 'search' | 'remote'
+  /** 标签页类型：普通目录 / 搜索结果 / 远程（FTP/SFTP）目录 / SSH 终端 */
+  kind?: 'files' | 'search' | 'remote' | 'terminal'
   title?: string
   searchQuery?: string
   /** 远程标签的连接信息（`kind === 'remote'` 时有效）；`path` 为远程 POSIX 路径 */
   remote?: RemoteLocation
+  /** SSH 终端标签的会话 id（`kind === 'terminal'` 时有效），路由到 `stores/terminal.ts` */
+  terminalId?: string
   entries: FileEntry[]
   loading: boolean
   error: string | null

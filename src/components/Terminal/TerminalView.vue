@@ -7,10 +7,14 @@ import { useTerminalStore } from '../../stores/terminal'
 import type { TerminalSession } from '../../stores/terminal'
 import { useUiStore } from '../../stores/ui'
 
-const props = defineProps<{
-  session: TerminalSession
-  active: boolean
-}>()
+const props = withDefaults(
+  defineProps<{
+    session: TerminalSession
+    /** 所在窗格 / 标签是否为当前焦点：获得焦点时自动聚焦 xterm */
+    active?: boolean
+  }>(),
+  { active: false },
+)
 
 const store = useTerminalStore()
 const ui = useUiStore()
@@ -75,8 +79,12 @@ function theme(dark: boolean) {
 
 function syncSize() {
   if (!term || !fit) return
+  const host = hostRef.value
+  // 标签被 `v-show` 隐藏时容器尺寸为 0：此时 fit 会把 cols/rows 压到最小值，
+  // 还白白向服务器发一次错误尺寸的 window-change。
+  if (!host || host.clientWidth === 0 || host.clientHeight === 0) return
   fit.fit()
-  store.resize(props.session.id, term.cols, term.rows)
+  store.resize(props.session.id, term!.cols, term!.rows)
 }
 
 onMounted(() => {

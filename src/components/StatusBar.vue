@@ -36,14 +36,16 @@ const isActivePane = computed(() => paneStore.activePaneId === props.paneId)
 
 <template>
   <footer class="status-bar">
-    <span class="seg count" :title="`文件夹 ${folderStats.selected} / ${folderStats.total}`" aria-label="文件夹数量">
-      <Icon name="folder" :size="14" />
-      <span>{{ folderStats.selected }} / {{ folderStats.total }}</span>
-    </span>
-    <span class="seg count" :title="`文件 ${fileStats.selected} / ${fileStats.total}`" aria-label="文件数量">
-      <Icon name="file" :size="14" />
-      <span>{{ fileStats.selected }} / {{ fileStats.total }}</span>
-    </span>
+    <template v-if="tab?.kind !== 'terminal'">
+      <span class="seg count" :title="`文件夹 ${folderStats.selected} / ${folderStats.total}`" aria-label="文件夹数量">
+        <Icon name="folder" :size="14" />
+        <span>{{ folderStats.selected }} / {{ folderStats.total }}</span>
+      </span>
+      <span class="seg count" :title="`文件 ${fileStats.selected} / ${fileStats.total}`" aria-label="文件数量">
+        <Icon name="file" :size="14" />
+        <span>{{ fileStats.selected }} / {{ fileStats.total }}</span>
+      </span>
+    </template>
 
     <div class="spacer" />
 

@@ -9,6 +9,7 @@ import { matchesTypeFilter } from '../searchFilters'
 import { normalizePath, setWatchSource } from '../shell/dirWatch'
 import { normalizeRemotePath, remoteDirname, resolveRemoteAuth } from '../shell/remote'
 import { compareNames } from '../naturalSort'
+import { useTerminalStore } from './terminal'
 
 /**
  * 双窗格 / 多标签状态 —— 由 **WS-D (feat/ui-panes)** 实现。
@@ -148,7 +149,7 @@ function sameEntries(a: FileEntry[], b: FileEntry[]): boolean {
 /** 浏览历史中的一处位置：普通目录只记路径，搜索结果与远程目录还需带上还原所需的信息。 */
 interface HistoryItem {
   path: string
-  kind?: 'files' | 'search' | 'remote'
+  kind?: 'files' | 'search' | 'remote' | 'terminal'
   title?: string
   searchQuery?: string
   entries?: FileEntry[]
@@ -156,11 +157,11 @@ interface HistoryItem {
 }
 
 /**
- * 是否可持久化：搜索结果（命中无法跨会话还原）与远程标签（没有凭据、也拿不到远端内容）都不写入
- * localStorage，否则恢复时会被当成普通本地目录标签（表现为重复目录 / 打开失败）。
+ * 是否可持久化：搜索结果（命中无法跨会话还原）、远程标签（没有凭据、也拿不到远端内容）
+ * 与 SSH 终端（依赖活动会话）都不写入 localStorage，否则恢复时会被当成普通本地目录标签。
  */
 function isPersistableTab(tab: TabState): boolean {
-  return tab.kind !== 'search' && tab.kind !== 'remote'
+  return tab.kind !== 'search' && tab.kind !== 'remote' && tab.kind !== 'terminal'
 }
 
 interface HistoryEntry {
@@ -253,15 +254,17 @@ export const usePaneStore = defineStore('pane', () => {
     if (pendingAction.value?.seq === seq) pendingAction.value = null
   }
 
-  // 搜索结果与远程标签都没有本地「目录」写权限，禁用新建入口。
+  // 搜索结果 / 远程标签 / 终端标签都没有本地「目录」写权限，禁用新建入口。
   const canCreateInActivePane = computed(() => {
     const tab = activeTab.value
-    return !!tab && tab.kind !== 'search' && tab.kind !== 'remote'
+    return (
+      !!tab && tab.kind !== 'search' && tab.kind !== 'remote' && tab.kind !== 'terminal'
+    )
   })
   // 删除作用于选中项自身路径：搜索结果的命中项也是真实本地文件，与普通目录一样可删。
   const canDeleteInActivePane = computed(() => {
     const tab = activeTab.value
-    return !!tab && tab.kind !== 'remote' && tab.selected.length > 0
+    return !!tab && tab.kind !== 'remote' && tab.kind !== 'terminal' && tab.selected.length > 0
   })
 
   // ---- 内部小工具 ----
@@ -417,6 +420,8 @@ export const usePaneStore = defineStore('pane', () => {
     // 搜索结果的命中来自检索管道，不由目录列举产生：重列目录会把它退化成
     // 「搜索起点目录」的普通列表（`tab.path` 只是搜索发起时所在目录）。
     if (tab.kind === 'search') return
+    // 终端标签没有目录语义（`path` 只是展示用的 ssh:// 地址），不参与列目录。
+    if (tab.kind === 'terminal') return
     // 每次加载领一个递增 token：先发出的请求若后返回，其结果是过期目录，必须丢弃，
     // 否则会覆盖新目录的内容并清空选中。
     const token = (loadTokens.get(tab.id) ?? 0) + 1
@@ -450,6 +455,12 @@ export const usePaneStore = defineStore('pane', () => {
     if (!pane) return
     const tab = tabId ? pane.tabs.find((t) => t.id === tabId) : activeTabOf(pane)
     if (!tab) return
+    // 终端标签没有目录语义：从侧栏 / 搜索跳到本地目录时新开一个标签，避免把终端
+    // 直接改造成普通目录标签（会话会被静默遗弃）。
+    if (tab.kind === 'terminal') {
+      addTab(paneId, path)
+      return
+    }
     tab.kind = 'files'
     tab.title = undefined
     tab.searchQuery = undefined
@@ -542,6 +553,40 @@ export const usePaneStore = defineStore('pane', () => {
     setStatus(`已连接 ${location.label || location.host}`)
   }
 
+  /**
+   * 在文件窗格内打开 SSH 终端标签。
+   *
+   * 终端与远程目录并列成同一个窗格里的标签：同一主机的终端标签默认复用（切换过去），
+   * `newSession = true` 时强制新开一条连接（用于「复制标签」）。
+   */
+  async function openTerminal(paneId: string, location: RemoteLocation, newSession = false) {
+    const pane = paneById(paneId)
+    if (!pane) return
+    if (!newSession) {
+      const existing = pane.tabs.find(
+        (tab) => tab.kind === 'terminal' && tab.remote?.id === location.id,
+      )
+      if (existing) {
+        pane.activeTabId = existing.id
+        activePaneId.value = pane.id
+        return
+      }
+    }
+
+    const terminal = useTerminalStore()
+    const sessionId = terminal.open(location)
+    const tab = makeTab(`ssh://${location.host}:${location.port}`)
+    tab.kind = 'terminal'
+    tab.remote = location
+    tab.terminalId = sessionId
+    tab.title = location.label || `${location.username}@${location.host}`
+    pane.tabs.push(tab)
+    pane.activeTabId = tab.id
+    activePaneId.value = pane.id
+    recordHistory(tab)
+    setStatus(`SSH 终端：${location.label || location.host}`)
+  }
+
   async function navigateRemote(
     paneId: string,
     location: RemoteLocation,
@@ -553,6 +598,11 @@ export const usePaneStore = defineStore('pane', () => {
     if (!pane) return
     const tab = tabId ? pane.tabs.find((t) => t.id === tabId) : activeTabOf(pane)
     if (!tab) return
+    // 终端标签保持不变：远程目录在新标签中打开（见 `openRemoteWorkspace`）。
+    if (tab.kind === 'terminal') {
+      await addRemoteTab(paneId, location, path)
+      return
+    }
     tab.kind = 'remote'
     tab.remote = location
     tab.title = location.label
@@ -564,6 +614,8 @@ export const usePaneStore = defineStore('pane', () => {
 
   /** 把标签页还原到某个历史位置：普通目录重新加载，搜索结果 / 远程目录按其快照还原。 */
   async function restoreHistory(paneId: string, tab: TabState, item: HistoryItem) {
+    // 终端标签没有可还原的内容（会话不可重建），保留当前会话即可。
+    if (item.kind === 'terminal') return
     if (item.kind === 'search') {
       tab.kind = 'search'
       tab.title = item.title
@@ -988,7 +1040,12 @@ export const usePaneStore = defineStore('pane', () => {
     if (!pane || pane.tabs.length <= 1) return
     const idx = pane.tabs.findIndex((t) => t.id === tabId)
     if (idx < 0) return
+    const closing = pane.tabs[idx]
     pane.tabs.splice(idx, 1)
+    // 终端标签关闭时同步回收 SSH 会话（连接中的会话由 store 延迟回收）。
+    if (closing.kind === 'terminal' && closing.terminalId) {
+      useTerminalStore().close(closing.terminalId)
+    }
     delete histories.value[tabId]
     loadTokens.delete(tabId)
     clearExpand(tabId)
@@ -1003,6 +1060,11 @@ export const usePaneStore = defineStore('pane', () => {
     const srcIdx = pane.tabs.findIndex((t) => t.id === tabId)
     if (srcIdx < 0) return
     const src = pane.tabs[srcIdx]
+    // 终端标签「复制」= 新开一条到同一主机的 SSH 会话。
+    if (src.kind === 'terminal' && src.remote) {
+      void openTerminal(paneId, src.remote, true)
+      return
+    }
     const tab = makeTab(src.path)
     tab.kind = src.kind
     tab.title = src.title
@@ -1594,6 +1656,10 @@ export const usePaneStore = defineStore('pane', () => {
     if (!srcPane || !dstPane) return
     const srcTab = activeTabOf(srcPane)
     if (!srcTab) return
+    if (srcTab.kind === 'terminal' && srcTab.remote) {
+      await openTerminal(dstPane.id, srcTab.remote)
+      return
+    }
     if (srcTab.kind === 'remote' && srcTab.remote) {
       await navigateRemote(dstPane.id, srcTab.remote, srcTab.path)
       return
@@ -1731,6 +1797,7 @@ export const usePaneStore = defineStore('pane', () => {
     openRemote,
     openRemoteWorkspace,
     addRemoteTab,
+    openTerminal,
     navigateRemote,
     load,
     goUp,
