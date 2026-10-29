@@ -3,7 +3,6 @@ import { ref, watch } from 'vue'
 import { open as openFileDialog } from '@tauri-apps/plugin-dialog'
 import { api } from '../../api'
 import { usePaneStore } from '../../stores/pane'
-import { useTerminalStore } from '../../stores/terminal'
 import { resolveRemoteAuth, setRemoteKeyPassphrase, setRemotePassword } from '../../shell/remote'
 import { compareNames } from '../../naturalSort'
 import TreeNode from './TreeNode.vue'
@@ -76,7 +75,6 @@ function toLocation(item: RemoteHost) {
 }
 
 const pane = usePaneStore()
-const terminal = useTerminalStore()
 const shares = ref(readShares())
 const neighbors = ref<SmbNeighbor[]>([])
 const expandedServers = ref<Record<string, boolean>>({})
@@ -458,10 +456,10 @@ async function openHostInPane(item: RemoteHost) {
   await pane.openRemoteWorkspace(toLocation(item), '/')
 }
 
-/** 打开 SSH 终端（仅 SFTP 主机，即 SSH 会话）。 */
+/** 打开 SSH 终端（仅 SFTP 主机，即 SSH 会话）：在文件窗格中新增一个终端标签。 */
 async function openTerminal(item: RemoteHost) {
   if (item.protocol !== 'sftp') return
-  await terminal.open(toLocation(item))
+  await pane.openTerminal(pane.activePaneId, toLocation(item))
 }
 
 function toggleHost(item: RemoteHost) {

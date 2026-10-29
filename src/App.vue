@@ -10,7 +10,6 @@ import { match, isCapturingShortcut } from './stores/shortcuts'
 import ActivityBar from './components/Sidebar/ActivityBar.vue'
 import SidebarPanel from './components/Sidebar/SidebarPanel.vue'
 import DualPane from './components/Pane/DualPane.vue'
-import TerminalDock from './components/Terminal/TerminalDock.vue'
 import TitlebarActions from './components/TitlebarActions.vue'
 import CommandPalette from './components/CommandPalette.vue'
 import SettingsDialog from './components/SettingsDialog.vue'
@@ -107,7 +106,7 @@ function onAltF4(event: KeyboardEvent) {
 function onSearchShortcut(event: KeyboardEvent) {
   if (isCapturingShortcut()) return // 正在设置里捕获新键位
   if (ui.settingsOpen || ui.feedbackOpen) return // 弹窗打开时不抢焦点
-  if (event.target instanceof HTMLElement && event.target.closest('.terminal-dock')) return // 终端内按键交给 xterm
+  if (event.target instanceof HTMLElement && event.target.closest('.terminal-view')) return // 终端内按键交给 xterm
   if (match(event) !== 'search') return
   event.preventDefault()
   event.stopPropagation()
@@ -329,7 +328,6 @@ onBeforeUnmount(() => {
 
     <div class="area-main">
       <DualPane />
-      <TerminalDock />
     </div>
 
     <CommandPalette />

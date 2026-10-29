@@ -40,6 +40,7 @@ function onContext(ev: MouseEvent, tabId: string) {
         @mousedown.middle="onMiddle($event, t.id)"
         @contextmenu="onContext($event, t.id)"
       >
+        <Icon v-if="t.kind === 'terminal'" class="tab-kind" name="terminal" :size="12" />
         <span class="tab-name">{{ label(t) }}</span>
         <span
           v-if="(pane?.tabs.length ?? 0) > 1"
@@ -137,6 +138,10 @@ function onContext(ev: MouseEvent, tabId: string) {
 .tab-name {
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.tab-kind {
+  flex: none;
+  color: var(--fg-dim);
 }
 .tab-close {
   display: flex;
