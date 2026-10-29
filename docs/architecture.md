@@ -69,7 +69,7 @@ flowchart TB
             CMD[命令注册表\nsrc-tauri/src/lib.rs]
             STATE[AppState\n共享服务句柄]
             FSC[fs_core\n本地文件系统与递归操作]
-            NETC[network / smb_discovery / wsl / ssh\n远程与网络资源]
+            NETC[network / sftp / smb_discovery / wsl / ssh\n远程与网络资源]
             INDEX[index_engine\n索引构建 / MFT / SQLite 缓存]
             SEARCHC[search_engine\n查询与过滤]
             WATCHER[watcher / dir_size\n变更事件与大小统计]

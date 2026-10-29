@@ -16,6 +16,7 @@ mod network;
 mod persistence;
 mod schedule;
 mod search_engine;
+mod sftp;
 mod shell_icon;
 #[cfg(windows)]
 mod shell_menu;
@@ -52,8 +53,13 @@ fn get_roots() -> Vec<DriveInfo> {
 }
 
 /// 列出 FTP / SFTP 目录，条目带类型 / 大小 / 修改时间。
+///
+/// SFTP 走内置 russh 实现（不依赖 curl 对主机密钥算法的支持），FTP 仍走 curl。
 #[tauri::command]
 async fn list_remote_dir(request: network::RemoteRequest) -> Result<DirListing, String> {
+    if request.connection.protocol == "sftp" {
+        return sftp::list_remote_dir(request).await;
+    }
     tauri::async_runtime::spawn_blocking(move || network::list_remote_dir(request))
         .await
         .map_err(|error| format!("远程读取任务失败: {error}"))?
@@ -61,7 +67,7 @@ async fn list_remote_dir(request: network::RemoteRequest) -> Result<DirListing, 
 
 /// 在本地与 FTP / SFTP 之间上传或下载（支持目录递归）。
 ///
-/// 大文件与目录递归都在后台线程执行；每开始一个顶层条目就发一次
+/// SFTP 在 russh 连接内传输；FTP 交给后台线程运行 curl。每开始一个顶层条目就发一次
 /// `remote:transfer` 事件，供状态栏显示当前进度。
 #[tauri::command]
 async fn remote_transfer(
@@ -69,6 +75,12 @@ async fn remote_transfer(
     request: network::RemoteTransferRequest,
 ) -> Result<network::RemoteTransferResult, String> {
     use tauri::Emitter;
+    if request.connection.protocol == "sftp" {
+        let mut emit = |progress| {
+            let _ = app.emit(app_core::events::REMOTE_TRANSFER, progress);
+        };
+        return Ok(sftp::transfer_remote(request, &mut emit).await);
+    }
     tauri::async_runtime::spawn_blocking(move || {
         network::transfer_remote(request, &mut |progress| {
             let _ = app.emit(app_core::events::REMOTE_TRANSFER, progress);

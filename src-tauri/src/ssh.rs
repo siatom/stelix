@@ -25,7 +25,7 @@ use tauri::{AppHandle, Emitter};
 use tokio::sync::mpsc;
 
 use crate::app_core::events::{SSH_DATA, SSH_EXIT};
-use crate::network::RemoteAuth;
+use crate::network::{RemoteAuth, RemoteConnection};
 
 const TERM: &str = "xterm-256color";
 const MAX_INPUT_BYTES: usize = 1024 * 1024;
@@ -98,6 +98,39 @@ pub struct SshManager {
     sessions: Mutex<HashMap<String, SshSession>>,
 }
 
+/// 认证参数（SSH 终端与 SFTP 共用）。
+pub(crate) struct SshAuth {
+    pub username: String,
+    pub method: RemoteAuth,
+    pub password: String,
+    pub private_key: String,
+    pub key_passphrase: String,
+}
+
+impl SshAuth {
+    pub(crate) fn from_connection(connection: &RemoteConnection) -> Self {
+        Self {
+            username: connection.username.clone(),
+            method: connection.auth_method,
+            password: connection.password.clone(),
+            private_key: connection.private_key.clone(),
+            key_passphrase: connection.key_passphrase.clone(),
+        }
+    }
+}
+
+impl SshConnectRequest {
+    fn auth(&self) -> SshAuth {
+        SshAuth {
+            username: self.username.clone(),
+            method: self.auth_method,
+            password: self.password.clone(),
+            private_key: self.private_key.clone(),
+            key_passphrase: self.key_passphrase.clone(),
+        }
+    }
+}
+
 impl SshManager {
     pub fn new() -> Self {
         Self {
@@ -113,49 +146,16 @@ impl SshManager {
     ) -> Result<SshSessionInfo, String> {
         validate(&request)?;
 
-        let known_hosts = known_hosts_path()?;
         let outcome = Arc::new(Mutex::new(None::<String>));
         let fingerprint = Arc::new(Mutex::new(String::new()));
-        let handler = ClientHandler {
-            host: request.host.clone(),
-            port: request.port,
-            known_hosts,
-            outcome: Arc::clone(&outcome),
-            fingerprint: Arc::clone(&fingerprint),
-        };
-
-        let config = Arc::new(client::Config {
-            // 交互式终端可能长时间无输出；超时交给 TCP / 用户主动断开处理。
-            inactivity_timeout: None,
-            ..Default::default()
-        });
-
-        let mut session = match tokio::time::timeout(
-            CONNECT_TIMEOUT,
-            client::connect(config, (request.host.as_str(), request.port), handler),
+        let session = connect_authenticated(
+            &request.host,
+            request.port,
+            &request.auth(),
+            Arc::clone(&outcome),
+            Arc::clone(&fingerprint),
         )
-        .await
-        {
-            Err(_) => {
-                return Err(format!(
-                    "连接 {}:{} 超时（{} 秒）",
-                    request.host,
-                    request.port,
-                    CONNECT_TIMEOUT.as_secs()
-                ))
-            }
-            Ok(Ok(session)) => session,
-            Ok(Err(error)) => {
-                return Err(outcome.lock().take().unwrap_or_else(|| {
-                    format!("无法连接 {}:{}：{error}", request.host, request.port)
-                }))
-            }
-        };
-
-        match tokio::time::timeout(CONNECT_TIMEOUT, authenticate(&mut session, &request)).await {
-            Ok(result) => result?,
-            Err(_) => return Err(format!("SSH 认证超时（{} 秒）", CONNECT_TIMEOUT.as_secs())),
-        }
+        .await?;
 
         let channel = session
             .channel_open_session()
@@ -310,6 +310,58 @@ impl Default for SshManager {
     }
 }
 
+/// 建立一条已认证的 SSH 连接（终端与 SFTP 共用）。
+///
+/// 主机密钥按 OpenSSH `accept-new` 语义校验：已记录必须一致，未知则记录后放行。
+pub(crate) async fn connect_authenticated(
+    host: &str,
+    port: u16,
+    auth: &SshAuth,
+    outcome: Arc<Mutex<Option<String>>>,
+    fingerprint: Arc<Mutex<String>>,
+) -> Result<client::Handle<ClientHandler>, String> {
+    let handler = ClientHandler {
+        host: host.to_string(),
+        port,
+        known_hosts: known_hosts_path()?,
+        outcome: Arc::clone(&outcome),
+        fingerprint,
+    };
+
+    let config = Arc::new(client::Config {
+        // 交互式终端 / 长传输可能长时间无数据；超时交给 TCP 与调用方处理。
+        inactivity_timeout: None,
+        ..Default::default()
+    });
+
+    let mut session = match tokio::time::timeout(
+        CONNECT_TIMEOUT,
+        client::connect(config, (host, port), handler),
+    )
+    .await
+    {
+        Err(_) => {
+            return Err(format!(
+                "连接 {host}:{port} 超时（{} 秒）",
+                CONNECT_TIMEOUT.as_secs()
+            ))
+        }
+        Ok(Ok(session)) => session,
+        Ok(Err(error)) => {
+            return Err(outcome
+                .lock()
+                .take()
+                .unwrap_or_else(|| format!("无法连接 {host}:{port}：{error}")))
+        }
+    };
+
+    match tokio::time::timeout(CONNECT_TIMEOUT, authenticate(&mut session, auth)).await {
+        Ok(result) => result?,
+        Err(_) => return Err(format!("SSH 认证超时（{} 秒）", CONNECT_TIMEOUT.as_secs())),
+    }
+    Ok(session)
+}
+
 fn validate(request: &SshConnectRequest) -> Result<(), String> {
     if request.session_id.trim().is_empty() || request.session_id.len() > 128 {
         return Err("会话标识无效".into());
@@ -332,32 +384,32 @@ fn validate(request: &SshConnectRequest) -> Result<(), String> {
 
 async fn authenticate(
     session: &mut client::Handle<ClientHandler>,
-    request: &SshConnectRequest,
+    auth: &SshAuth,
 ) -> Result<(), String> {
-    match request.auth_method {
+    match auth.method {
         RemoteAuth::Password => {
             let result = session
-                .authenticate_password(request.username.as_str(), request.password.as_str())
+                .authenticate_password(auth.username.as_str(), auth.password.as_str())
                 .await
                 .map_err(|error| format!("密码认证失败：{error}"))?;
             if result.success() {
                 return Ok(());
             }
             // 部分服务器只启用 keyboard-interactive（如带 MFA 的配置），用同一密码再试一次。
-            if authenticate_keyboard_interactive(session, request).await? {
+            if authenticate_keyboard_interactive(session, auth).await? {
                 return Ok(());
             }
             Err("密码认证失败：用户名或密码不正确".into())
         }
         RemoteAuth::Key => {
-            let key_path = request.private_key.trim();
+            let key_path = auth.private_key.trim();
             if key_path.is_empty() {
                 return Err("请选择 SSH 私钥文件".into());
             }
-            let passphrase = if request.key_passphrase.is_empty() {
+            let passphrase = if auth.key_passphrase.is_empty() {
                 None
             } else {
-                Some(request.key_passphrase.as_str())
+                Some(auth.key_passphrase.as_str())
             };
             let key = load_secret_key(Path::new(key_path), passphrase)
                 .map_err(|error| format!("无法读取私钥 {key_path}：{error}"))?;
@@ -369,7 +421,7 @@ async fn authenticate(
                 .flatten();
             let result = session
                 .authenticate_publickey(
-                    request.username.as_str(),
+                    auth.username.as_str(),
                     PrivateKeyWithHashAlg::new(Arc::new(key), hash),
                 )
                 .await
@@ -386,10 +438,10 @@ async fn authenticate(
 /// keyboard-interactive 兜底：把密码填入服务器给出的所有提示。
 async fn authenticate_keyboard_interactive(
     session: &mut client::Handle<ClientHandler>,
-    request: &SshConnectRequest,
+    auth: &SshAuth,
 ) -> Result<bool, String> {
     let mut response = session
-        .authenticate_keyboard_interactive_start(request.username.as_str(), None::<String>)
+        .authenticate_keyboard_interactive_start(auth.username.as_str(), None::<String>)
         .await
         .map_err(|error| format!("keyboard-interactive 认证失败：{error}"))?;
     // 服务器可能连续多次询问；最多 3 轮，避免恶意服务器无限循环。
@@ -403,7 +455,7 @@ async fn authenticate_keyboard_interactive(
                 }
                 let answers = prompts
                     .iter()
-                    .map(|_| request.password.clone())
+                    .map(|_| auth.password.clone())
                     .collect::<Vec<_>>();
                 response = session
                     .authenticate_keyboard_interactive_respond(answers)
@@ -415,7 +467,7 @@ async fn authenticate_keyboard_interactive(
     Ok(false)
 }
 
-struct ClientHandler {
+pub(crate) struct ClientHandler {
     host: String,
     port: u16,
     known_hosts: PathBuf,
@@ -540,10 +592,8 @@ mod tests {
     fn missing_known_hosts_file_is_treated_as_unknown_host() {
         // 首次连接时 ~/.ssh/known_hosts 可能还不存在，必须是「未知」而不是错误，
         // 否则 accept-new 会退化成永远连不上新主机。
-        let path = std::env::temp_dir().join(format!(
-            "stelix-known-hosts-{}.tmp",
-            uuid::Uuid::new_v4()
-        ));
+        let path =
+            std::env::temp_dir().join(format!("stelix-known-hosts-{}.tmp", uuid::Uuid::new_v4()));
         let key = russh::keys::PublicKey::from_openssh(
             "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJdD7y3aLq454yWBdwLWbieU1ebz9/cu7/QEXn9OIeZJ",
         )
