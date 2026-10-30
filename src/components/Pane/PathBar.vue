@@ -101,12 +101,15 @@ async function commit() {
   }
   const value = draft.value.trim()
   editing.value = false
-  if (!value || value === props.tab.path) return
+  if (!value) return
 
   try {
-    if (await api.pathIsFile(value)) {
-      await paneStore.navigateTo(props.paneId, dirname(value), props.tab.id)
-      const normalized = value.replace(/\//g, '\\').replace(/\\+$/, '').toLowerCase()
+    // 支持 `%APPDATA%` / `~\Downloads` 这类输入；展开后再判断是文件还是目录。
+    const target = await api.expandPath(value)
+    if (!target || target === props.tab.path) return
+    if (await api.pathIsFile(target)) {
+      await paneStore.navigateTo(props.paneId, dirname(target), props.tab.id)
+      const normalized = target.replace(/\//g, '\\').replace(/\\+$/, '').toLowerCase()
       const file = props.tab.entries.find(
         (entry) => entry.isDir === false && entry.path.replace(/\//g, '\\').replace(/\\+$/, '').toLowerCase() === normalized,
       )
@@ -116,12 +119,11 @@ async function commit() {
       }
       return
     }
+    go(target)
   } catch (error) {
     ui.setStatusText(`无法检查路径：${String(error)}`)
     return
   }
-
-  go(value)
 }
 
 function cancel() {
@@ -158,6 +160,7 @@ watch(
       v-model="draft"
       class="path-input"
       spellcheck="false"
+      title="支持 Windows 环境变量（如 %APPDATA%）与 ~ 主目录"
       @keyup.enter="commit"
       @keyup.esc="cancel"
       @blur="commit"

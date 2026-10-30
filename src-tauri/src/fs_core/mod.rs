@@ -101,6 +101,100 @@ pub fn list_dir(path: &str) -> Result<DirListing, String> {
     })
 }
 
+/// 展开用户在地址栏输入的路径文本。
+///
+/// 支持 Windows 命令行的常见写法，让 `%APPDATA%`、`~\Downloads` 这类输入
+/// 能直接导航：
+/// - 环境变量：`%APPDATA%`、`%USERPROFILE%\Downloads`（未知变量保持原样）；
+/// - 主目录简写：`~`、`~\Downloads`、`~/Downloads`；
+/// - 资源管理器「复制为路径」带上的成对引号；
+/// - 统一路径分隔符为 `\`（Windows）。
+///
+/// 不做 `canonicalize`：目标可能尚不存在，且调用方需要保留用户输入的大小写。
+pub fn expand_path(input: &str) -> String {
+    let value = strip_quotes(input.trim());
+    if value.is_empty() {
+        return value;
+    }
+    expand_home(expand_env_vars(&value)).replace('/', "\\")
+}
+
+/// 去掉首尾成对的单 / 双引号（资源管理器复制路径会带上）。
+fn strip_quotes(value: &str) -> String {
+    let bytes = value.as_bytes();
+    if bytes.len() >= 2 {
+        let first = bytes[0];
+        let last = bytes[bytes.len() - 1];
+        if (first == b'"' && last == b'"') || (first == b'\'' && last == b'\'') {
+            return value[1..value.len() - 1].trim().to_string();
+        }
+    }
+    value.to_string()
+}
+
+/// 展开环境变量；变量值里可能再引用变量，因此迭代多轮直到稳定。
+fn expand_env_vars(input: &str) -> String {
+    let mut current = input.to_string();
+    for _ in 0..4 {
+        let next = expand_env_vars_once(&current);
+        if next == current {
+            break;
+        }
+        current = next;
+    }
+    current
+}
+
+fn expand_env_vars_once(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    let mut rest = input;
+    while let Some(start) = rest.find('%') {
+        out.push_str(&rest[..start]);
+        let after = &rest[start + 1..];
+        match after.find('%') {
+            // `%%` 或没有闭合的 `%` 都按字面量保留。
+            Some(end) if end > 0 => {
+                let name = &after[..end];
+                match std::env::var(name) {
+                    Ok(value) if !value.is_empty() => out.push_str(&value),
+                    // 未定义的变量保持原样，由后续「无法读取目录」提示暴露给用户。
+                    _ => {
+                        out.push('%');
+                        out.push_str(name);
+                        out.push('%');
+                    }
+                }
+                rest = &after[end + 1..];
+            }
+            _ => {
+                out.push('%');
+                rest = after;
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+/// 把开头的 `~` 替换为用户主目录（`USERPROFILE`，回退 `HOME`）。
+fn expand_home(input: String) -> String {
+    let rest = match input.strip_prefix('~') {
+        Some(rest) => rest,
+        None => return input,
+    };
+    if !(rest.is_empty() || rest.starts_with('\\') || rest.starts_with('/')) {
+        return input;
+    }
+    let home = std::env::var("USERPROFILE")
+        .ok()
+        .filter(|value| !value.is_empty())
+        .or_else(|| std::env::var("HOME").ok().filter(|value| !value.is_empty()));
+    match home {
+        Some(home) => format!("{}{rest}", home.trim_end_matches(['\\', '/'])),
+        None => input,
+    }
+}
+
 /// 递归收集某目录下的条目（供 AI 离线检索在索引为空时兜底使用）。
 ///
 /// - `max_depth`：最大递归深度（`1` 表示只取直接子项，`0` 视为 `1`）
@@ -557,6 +651,42 @@ mod tests {
             sources: Vec::new(),
             target: Some(target.to_string_lossy().to_string()),
         }
+    }
+
+    /// 地址栏输入：`%VAR%` / `~` / 引号 / 正斜杠都要能落到真实路径。
+    #[test]
+    fn expand_path_handles_env_vars_home_and_quotes() {
+        std::env::set_var("STELIX_TEST_EXPAND_DIR", r"D:\StelixTestDir");
+        assert_eq!(
+            expand_path(r"%STELIX_TEST_EXPAND_DIR%\src"),
+            r"D:\StelixTestDir\src"
+        );
+        // 未定义的变量保持原样，避免把用户输入静默改写。
+        assert_eq!(
+            expand_path(r"D:\%STELIX_NO_SUCH_VAR%\a"),
+            r"D:\%STELIX_NO_SUCH_VAR%\a"
+        );
+        // 资源管理器「复制为路径」带引号；正斜杠统一为反斜杠。
+        assert_eq!(expand_path("  \"D:\\a/b\"  "), r"D:\a\b");
+        assert_eq!(expand_path(""), "");
+    }
+
+    #[test]
+    fn expand_path_expands_home_dir() {
+        let home = std::env::var("USERPROFILE")
+            .ok()
+            .filter(|value| !value.is_empty())
+            .or_else(|| std::env::var("HOME").ok().filter(|value| !value.is_empty()));
+        let Some(home) = home else {
+            return;
+        };
+        let home = home.replace('/', "\\");
+        let home = home.trim_end_matches('\\');
+        assert_eq!(expand_path("~"), home);
+        assert_eq!(expand_path(r"~\Downloads"), format!(r"{home}\Downloads"));
+        assert_eq!(expand_path("~/Downloads"), format!(r"{home}\Downloads"));
+        // `~` 只在路径开头且后面紧跟分隔符时才是主目录。
+        assert_eq!(expand_path("~foo"), "~foo");
     }
 
     #[test]

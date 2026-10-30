@@ -83,6 +83,8 @@ export const api = {
   getFileIcon: (path: string, isDir: boolean, usePathIcon = false) =>
     invoke<string | null>('get_file_icon', { path, isDir, usePathIcon }),
   pathIsFile: (path: string) => invoke<boolean>('path_is_file', { path }),
+  /** 展开地址栏输入中的 Windows 环境变量（`%APPDATA%`）与 `~` 主目录。 */
+  expandPath: (path: string) => invoke<string>('expand_path', { path }),
   openInTerminal: (path: string) => invoke<void>('open_in_terminal', { path }),
   showItemProperties: (path: string) => invoke<void>('show_item_properties', { path }),
   /** 弹出系统原生「打开方式」窗口（仅本地文件）。 */

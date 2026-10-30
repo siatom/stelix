@@ -252,6 +252,12 @@ fn path_is_file(path: String) -> bool {
     std::path::Path::new(&path).is_file()
 }
 
+/// 展开地址栏输入里的 Windows 环境变量（`%APPDATA%`）与主目录简写（`~`）。
+#[tauri::command]
+fn expand_path(path: String) -> String {
+    fs_core::expand_path(&path)
+}
+
 /// 在系统配置的默认终端中打开指定文件夹。
 #[tauri::command]
 fn open_in_terminal(path: String) -> Result<(), String> {
@@ -893,6 +899,7 @@ pub fn run() {
             set_file_clipboard,
             get_file_clipboard,
             path_is_file,
+            expand_path,
             open_in_terminal,
             show_item_properties,
             show_open_with,
