@@ -160,6 +160,10 @@ onMounted(() => {
             <span>添加当前目录</span>
             <span v-if="currentDirName" class="ac-path">{{ currentDirName }}</span>
           </button>
+
+          <p class="row-hint">
+            索引只保存在内存、退出即释放；AppData、node_modules、target 等缓存与构建目录会自动跳过。
+          </p>
         </div>
       </section>
 

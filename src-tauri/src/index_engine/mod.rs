@@ -5,25 +5,17 @@
 //! - 扫描期间通过 `app.emit(events::INDEX_PROGRESS, IndexProgress)` 上报进度，
 //!   完成后 emit `events::INDEX_DONE`（payload = `IndexStatus`）。
 //!
-//! # Phase 2：接入 NTFS MFT 直读
+//! # 索引数据源：目录遍历
 //!
-//! 索引器通过 [`IndexSource`] trait 抽象数据源，Phase 1 的目录遍历实现是
-//! [`WalkDirSource`]。要接入 MFT：
-//! 1. 新增一个类型 `MftSource` 实现 [`IndexSource`]：在 `scan` 内读取
-//!    `$MFT`（`windows-sys` 的 `DeviceIoControl` + `FSCTL_ENUM_USN_DATA`），
-//!    解析出 `FileEntry` 后按批调用 `on_batch`。**无需改动本文件对外签名。**
-//! 2. 在 [`IndexStore::start_scan`] 里把 `WalkDirSource::default()` 换成
-//!    `MftSource::new()`（可按卷自动选择：NTFS 走 MFT，其余走 walkdir）。
-//! 由于所有写索引的动作都发生在 `on_batch` 回调里，替换数据源即可复用
+//! 索引器通过 [`IndexSource`] trait 抽象数据源，当前唯一实现是 [`WalkDirSource`]
+//! （walkdir 遍历 + rayon 并行取元数据）。索引只在启动与手动重扫时重建，
+//! 运行期不再监听文件系统变更 —— 搜索结果的时效性由重新扫描保证。
+//! 所有写索引的动作都发生在 `on_batch` 回调里，替换数据源即可复用
 //! 增量更新、进度节流、状态维护等全部逻辑。
 
 use std::cmp::Ordering as CmpOrdering;
-use std::collections::{BinaryHeap, HashMap, HashSet};
+use std::collections::{BinaryHeap, HashSet};
 use std::path::PathBuf;
-#[cfg(windows)]
-use std::sync::atomic::AtomicBool;
-#[cfg(windows)]
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -34,12 +26,8 @@ use tauri::{AppHandle, Emitter};
 use walkdir::WalkDir;
 
 use crate::app_core::events;
-use crate::persistence::{self, IndexJournal};
 use crate::search_engine;
 use crate::types::{FileEntry, IndexProgress, IndexStatus, SearchHit, SearchQuery};
-
-#[cfg(windows)]
-pub(crate) mod mft;
 
 /// 每批写入 DashMap 的条目数
 const BATCH_SIZE: usize = 2000;
@@ -48,7 +36,7 @@ const PROGRESS_INTERVAL_MS: u128 = 500;
 /// 进度上报：距上次上报新增该条目数则上报
 const PROGRESS_INTERVAL_ITEMS: usize = 5000;
 
-/// 索引数据源抽象：Phase 1 用目录遍历实现，Phase 2 增加 NTFS MFT 实现。
+/// 索引数据源抽象：当前实现为目录遍历（[`WalkDirSource`]）。
 pub trait IndexSource: Send + Sync {
     /// 扫描给定根，产出条目（可分批回调）
     fn scan(&self, roots: &[String], on_batch: &mut dyn FnMut(Vec<FileEntry>));
@@ -74,12 +62,57 @@ impl Default for WalkDirSource {
     }
 }
 
+/// 索引时跳过的目录名（大小写不敏感）：系统目录与缓存 / 构建产物。
+///
+/// 这些目录往往占了文件总数的绝大多数，却极少需要被搜索。跳过它们能让默认
+/// 索引量从百万级降到十万级 —— 内存与扫描时间同步下降。
+const SKIPPED_DIR_NAMES: &[&str] = &[
+    "appdata",
+    "node_modules",
+    ".git",
+    "target",
+    "dist",
+    ".next",
+    ".nuxt",
+    ".turbo",
+    ".cache",
+    ".pnpm-store",
+    ".pnpm",
+    ".cargo",
+    ".rustup",
+    ".nuget",
+    ".gradle",
+    ".m2",
+    ".venv",
+    "venv",
+    "__pycache__",
+    "windows",
+    "programdata",
+    "$recycle.bin",
+    "system volume information",
+    "recovery",
+    "perflogs",
+];
+
+/// 是否跳过该目录：只按目录名判断（同名文件不受影响），根目录本身永不跳过。
+fn skip_dir(entry: &walkdir::DirEntry) -> bool {
+    if entry.depth() == 0 || !entry.file_type().is_dir() {
+        return false;
+    }
+    let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
+    SKIPPED_DIR_NAMES.contains(&name.as_str())
+}
+
 impl IndexSource for WalkDirSource {
     fn scan(&self, roots: &[String], on_batch: &mut dyn FnMut(Vec<FileEntry>)) {
         for root in roots {
             // min_depth(1)：跳过根目录自身；错误（如无权限）直接忽略，不 panic。
             let mut buf: Vec<PathBuf> = Vec::with_capacity(self.batch_size);
-            for item in WalkDir::new(root).min_depth(1).into_iter() {
+            let walker = WalkDir::new(root)
+                .min_depth(1)
+                .into_iter()
+                .filter_entry(|entry| !skip_dir(entry));
+            for item in walker {
                 match item {
                     Ok(e) => {
                         buf.push(e.into_path());
@@ -119,172 +152,22 @@ fn build_entries(paths: &[PathBuf]) -> Vec<FileEntry> {
 pub struct IndexStore {
     /// 路径 -> 条目（内部用 Arc 便于 move 进后台线程）
     entries: Arc<DashMap<String, FileEntry>>,
-    search_catalog: Arc<RwLock<SearchCatalog>>,
-    #[cfg(windows)]
-    catalog_dirty: Arc<AtomicBool>,
     status: Arc<RwLock<IndexStatus>>,
-    #[cfg(windows)]
-    service_generation: Arc<AtomicU64>,
-}
-
-#[derive(Default)]
-struct SearchCatalog {
-    grams: HashMap<String, Vec<u64>>,
-    extensions: HashMap<String, Vec<u64>>,
-    entries: HashMap<u64, SearchEntry>,
-}
-
-struct SearchEntry {
-    path: String,
-    normalized_name: String,
-}
-
-impl SearchCatalog {
-    fn build(entries: &DashMap<String, FileEntry>) -> Self {
-        let mut catalog = Self::default();
-        for item in entries.iter() {
-            let entry = item.value();
-            let id = entry.id;
-            let name = entry.name.to_lowercase();
-            let bytes = name.as_bytes();
-            let mut unique_grams = Vec::with_capacity(bytes.len().saturating_mul(2));
-            for width in [2, 3] {
-                for gram in bytes.windows(width) {
-                    unique_grams.push(String::from_utf8_lossy(gram).into_owned());
-                }
-            }
-            unique_grams.sort_unstable();
-            unique_grams.dedup();
-            for gram in unique_grams {
-                catalog.grams.entry(gram).or_default().push(id);
-            }
-            if let Some(ext) = &entry.ext {
-                catalog
-                    .extensions
-                    .entry(ext.to_lowercase())
-                    .or_default()
-                    .push(id);
-            }
-            catalog.entries.insert(
-                id,
-                SearchEntry {
-                    path: entry.path.clone(),
-                    normalized_name: name,
-                },
-            );
-        }
-        catalog
-    }
-
-    fn candidate_ids(&self, query: &SearchQuery) -> Option<Vec<u64>> {
-        let mut smallest: Option<&Vec<u64>> = None;
-        for term in query.text.split_whitespace() {
-            let term = term.to_lowercase();
-            let width = if term.len() >= 3 {
-                3
-            } else if term.len() == 2 {
-                2
-            } else {
-                0
-            };
-            if width > 0 {
-                for gram in term.as_bytes().windows(width) {
-                    let gram = String::from_utf8_lossy(gram);
-                    let Some(posting) = self.grams.get(gram.as_ref()) else {
-                        return Some(Vec::new());
-                    };
-                    if smallest.map_or(true, |current| posting.len() < current.len()) {
-                        smallest = Some(posting);
-                    }
-                }
-            }
-        }
-        if !query.ext.is_empty() {
-            let mut ext_ids = Vec::new();
-            for ext in &query.ext {
-                if let Some(ids) = self.extensions.get(&ext.to_lowercase()) {
-                    ext_ids.extend_from_slice(ids);
-                }
-            }
-            ext_ids.sort_unstable();
-            ext_ids.dedup();
-            if smallest.map_or(true, |current| ext_ids.len() < current.len()) {
-                return Some(ext_ids.into_iter().collect());
-            }
-        }
-        smallest.map(|ids| ids.iter().copied().collect())
-    }
 }
 
 impl IndexStore {
     pub fn new() -> Self {
         Self {
             entries: Arc::new(DashMap::new()),
-            search_catalog: Arc::new(RwLock::new(SearchCatalog::default())),
-            #[cfg(windows)]
-            catalog_dirty: Arc::new(AtomicBool::new(true)),
             status: Arc::new(RwLock::new(IndexStatus::default())),
-            #[cfg(windows)]
-            service_generation: Arc::new(AtomicU64::new(0)),
         }
     }
 
-    /// Restore the durable index and replay the NTFS journal before falling back
-    /// to a full MFT enumeration.
+    /// 启动索引服务：直接后台扫描配置的根目录。
+    ///
+    /// 索引只存在于内存、不落盘，因此每次启动都重新扫描；配合「默认只索引用户目录
+    /// 并跳过缓存/构建目录」，扫描量从百万级降到十万级，启动即可用。
     pub fn start_service(&self, app: AppHandle, roots: Vec<String>) {
-        #[cfg(windows)]
-        if let Some(journals) = persistence::load_index_cache_into(&roots, &self.entries) {
-            {
-                let mut status = self.status.write();
-                status.roots = roots.clone();
-                status.total = self.entries.len();
-                status.scanned = 0;
-                status.scanning = true;
-            }
-            let _ = app.emit(
-                events::INDEX_PROGRESS,
-                IndexProgress {
-                    scanned: 0,
-                    total: self.entries.len(),
-                    current: String::new(),
-                    done: false,
-                },
-            );
-            let resumed = mft::resume_journals(&roots, &journals, &self.entries, true);
-            if let Some(checkpoints) = resumed {
-                let catalog = SearchCatalog::build(&self.entries);
-                *self.search_catalog.write() = catalog;
-                self.catalog_dirty.store(false, Ordering::Release);
-                {
-                    let mut status = self.status.write();
-                    status.roots = roots.clone();
-                    status.total = self.entries.len();
-                    status.scanned = self.entries.len();
-                    status.scanning = false;
-                }
-                let _ = app.emit(events::INDEX_DONE, self.status());
-                let generation = self.service_generation.fetch_add(1, Ordering::SeqCst) + 1;
-                let entries = Arc::clone(&self.entries);
-                let service_generation = Arc::clone(&self.service_generation);
-                let catalog_dirty = Arc::clone(&self.catalog_dirty);
-                std::thread::spawn(move || {
-                    mft::watch_roots(
-                        roots,
-                        entries,
-                        generation,
-                        service_generation,
-                        catalog_dirty,
-                        checkpoints,
-                    );
-                });
-                return;
-            }
-            self.entries.clear();
-            self.status.write().scanning = false;
-        } else {
-            self.entries.clear();
-            self.status.write().scanning = false;
-        }
         self.start_scan(app, roots);
     }
 
@@ -300,12 +183,6 @@ impl IndexStore {
         if self.status.read().scanning {
             return;
         }
-
-        #[cfg(windows)]
-        let generation = self.service_generation.fetch_add(1, Ordering::SeqCst) + 1;
-
-        #[cfg(windows)]
-        let initial_journals = mft::capture_journals(&roots);
 
         {
             let mut st = self.status.write();
@@ -326,17 +203,8 @@ impl IndexStore {
 
         let entries = Arc::clone(&self.entries);
         let status = Arc::clone(&self.status);
-        #[cfg(windows)]
-        let catalog_dirty = Arc::clone(&self.catalog_dirty);
-        #[cfg(windows)]
-        catalog_dirty.store(true, Ordering::Release);
-        let search_catalog = Arc::clone(&self.search_catalog);
-        #[cfg(windows)]
-        let service_generation = Arc::clone(&self.service_generation);
 
         std::thread::spawn(move || {
-            #[cfg(windows)]
-            let mut checkpoints = None;
             // 进度节流状态（仅本线程持有）
             let mut last_emit = Instant::now();
             let mut last_count = 0usize;
@@ -360,23 +228,6 @@ impl IndexStore {
                 }
             });
 
-            // Build the query catalog once from the completed snapshot. Queries
-            // during a scan use the live entry map so they never miss new files.
-            let catalog = SearchCatalog::build(&entries);
-            *search_catalog.write() = catalog;
-            #[cfg(windows)]
-            catalog_dirty.store(false, Ordering::Release);
-
-            #[cfg(windows)]
-            {
-                if let Some(initial) = initial_journals {
-                    checkpoints = mft::resume_journals(&roots, &initial, &entries, false);
-                }
-                if let Some(ref checkpoints) = checkpoints {
-                    persist_index(&roots, &entries, checkpoints);
-                }
-            }
-
             let final_status = {
                 let mut st = status.write();
                 st.scanning = false;
@@ -388,16 +239,6 @@ impl IndexStore {
                 }
             };
             let _ = app.emit(events::INDEX_DONE, final_status);
-
-            #[cfg(windows)]
-            mft::watch_roots(
-                roots,
-                entries,
-                generation,
-                service_generation,
-                catalog_dirty,
-                checkpoints.unwrap_or_default(),
-            );
         });
     }
 
@@ -423,6 +264,9 @@ impl IndexStore {
     }
 
     /// 检索内存索引：过滤 + 打分 + 排序 + 截断到 `query.limit`。
+    ///
+    /// 直接并行遍历内存条目，不维护 n-gram 倒排表 —— 几十万条目下单次遍历
+    /// 只需几十毫秒，省下的倒排内存远比那点延迟值钱。
     pub fn search(&self, query: &SearchQuery) -> Vec<SearchHit> {
         let search_started = Instant::now();
         let limit = if query.limit == 0 {
@@ -439,74 +283,48 @@ impl IndexStore {
             .map(str::to_lowercase)
             .collect();
         let normalized_query = query.text.trim().to_lowercase();
-        let mut best: BinaryHeap<RankedHit> = BinaryHeap::with_capacity(limit.saturating_add(1));
-        let scanning = self.status.read().scanning;
-        #[cfg(windows)]
-        if self.catalog_dirty.swap(false, Ordering::AcqRel) && !scanning {
-            let catalog = SearchCatalog::build(&self.entries);
-            *self.search_catalog.write() = catalog;
-        }
-        let catalog = self.search_catalog.read();
-        let candidates = if scanning {
-            None
-        } else {
-            catalog.candidate_ids(query)
-        };
-        let candidate_count = candidates
-            .as_ref()
-            .map_or_else(|| self.entries.len(), Vec::len);
-        let mut consider = |entry: &FileEntry, name_lower: &str| {
-            if !search_engine::matches_with_terms(entry, query, name_lower, &terms) {
-                return;
-            }
-            let score =
-                search_engine::score_with_normalized_query(query, name_lower, &normalized_query);
-            // 堆已满时先用 (score, name) 与当前最差命中比较：不够好就直接跳过。
-            // 宽泛查询（几十万命中、limit 500）若先克隆 FileEntry 再比较，会为每条命中
-            // 分配 path/name/ext 三份字符串，产生大量无谓的堆分配与 GC 压力。
-            if best.len() >= limit {
-                let better = best.peek().is_some_and(|worst| {
-                    score > worst.hit.score
-                        || (score == worst.hit.score && name_lower < worst.name_lower.as_str())
-                });
-                if !better {
-                    return;
-                }
-                best.pop();
-            }
-            best.push(RankedHit {
-                hit: SearchHit {
-                    score,
-                    entry: entry.clone(),
-                },
-                name_lower: name_lower.to_string(),
-            });
-        };
-        if let Some(ids) = candidates {
-            for id in ids {
-                let Some(indexed) = catalog.entries.get(&id) else {
-                    continue;
-                };
-                let Some(entry) = self.entries.get(&indexed.path) else {
-                    continue;
-                };
-                consider(entry.value(), &indexed.normalized_name);
-            }
-        } else {
-            for item in self.entries.iter() {
-                let entry = item.value();
-                let name_lower = catalog
-                    .entries
-                    .get(&entry.id)
-                    .map(|entry| entry.normalized_name.as_str());
-                if let Some(name_lower) = name_lower.filter(|_| !scanning) {
-                    consider(entry, name_lower);
-                } else {
+        let candidates = self.entries.len();
+
+        // 每个线程各自维护一个 top-K 堆，最后归并，全程无共享锁。
+        let best = self
+            .entries
+            .par_iter()
+            .fold(
+                || BinaryHeap::with_capacity(limit.saturating_add(1)),
+                |mut best, item| {
+                    let entry = item.value();
                     let name_lower = entry.name.to_lowercase();
-                    consider(entry, &name_lower);
-                }
-            }
-        }
+                    if !search_engine::matches_with_terms(entry, query, &name_lower, &terms) {
+                        return best;
+                    }
+                    let score = search_engine::score_with_normalized_query(
+                        query,
+                        &name_lower,
+                        &normalized_query,
+                    );
+                    // 堆已满时先用 (score, name) 与当前最差命中比较：不够好就直接跳过。
+                    // 宽泛查询（几十万命中、limit 500）若先克隆 FileEntry 再比较，会为每条命中
+                    // 分配 path/name/ext 三份字符串，产生大量无谓的堆分配。
+                    push_ranked(&mut best, limit, score, &name_lower, entry);
+                    best
+                },
+            )
+            .reduce(
+                || BinaryHeap::with_capacity(limit.saturating_add(1)),
+                |mut left, right| {
+                    for ranked in right {
+                        push_ranked(
+                            &mut left,
+                            limit,
+                            ranked.hit.score,
+                            &ranked.name_lower,
+                            &ranked.hit.entry,
+                        );
+                    }
+                    left
+                },
+            );
+
         let mut hits: Vec<SearchHit> = best.into_iter().map(|ranked| ranked.hit).collect();
         hits.sort_by(|a, b| {
             b.score.cmp(&a.score).then_with(|| {
@@ -520,7 +338,7 @@ impl IndexStore {
         if elapsed.as_millis() >= 25 {
             eprintln!(
                 "[search-perf] candidates={} results={} elapsed_ms={}",
-                candidate_count,
+                candidates,
                 hits.len(),
                 elapsed.as_millis()
             );
@@ -534,6 +352,32 @@ impl IndexStore {
     }
 }
 
+/// 把一条命中塞进 top-K 堆：堆未满直接进，满了先与最差命中比 (score, name)。
+fn push_ranked(
+    best: &mut BinaryHeap<RankedHit>,
+    limit: usize,
+    score: i32,
+    name_lower: &str,
+    entry: &FileEntry,
+) {
+    if best.len() >= limit {
+        let better = best.peek().is_some_and(|worst| {
+            score > worst.hit.score
+                || (score == worst.hit.score && name_lower < worst.name_lower.as_str())
+        });
+        if !better {
+            return;
+        }
+        best.pop();
+    }
+    best.push(RankedHit {
+        hit: SearchHit {
+            score,
+            entry: entry.clone(),
+        },
+        name_lower: name_lower.to_string(),
+    });
+}
 /// BinaryHeap keeps the worst currently selected hit at its root.
 struct RankedHit {
     hit: SearchHit,
@@ -561,27 +405,6 @@ impl Ord for RankedHit {
     }
 }
 
-#[cfg(windows)]
-fn persist_index(
-    roots: &[String],
-    entries: &DashMap<String, FileEntry>,
-    journals: &[IndexJournal],
-) {
-    let started = Instant::now();
-    let count = entries.len();
-    let result = persistence::save_index_cache_stream(
-        roots,
-        entries.iter().map(|entry| entry.value().clone()),
-        journals,
-    );
-    eprintln!(
-        "[index-perf] cache_save entries={} elapsed_ms={} success={}",
-        count,
-        started.elapsed().as_millis(),
-        result.is_ok()
-    );
-}
-
 /// 扫描核心：遍历 roots，分批写入索引，结束后做增量 prune。
 ///
 /// - 每写入一批调用一次 `on_progress(已处理条目数, 当前路径)`（供 start_scan 节流上报）。
@@ -594,9 +417,6 @@ fn scan_core(
     roots: &[String],
     mut on_progress: impl FnMut(usize, &str),
 ) -> usize {
-    #[cfg(windows)]
-    let source: Box<dyn IndexSource> = Box::new(mft::MftOrWalkSource::default());
-    #[cfg(not(windows))]
     let source: Box<dyn IndexSource> = Box::new(WalkDirSource::default());
     let seen: Mutex<HashSet<u64>> = Mutex::new(HashSet::new());
     let mut count: usize = 0;
