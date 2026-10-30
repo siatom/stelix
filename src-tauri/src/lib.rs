@@ -819,6 +819,7 @@ pub fn run() {
         }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_drag::init())
         // 开机自启动：注册时带上 `--autostart` 参数，供下方 setup 判断启动来源。
         .plugin(tauri_plugin_autostart::init(
             MacosLauncher::LaunchAgent,

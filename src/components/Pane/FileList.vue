@@ -4,6 +4,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useVirtualizer } from '@tanstack/vue-virtual'
 import { openPath } from '@tauri-apps/plugin-opener'
 import { open as openDialog } from '@tauri-apps/plugin-dialog'
+import { startDrag } from '@crabnebula/tauri-plugin-drag'
 import type { FileEntry, RemoteLocation, RemoteTransferItem, TabState } from '../../types'
 import { usePaneStore } from '../../stores/pane'
 import { useUiStore, type DetailColumnKey } from '../../stores/ui'
@@ -1253,6 +1254,30 @@ function onDragStart(ev: DragEvent, entry: FileEntry) {
   // WebView2 在拖放过程中可能不暴露自定义 MIME 类型；用带标记的标准文本类型兼容。
   ev.dataTransfer.setData(DRAG_FALLBACK_TYPE, `${DRAG_PREFIX}${data}`)
   ev.dataTransfer.effectAllowed = 'copyMove'
+
+  if (props.tab.remote) return
+  // HTML drag data is only visible to other web views. Start an OS file drag
+  // instead so applications such as WeChat receive real filesystem paths.
+  ev.preventDefault()
+  const operation = ev.shiftKey ? 'copy' : 'move'
+  window.dispatchEvent(new CustomEvent('stelix:file-drag-start', { detail: { operation } }))
+  void startDrag({
+    item: paths,
+    // Omit the optional preview asset so no asynchronous resource lookup can
+    // delay starting the native drag after the user's pointer gesture.
+    icon: '',
+    // External applications should receive a copy; Stelix panes apply the
+    // in-app move/copy behavior from the drag-start modifier.
+    mode: 'copy',
+  }, ({ result }) => {
+    window.dispatchEvent(new CustomEvent('stelix:file-drag-end'))
+    if (result === 'Cancelled') ui.setStatusText('文件未被目标应用接收')
+  })
+    .catch((error: unknown) => {
+      window.dispatchEvent(new CustomEvent('stelix:file-drag-end'))
+      console.error('无法启动文件拖拽', error)
+      ui.setStatusText(`文件拖拽启动失败：${String(error)}`)
+    })
 }
 
 /**

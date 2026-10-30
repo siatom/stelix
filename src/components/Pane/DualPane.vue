@@ -12,6 +12,16 @@ const dragging = ref(false)
 const dropTargetPaneId = ref<string | null>(null)
 let unlistenDragEvents: UnlistenFn[] = []
 let dragEventSequence = 0
+let internalDragOperation: 'move' | 'copy' | null = null
+
+function onFileDragStart(event: Event) {
+  const detail = (event as CustomEvent<{ operation?: 'move' | 'copy' }>).detail
+  internalDragOperation = detail?.operation === 'copy' ? 'copy' : 'move'
+}
+
+function onFileDragEnd() {
+  internalDragOperation = null
+}
 
 const columns = computed(() => {
   if (paneStore.singlePane) return '1fr'
@@ -45,11 +55,14 @@ function resetRatio() {
 }
 
 onMounted(() => {
+  window.addEventListener('stelix:file-drag-start', onFileDragStart)
+  window.addEventListener('stelix:file-drag-end', onFileDragEnd)
   void paneStore.init()
   const handleDragPosition = async (
     payload: { paths?: string[]; position: { x: number; y: number } },
     isDrop: boolean,
   ) => {
+    const dragOperation = isDrop ? internalDragOperation : null
     const sequence = ++dragEventSequence
     try {
       const scale = await getCurrentWindow().scaleFactor()
@@ -70,11 +83,16 @@ onMounted(() => {
       }
       dropTargetPaneId.value = paneId
       if (!isDrop || !payload.paths?.length) return
-      const op = { op: 'copy' as const, sources: payload.paths, target: tab.path }
+      const op = {
+        op: dragOperation ?? 'copy',
+        sources: payload.paths,
+        target: tab.path,
+      }
       try {
         await paneStore.runFs(paneId, op)
       } finally {
         dropTargetPaneId.value = null
+        internalDragOperation = null
       }
     } catch (error) {
       dropTargetPaneId.value = null
@@ -99,6 +117,8 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  window.removeEventListener('stelix:file-drag-start', onFileDragStart)
+  window.removeEventListener('stelix:file-drag-end', onFileDragEnd)
   unlistenDragEvents.forEach((unlisten) => unlisten())
   window.removeEventListener('mousemove', onMove)
   window.removeEventListener('mouseup', onUp)
