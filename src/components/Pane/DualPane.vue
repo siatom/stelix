@@ -1,12 +1,17 @@
 <script setup lang="ts">
 // 双窗格容器：左右各一个 Pane + 可拖拽分隔条（WS-D）
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { listen, type UnlistenFn } from '@tauri-apps/api/event'
+import { getCurrentWindow } from '@tauri-apps/api/window'
 import Pane from './Pane.vue'
 import { usePaneStore } from '../../stores/pane'
 
 const paneStore = usePaneStore()
 const rootRef = ref<HTMLElement | null>(null)
 const dragging = ref(false)
+const dropTargetPaneId = ref<string | null>(null)
+let unlistenDragEvents: UnlistenFn[] = []
+let dragEventSequence = 0
 
 const columns = computed(() => {
   if (paneStore.singlePane) return '1fr'
@@ -41,9 +46,60 @@ function resetRatio() {
 
 onMounted(() => {
   void paneStore.init()
+  const handleDragPosition = async (
+    payload: { paths?: string[]; position: { x: number; y: number } },
+    isDrop: boolean,
+  ) => {
+    const sequence = ++dragEventSequence
+    try {
+      const scale = await getCurrentWindow().scaleFactor()
+      if (sequence !== dragEventSequence) return
+      const pointX = payload.position.x / scale
+      const pointY = payload.position.y / scale
+      const paneEl = [...(rootRef.value?.querySelectorAll<HTMLElement>('[data-pane-id]') ?? [])]
+        .find((el) => {
+          const rect = el.getBoundingClientRect()
+          return pointX >= rect.left && pointX <= rect.right && pointY >= rect.top && pointY <= rect.bottom
+        })
+      const paneId = paneEl?.dataset.paneId
+      const owner = paneId ? paneStore.panes.find((pane) => pane.id === paneId) : undefined
+      const tab = owner?.tabs.find((item) => item.id === owner.activeTabId)
+      if (!paneId || !tab || tab.kind === 'remote' || tab.kind === 'search' || tab.kind === 'terminal') {
+        dropTargetPaneId.value = null
+        return
+      }
+      dropTargetPaneId.value = paneId
+      if (!isDrop || !payload.paths?.length) return
+      const op = { op: 'copy' as const, sources: payload.paths, target: tab.path }
+      try {
+        await paneStore.runFs(paneId, op)
+      } finally {
+        dropTargetPaneId.value = null
+      }
+    } catch (error) {
+      dropTargetPaneId.value = null
+      console.error('无法处理外部文件拖放', error)
+    }
+  }
+  void Promise.all([
+    listen<{ paths?: string[]; position: { x: number; y: number } }>('tauri://drag-enter', (event) => {
+      void handleDragPosition(event.payload, false)
+    }),
+    listen<{ position: { x: number; y: number } }>('tauri://drag-over', (event) => {
+      void handleDragPosition(event.payload, false)
+    }),
+    listen<{ paths: string[]; position: { x: number; y: number } }>('tauri://drag-drop', (event) => {
+      void handleDragPosition(event.payload, true)
+    }),
+    listen('tauri://drag-leave', () => {
+      dragEventSequence += 1
+      dropTargetPaneId.value = null
+    }),
+  ]).then((unlisteners) => { unlistenDragEvents = unlisteners })
 })
 
 onBeforeUnmount(() => {
+  unlistenDragEvents.forEach((unlisten) => unlisten())
   window.removeEventListener('mousemove', onMove)
   window.removeEventListener('mouseup', onUp)
 })
@@ -51,9 +107,17 @@ onBeforeUnmount(() => {
 
 <template>
   <div ref="rootRef" class="dual-pane" :class="{ dragging }" :style="{ gridTemplateColumns: columns }">
-    <Pane v-if="!paneStore.singlePane || paneStore.activePaneId === 'left'" pane-id="left" />
+    <Pane
+      v-if="!paneStore.singlePane || paneStore.activePaneId === 'left'"
+      pane-id="left"
+      :drop-active="dropTargetPaneId === 'left'"
+    />
     <div v-if="!paneStore.singlePane" class="divider" title="拖拽调整宽度，双击均分" @mousedown="startDrag" @dblclick="resetRatio" />
-    <Pane v-if="!paneStore.singlePane || paneStore.activePaneId === 'right'" pane-id="right" />
+    <Pane
+      v-if="!paneStore.singlePane || paneStore.activePaneId === 'right'"
+      pane-id="right"
+      :drop-active="dropTargetPaneId === 'right'"
+    />
   </div>
 </template>
 

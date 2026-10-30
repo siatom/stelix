@@ -15,7 +15,7 @@ import { useTerminalStore } from '../../stores/terminal'
 import type { TabState } from '../../types'
 import type { TerminalSession } from '../../stores/terminal'
 
-const props = defineProps<{ paneId: string }>()
+const props = defineProps<{ paneId: string; dropActive?: boolean }>()
 
 const paneStore = usePaneStore()
 const terminalStore = useTerminalStore()
@@ -139,7 +139,7 @@ async function confirmDelete() {
 </script>
 
 <template>
-  <section class="pane" @mousedown="activate">
+  <section class="pane" :data-pane-id="paneId" @mousedown="activate">
     <template v-if="tab">
       <div class="pane-topbar" :class="{ 'is-active': isActivePane }">
         <div v-if="tab.kind === 'terminal'" class="terminal-heading">
@@ -178,6 +178,7 @@ async function confirmDelete() {
       />
     </template>
     <div v-else class="state">没有可用标签</div>
+    <div v-if="dropActive" class="drop-overlay"><span>复制到此文件夹</span></div>
     <TabBar :pane-id="paneId" />
     <StatusBar :pane-id="paneId" />
 
@@ -214,6 +215,20 @@ async function confirmDelete() {
   /* 不加描边：与侧栏靠背景深浅区分，与对侧窗格靠 DualPane 的 1px 分割线区分 */
   position: relative;
   overflow: hidden;
+}
+.drop-overlay {
+  position: absolute;
+  inset: 8px;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  border: 2px dashed var(--accent);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg-app));
+  color: var(--fg);
+  font-size: 1.1rem;
+  font-weight: 600;
+  pointer-events: none;
 }
 .state {
   flex: 1;
