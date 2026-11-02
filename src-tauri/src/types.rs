@@ -95,6 +95,12 @@ pub struct IndexStatus {
     pub scanning: bool,
     /// 本次扫描已处理条目数
     pub scanned: usize,
+    /// 当前是否由 Everything 提供全局搜索索引。
+    #[serde(default)]
+    pub using_everything: bool,
+    /// 启动后正在等待 Everything IPC 就绪。
+    #[serde(default)]
+    pub waiting_for_everything: bool,
 }
 
 /// 索引进度事件负载

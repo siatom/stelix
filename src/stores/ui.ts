@@ -202,6 +202,8 @@ export const useUiStore = defineStore('ui', () => {
   const scanning = ref(false)
   /** 最近一次索引已扫描条目数 */
   const scanned = ref(0)
+  const usingEverything = ref(false)
+  const waitingForEverything = ref(false)
 
   function toggleSidebar() {
     sidebarCollapsed.value = !sidebarCollapsed.value
@@ -439,6 +441,8 @@ export const useUiStore = defineStore('ui', () => {
       indexTotal.value = s.total
       scanning.value = s.scanning
       scanned.value = s.scanned
+      usingEverything.value = s.usingEverything
+      waitingForEverything.value = s.waitingForEverything
       if (!indexRoots.value.length && s.roots.length) indexRoots.value = [...s.roots]
     } catch {
       /* 索引状态暂不可用（例如后端未就绪） */
@@ -486,6 +490,8 @@ export const useUiStore = defineStore('ui', () => {
     indexRoots,
     scanning,
     scanned,
+    usingEverything,
+    waitingForEverything,
     toggleSidebar,
     setPanel,
     openCurrentDirectorySearch,

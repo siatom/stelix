@@ -43,13 +43,13 @@ function consumeFocusRequest() {
 watch(() => ui.searchFocusRequest, consumeFocusRequest)
 
 // 索引状态（统一在此展示：条目数 / 已扫描 / 状态）
-const indexText = computed(() =>
-  ui.scanning
-    ? `正在扫描 ${ui.scanned.toLocaleString()} 项`
-    : `索引 ${ui.indexTotal.toLocaleString()} 项`,
-)
+const indexText = computed(() => {
+  if (ui.usingEverything) return 'Everything 索引'
+  if (ui.waitingForEverything) return '正在连接 Everything…'
+  return ui.scanning ? `正在扫描 ${ui.scanned.toLocaleString()} 项` : `索引 ${ui.indexTotal.toLocaleString()} 项`
+})
 const indexTitle = computed(
-  () => `索引条目 ${ui.indexTotal.toLocaleString()}，已扫描 ${ui.scanned.toLocaleString()}，${ui.scanning ? '扫描中' : '空闲'}`,
+  () => ui.usingEverything ? '正在使用本机 Everything 的实时索引' : ui.waitingForEverything ? '正在等待 Everything 启动，不会扫描本地目录' : `索引条目 ${ui.indexTotal.toLocaleString()}，已扫描 ${ui.scanned.toLocaleString()}，${ui.scanning ? '扫描中' : '空闲'}`,
 )
 /** 扫描进度（仅在已知总量时展示百分比） */
 const scanPercent = computed(() => {
@@ -555,7 +555,7 @@ async function submit() {
   box-shadow: none;
   color: var(--fg);
   font: inherit;
-  font-size: 1.0769em;
+  font-size: 1em;
   outline: none;
 }
 .search-field input:focus {

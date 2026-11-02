@@ -457,6 +457,26 @@ fn start_index(
     Ok(())
 }
 
+/// 仅保存备用内存索引的根目录，供 Everything 不可用时由用户手动启用。
+#[tauri::command]
+fn set_index_roots(state: State<'_, AppState>, roots: Vec<String>) -> Result<(), String> {
+    persistence::save_index_roots(&roots)?;
+    state.index.set_roots(roots);
+    Ok(())
+}
+
+/// 重新等待本机 Everything IPC 就绪，不触发本地目录扫描。
+#[tauri::command]
+fn retry_everything_index(app: tauri::AppHandle, state: State<'_, AppState>) {
+    #[cfg(windows)]
+    {
+        let roots = state.index.status().roots;
+        std::sync::Arc::clone(&state.index).wait_for_everything(app, roots);
+    }
+    #[cfg(not(windows))]
+    let _ = (app, state);
+}
+
 /// 默认索引根：用户主目录（其中的 AppData 等缓存目录由索引器的跳过列表排除）。
 ///
 /// 不再默认索引整盘 —— 全盘索引会让条目数达到数百万，内存与扫描时间成倍上涨。
@@ -475,7 +495,11 @@ fn index_status(state: State<'_, AppState>) -> IndexStatus {
 ///
 /// 检索会遍历全量索引，标注 `async` 后由 Tauri 交给线程池执行，避免阻塞主线程。
 #[tauri::command(async)]
-fn search_files(state: State<'_, AppState>, query: SearchQuery) -> Vec<SearchHit> {
+fn search_files(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    query: SearchQuery,
+) -> Vec<SearchHit> {
     // 集成点：搜索框里可以直接写语法，例如
     //   `ext:pdf size:>100mb modified:today dir: 报告`
     // parse_query 把语法 token 解析为结构化条件，剩余 token 作为关键词。
@@ -495,7 +519,7 @@ fn search_files(state: State<'_, AppState>, query: SearchQuery) -> Vec<SearchHit
         modified_after: query.modified_after.or(parsed.modified_after),
         limit: query.limit,
     };
-    state.index.search(&merged)
+    state.index.search_with_events(Some(&app), &merged)
 }
 
 // ---------------------------------------------------------------- AI
@@ -798,14 +822,19 @@ pub fn run() {
                     let _ = window.show();
                 }
             }
-            // 全局搜索使用内存索引：只索引配置的根目录（默认用户主目录），
-            // 索引不落盘，每次启动在后台重建。
+            // Windows 上等待 Everything 完成启动，期间不扫描目录；本地内存索引
+            // 仅在用户主动启用时建立。其他平台沿用原有后台内存索引。
             {
                 let roots = persistence::load_index_roots().unwrap_or_else(default_index_roots);
                 persistence::remove_index_cache_files();
                 let index = std::sync::Arc::clone(&app.state::<AppState>().index);
-                let handle = app.handle().clone();
-                std::thread::spawn(move || index.start_service(handle, roots));
+                #[cfg(windows)]
+                index.wait_for_everything(app.handle().clone(), roots);
+                #[cfg(not(windows))]
+                {
+                    let handle = app.handle().clone();
+                    std::thread::spawn(move || index.start_scan(handle, roots));
+                }
             }
             // 定时任务调度线程：每 20s 检查一次到期任务，跨平台。
             let tasks = std::sync::Arc::clone(&app.state::<AppState>().tasks);
@@ -853,6 +882,8 @@ pub fn run() {
             show_open_with,
             show_native_shell_menu,
             start_index,
+            set_index_roots,
+            retry_everything_index,
             index_status,
             search_files,
             ai_chat,

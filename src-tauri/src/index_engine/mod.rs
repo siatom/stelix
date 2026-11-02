@@ -153,6 +153,10 @@ pub struct IndexStore {
     /// 路径 -> 条目（内部用 Arc 便于 move 进后台线程）
     entries: Arc<DashMap<String, FileEntry>>,
     status: Arc<RwLock<IndexStatus>>,
+    /// 已连接的 Everything IPC 客户端。未运行或 IPC 不可用时保持为 None，
+    /// 下次检索会再次尝试连接，避免把临时故障永久缓存。
+    #[cfg(windows)]
+    everything_client: Mutex<Option<everything_ipc::wm::EverythingClient>>,
 }
 
 impl IndexStore {
@@ -160,15 +164,63 @@ impl IndexStore {
         Self {
             entries: Arc::new(DashMap::new()),
             status: Arc::new(RwLock::new(IndexStatus::default())),
+            #[cfg(windows)]
+            everything_client: Mutex::new(None),
         }
     }
 
-    /// 启动索引服务：直接后台扫描配置的根目录。
+    /// 更新备用内存索引的根目录，但不启动扫描。
+    pub fn set_roots(&self, roots: Vec<String>) {
+        self.status.write().roots = roots;
+    }
+
+    /// 是否能连接到本机运行中的 Everything IPC。
     ///
-    /// 索引只存在于内存、不落盘，因此每次启动都重新扫描；配合「默认只索引用户目录
-    /// 并跳过缓存/构建目录」，扫描量从百万级降到十万级，启动即可用。
-    pub fn start_service(&self, app: AppHandle, roots: Vec<String>) {
-        self.start_scan(app, roots);
+    /// 连接成功时，搜索直接使用 Everything 的实时索引，无需再扫描配置目录。
+    #[cfg(windows)]
+    pub fn everything_available(&self) -> bool {
+        let mut client = self.everything_client.lock();
+        if client.is_none() {
+            *client = everything_ipc::wm::EverythingClient::new().ok();
+        }
+        client.is_some()
+    }
+
+    /// 等待 Everything 在系统启动后完成初始化；超时后仅更新状态，不自动扫描磁盘。
+    #[cfg(windows)]
+    pub fn wait_for_everything(self: Arc<Self>, app: AppHandle, roots: Vec<String>) {
+        {
+            let mut status = self.status.write();
+            if status.scanning || status.waiting_for_everything {
+                return;
+            }
+            status.roots = roots;
+            status.scanning = false;
+            status.scanned = 0;
+            status.using_everything = false;
+            status.waiting_for_everything = true;
+        }
+        std::thread::spawn(move || {
+            for _ in 0..30 {
+                if self.everything_available() {
+                    let status = {
+                        let mut status = self.status.write();
+                        status.using_everything = true;
+                        status.waiting_for_everything = false;
+                        status.clone()
+                    };
+                    let _ = app.emit(events::INDEX_DONE, status);
+                    return;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(500));
+            }
+            let status = {
+                let mut status = self.status.write();
+                status.waiting_for_everything = false;
+                status.clone()
+            };
+            let _ = app.emit(events::INDEX_DONE, status);
+        });
     }
 
     /// 启动后台扫描（非阻塞）。用 `rayon + walkdir` 并行遍历，分批写入 DashMap。
@@ -189,6 +241,8 @@ impl IndexStore {
             st.roots = roots.clone();
             st.scanning = true;
             st.scanned = 0;
+            st.using_everything = false;
+            st.waiting_for_everything = false;
         }
 
         let _ = app.emit(
@@ -268,6 +322,16 @@ impl IndexStore {
     /// 直接并行遍历内存条目，不维护 n-gram 倒排表 —— 几十万条目下单次遍历
     /// 只需几十毫秒，省下的倒排内存远比那点延迟值钱。
     pub fn search(&self, query: &SearchQuery) -> Vec<SearchHit> {
+        self.search_with_events(None, query)
+    }
+
+    /// 检索索引；调用方提供 AppHandle 时，Everything 断开会同步更新前端状态。
+    pub fn search_with_events(&self, app: Option<&AppHandle>, query: &SearchQuery) -> Vec<SearchHit> {
+        #[cfg(windows)]
+        match everything_search(&self.everything_client, query) {
+            EverythingSearch::Hits(hits) => return hits,
+            EverythingSearch::Unavailable => self.mark_everything_unavailable(app),
+        }
         let search_started = Instant::now();
         let limit = if query.limit == 0 {
             search_engine::DEFAULT_LIMIT
@@ -346,10 +410,143 @@ impl IndexStore {
         hits
     }
 
+    #[cfg(windows)]
+    fn mark_everything_unavailable(&self, app: Option<&AppHandle>) {
+        let status = {
+            let mut status = self.status.write();
+            if !status.using_everything {
+                return;
+            }
+            status.using_everything = false;
+            status.waiting_for_everything = false;
+            status.clone()
+        };
+        if let Some(app) = app {
+            let _ = app.emit(events::INDEX_DONE, status);
+        }
+    }
+
     /// 供 AI 工具调用复用的内部条目快照
     pub fn snapshot(&self) -> Arc<Vec<FileEntry>> {
         Arc::new(self.entries.iter().map(|e| e.value().clone()).collect())
     }
+}
+
+/// 通过 Everything 官方 Windows Message IPC 查询本机索引。
+///
+/// Everything 不要求安装在固定路径，也不依赖 SDK DLL；客户端会查找正在运行的
+/// IPC 窗口。服务未运行、版本不支持或 IPC 暂不可用时返回 None，由调用方回退。
+#[cfg(windows)]
+enum EverythingSearch {
+    Hits(Vec<SearchHit>),
+    Unavailable,
+}
+
+#[cfg(windows)]
+fn everything_search(
+    client: &Mutex<Option<everything_ipc::wm::EverythingClient>>,
+    query: &SearchQuery,
+) -> EverythingSearch {
+    use everything_ipc::wm::{EverythingClient, RequestFlags};
+
+    let mut client = client.lock();
+    if client.is_none() {
+        *client = EverythingClient::new().ok();
+    }
+    let request_flags = RequestFlags::FileName
+        | RequestFlags::Path
+        | RequestFlags::Size
+        | RequestFlags::DateModified
+        | RequestFlags::Attributes;
+    // Everything 已按文件名建立索引。用原始关键词缩小候选集，Stelix 的路径、
+    // 类型、大小与时间筛选仍复用本地语义，保证现有查询契约不变。
+    let search = query.text.trim();
+    let result = {
+        let Some(client) = client.as_ref() else {
+            return EverythingSearch::Unavailable;
+        };
+        client
+            .query_wait(search)
+            .request_flags(request_flags)
+            .max_results(query.limit.max(1) as u32)
+            .call()
+    };
+    let list = match result {
+        Ok(list) => list,
+        Err(_) => {
+            *client = None;
+            return EverythingSearch::Unavailable;
+        }
+    };
+
+    let mut hits = list
+        .iter()
+        .filter_map(|item| everything_item_to_hit(item, query))
+        .collect::<Vec<_>>();
+    hits.sort_by(|a, b| {
+        b.score.cmp(&a.score).then_with(|| {
+            a.entry
+                .name
+                .to_lowercase()
+                .cmp(&b.entry.name.to_lowercase())
+        })
+    });
+    EverythingSearch::Hits(hits)
+}
+
+#[cfg(windows)]
+fn everything_item_to_hit(
+    item: everything_ipc::wm::QueryItem<'_>,
+    query: &SearchQuery,
+) -> Option<SearchHit> {
+    use everything_ipc::wm::RequestFlags;
+
+    let name = item.get_string(RequestFlags::FileName)?;
+    let dir = item.get_string(RequestFlags::Path)?;
+    let path = if dir.ends_with(['\\', '/']) {
+        format!("{dir}{name}")
+    } else {
+        format!("{dir}\\{name}")
+    };
+    let attrs = item.get_u32(RequestFlags::Attributes).unwrap_or_default();
+    let is_dir = attrs & 0x10 != 0;
+    let modified = item
+        .get_time(RequestFlags::DateModified)
+        .map(filetime_to_unix_millis)
+        .unwrap_or_default();
+    let entry = FileEntry {
+        id: crate::fs_core::path_id(&path),
+        ext: (!is_dir).then_some(&name).and_then(|name| {
+            std::path::Path::new(name)
+                .extension()
+                .map(|ext| ext.to_string_lossy().to_lowercase())
+        }),
+        name,
+        path,
+        is_dir,
+        size: if is_dir {
+            0
+        } else {
+            item.get_size(RequestFlags::Size).unwrap_or_default()
+        },
+        modified,
+        hidden: attrs & 0x2 != 0,
+        system: attrs & 0x4 != 0,
+    };
+    search_engine::matches(&entry, query).then(|| SearchHit {
+        score: search_engine::score(&entry, query),
+        entry,
+    })
+}
+
+/// Windows FILETIME（1601 起的 100ns）转 Unix 毫秒。
+#[cfg(windows)]
+fn filetime_to_unix_millis(filetime: windows::Win32::Foundation::FILETIME) -> i64 {
+    const WINDOWS_TO_UNIX_EPOCH_100NS: u64 = 116_444_736_000_000_000;
+    let ticks = (u64::from(filetime.dwHighDateTime) << 32) | u64::from(filetime.dwLowDateTime);
+    ticks
+        .saturating_sub(WINDOWS_TO_UNIX_EPOCH_100NS)
+        .saturating_div(10_000) as i64
 }
 
 /// 把一条命中塞进 top-K 堆：堆未满直接进，满了先与最差命中比 (score, name)。

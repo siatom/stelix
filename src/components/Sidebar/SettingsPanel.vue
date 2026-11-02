@@ -77,8 +77,37 @@ async function applyRoots(roots: string[]) {
   busy.value = true
   error.value = null
   try {
-    await api.startIndex(roots)
-    ui.setStatusText(`已开始索引 ${roots.length} 个根目录`)
+    await api.setIndexRoots(roots)
+    ui.setStatusText(`已保存 ${roots.length} 个备用索引根目录`)
+  } catch (e) {
+    error.value = String(e)
+    ui.setStatusText(`保存索引根目录失败：${String(e)}`)
+  } finally {
+    busy.value = false
+  }
+}
+
+async function retryEverything() {
+  busy.value = true
+  error.value = null
+  try {
+    await api.retryEverythingIndex()
+    ui.setStatusText('正在重新连接 Everything…')
+    await ui.refreshIndexStatus()
+  } catch (e) {
+    error.value = String(e)
+    ui.setStatusText(`连接 Everything 失败：${String(e)}`)
+  } finally {
+    busy.value = false
+  }
+}
+
+async function enableLocalIndex() {
+  busy.value = true
+  error.value = null
+  try {
+    await api.startIndex(ui.indexRoots)
+    ui.setStatusText(`已开始索引 ${ui.indexRoots.length} 个根目录`)
     await ui.refreshIndexStatus()
   } catch (e) {
     error.value = String(e)
@@ -127,7 +156,7 @@ onMounted(() => {
       <AiSettings v-show="ui.settingsTab === 'ai'" />
       <ShortcutsSettings v-show="ui.settingsTab === 'shortcuts'" />
       <section v-show="ui.settingsTab === 'index'" class="card">
-        <header class="card-head">索引根目录</header>
+        <header class="card-head">备用内存索引根目录</header>
         <div class="card-body">
           <div v-if="!ui.indexRoots.length" class="state">尚未配置索引根目录</div>
           <div v-else class="root-list">
@@ -162,8 +191,20 @@ onMounted(() => {
           </button>
 
           <p class="row-hint">
-            索引只保存在内存、退出即释放；AppData、node_modules、target 等缓存与构建目录会自动跳过。
+            <template v-if="ui.usingEverything">正在使用本机 Everything 的实时索引。</template>
+            <template v-else-if="ui.waitingForEverything">正在等待 Everything 启动；Stelix 不会扫描本地目录。</template>
+            <template v-else>Everything 未运行。可重试连接，或手动启用备用内存索引。</template>
           </p>
+          <div v-if="!ui.usingEverything && !ui.scanning" class="index-actions">
+            <button class="add-current" :disabled="busy" @click="retryEverything">
+              <Icon name="refresh" :size="13" />
+              <span>重试连接 Everything</span>
+            </button>
+            <button class="add-current" :disabled="busy" @click="enableLocalIndex">
+              <Icon name="folder" :size="13" />
+              <span>启用本地内存索引</span>
+            </button>
+          </div>
         </div>
       </section>
 
@@ -311,6 +352,14 @@ onMounted(() => {
 .card-body.tight {
   gap: 2px;
   padding: 6px;
+}
+.index-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.index-actions .add-current {
+  flex: 1 1 180px;
 }
 
 /* ---- 索引根目录 ---- */

@@ -80,6 +80,7 @@ tauri-plugin-drag = "2.1.1"
 
 # Windows Shell 原生右键菜单（IContextMenu / TrackPopupMenuEx）
 [target.'cfg(windows)'.dependencies]
+everything-ipc = "0.1.4"
 windows = { version = "0.62", features = [
     "Win32_Foundation",
     "Win32_Graphics_Gdi",

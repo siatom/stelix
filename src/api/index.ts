@@ -94,6 +94,8 @@ export const api = {
     invoke<boolean>('show_native_shell_menu', { path, anchor: anchor ?? null }),
 
   startIndex: (roots: string[]) => invoke<void>('start_index', { roots }),
+  setIndexRoots: (roots: string[]) => invoke<void>('set_index_roots', { roots }),
+  retryEverythingIndex: () => invoke<void>('retry_everything_index'),
   indexStatus: () => invoke<IndexStatus>('index_status'),
   searchFiles: (query: SearchQuery) => invoke<SearchHit[]>('search_files', { query }),
 

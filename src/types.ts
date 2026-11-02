@@ -48,6 +48,8 @@ export interface IndexStatus {
   total: number
   scanning: boolean
   scanned: number
+  usingEverything: boolean
+  waitingForEverything: boolean
 }
 
 export interface IndexProgress {
