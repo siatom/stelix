@@ -1,6 +1,6 @@
 [package]
 name = "stelix-file-manager"
-version = "0.1.0"
+version = "0.1.1"
 description = "Stelix File Manager 星索"
 authors = ["Stelix"]
 edition = "2021"
