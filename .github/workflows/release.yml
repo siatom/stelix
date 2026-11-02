@@ -1,0 +1,77 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  release:
+    name: Build & publish (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # 版本号以 tag 为准：同步到 package.json / tauri.conf.json / Cargo.toml，
+      # 让 exe 元数据和安装包文件名都带正确版本。
+      - name: Sync version from tag
+        run: node scripts/sync-version.mjs "${{ github.ref_name }}"
+
+      - name: Detect prerelease
+        id: meta
+        shell: pwsh
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          if ($env:TAG -like '*-*') {
+            "prerelease=true" >> $env:GITHUB_OUTPUT
+          } else {
+            "prerelease=false" >> $env:GITHUB_OUTPUT
+          }
+
+      - name: Build and publish
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: 'Stelix ${{ github.ref_name }}'
+          releaseBody: |
+            Windows x64 安装包（NSIS）。
+
+            - 安装包尚未做代码签名，首次运行时 SmartScreen 可能提示“未知发布者”，选择“仍要运行”即可。
+            - 发布页由 CI 以草稿形式创建，确认产物无误后再点击发布。
+
+            提交记录：https://github.com/${{ github.repository }}/commits/${{ github.ref_name }}
+          releaseDraft: true
+          prerelease: ${{ steps.meta.outputs.prerelease }}
+          tauriScript: pnpm tauri
+          args: --bundles nsis

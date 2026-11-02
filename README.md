@@ -30,6 +30,24 @@ pnpm build
 pnpm tauri build
 ```
 
+## 持续集成与发布
+
+GitHub Actions 工作流位于 `.github/workflows/`：
+
+- `ci.yml`：推送到 `main`、提交 PR 或手动触发时运行。`frontend` 任务在 Ubuntu 上执行 `pnpm build`（`vue-tsc` 类型检查 + Vite 构建）；`rust` 任务在 Windows 上执行 `cargo clippy --all-targets` 和 `cargo test`，并缓存前端与 Cargo 依赖（clippy 暂不阻断：现有代码仍有少量 warning，清理完再加 `-- -D warnings`）。
+- `release.yml`：推送 `v*` 形式的 tag 时触发，在 Windows 上构建 NSIS 安装包并创建 GitHub Release 草稿。
+
+发布新版本：
+
+```bash
+git tag v0.2.0
+git push origin v0.2.0   # origin 同时推送到 GitHub 与 gitee
+```
+
+版本号以 tag 为准：工作流用 `scripts/sync-version.mjs` 把 `v0.2.0` 写入 `package.json`、`src-tauri/tauri.conf.json`、`Cargo.toml` 和 `Cargo.lock` 后再打包，所以安装包文件名与 exe 元数据跟 tag 一致。本地需要同步时执行 `node scripts/sync-version.mjs v0.2.0`。
+
+发布默认创建草稿，确认产物无误后再在 GitHub 上发布。目前只构建 Windows x64 安装包，且安装包未做代码签名，首次运行可能触发 SmartScreen 提示。
+
 ## 技术栈
 
 - Vue 3、TypeScript、Vite
