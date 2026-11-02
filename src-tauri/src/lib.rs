@@ -405,13 +405,9 @@ fn show_open_with_windows(file: &std::path::Path) -> Result<(), String> {
     }
 }
 
-/// 弹出经筛选的 Windows 系统右键菜单（应用菜单里的「更多」）。
-///
-/// 必须是同步命令：`TrackPopupMenuEx` 依赖窗口线程的消息循环，放到后台线程
-/// 会收不到 `WM_INITMENUPOPUP` / owner-draw 消息。菜单关闭后返回是否成功弹出；
-/// 所有系统项都被过滤时返回 `false`。
+/// 弹出未筛选且不含 Stelix 专属项的完整 Windows Shell 菜单。
 #[tauri::command]
-fn show_shell_menu(
+fn show_native_shell_menu(
     window: tauri::Window,
     path: String,
     anchor: Option<ShellMenuAnchor>,
@@ -421,7 +417,7 @@ fn show_shell_menu(
         let hwnd = window
             .hwnd()
             .map_err(|error| format!("无法获取窗口句柄: {error}"))?;
-        shell_menu::show(
+        shell_menu::show_native(
             hwnd,
             &path,
             anchor.map(|value| shell_menu::Anchor {
@@ -855,7 +851,7 @@ pub fn run() {
             open_in_terminal,
             show_item_properties,
             show_open_with,
-            show_shell_menu,
+            show_native_shell_menu,
             start_index,
             index_status,
             search_files,

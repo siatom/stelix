@@ -3,7 +3,6 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useVirtualizer } from '@tanstack/vue-virtual'
 import { openPath } from '@tauri-apps/plugin-opener'
-import { open as openDialog } from '@tauri-apps/plugin-dialog'
 import { startDrag } from '@crabnebula/tauri-plugin-drag'
 import type { FileEntry, RemoteLocation, RemoteTransferItem, TabState } from '../../types'
 import { usePaneStore } from '../../stores/pane'
@@ -13,12 +12,7 @@ import { api } from '../../api'
 import { basename, dirname, fileIcon, fileKind, formatSize, formatTime, joinPath, typeLabel } from './utils'
 import Icon from '../icons/Icon.vue'
 import FileIcon from '../icons/FileIcon.vue'
-import {
-  addFavorite,
-  FAVORITES_CHANGED_EVENT,
-  loadFavorites,
-  recordOpenedFileDirectory,
-} from '../Sidebar/shared'
+import { recordOpenedFileDirectory } from '../Sidebar/shared'
 
 /** 由顶部标题栏发起的一次「新建」请求（FileList 处理后回发 create-handled）。 */
 interface CreateRequest {
@@ -167,7 +161,6 @@ const isLocal = computed(() => props.tab.kind !== 'search' && props.tab.kind !==
  */
 const canFileOp = computed(() => !isRemote.value)
 /** 远程与本地之间可以通过复制 / 剪切 / 拖拽传输（搜索结果命中项是本地文件，也可上传）。 */
-const canTransfer = computed(() => !isRemote.value || !!props.tab.remote)
 /** 搜索结果标签：命中项散落在各目录，需要「打开所在文件夹」这类定位操作。 */
 const isSearch = computed(() => props.tab.kind === 'search')
 // 先取 store 的过滤+排序结果，再按「隐藏受保护的操作系统文件」剔除（Explorer 语义：hidden && system）
@@ -468,7 +461,7 @@ function onMarqueeUp(ev: MouseEvent) {
 function onRootMouseDown(ev: MouseEvent) {
   if (ev.button !== 0 || editing.value) return
   const target = ev.target as HTMLElement
-  if (target.closest('.header, .row, .icon-cell, .inline-new, .ctx-menu, button, input')) return
+  if (target.closest('.header, .row, .icon-cell, .inline-new, button, input')) return
   suppressBlankClick = false
   ev.preventDefault()
   marquee.value = {
@@ -693,69 +686,13 @@ async function commitEdit(reopenFailed = false) {
   })
 }
 
-// ---- 右键菜单 ----
-
-interface CtxState {
-  x: number
-  y: number
-  entry: FileEntry
-}
-const ctx = ref<CtxState | null>(null)
-const favoritePaths = ref(new Set(loadFavorites().map((item) => item.path)))
-
-function syncFavorites() {
-  favoritePaths.value = new Set(loadFavorites().map((item) => item.path))
-}
-
-function addEntryFavorite(entry: FileEntry) {
-  if (!entry.isDir) return
-  const added = addFavorite(entry.path)
-  syncFavorites()
-  ui.setStatusText(added ? '已加入收藏' : '该目录已在收藏中')
-  closeCtx()
-}
-
-async function openInTerminal(entry: FileEntry) {
-  if (!entry.isDir || !canFileOp.value) return
-  try {
-    await api.openInTerminal(entry.path)
-  } catch (error) {
-    ui.setStatusText(`无法打开终端：${String(error)}`)
-  }
-  closeCtx()
-}
-
-function showCtxAt(ev: MouseEvent, entry: FileEntry) {
-  cancelPendingRename()
-  const menuW = 176
-  const menuH = 402
-  const x = Math.min(ev.clientX, window.innerWidth - menuW - 4)
-  const y = Math.min(ev.clientY, window.innerHeight - menuH - 4)
-  ctx.value = { x, y, entry }
-}
-
-/**
- * 渲染后按实际尺寸再校正一次位置：菜单项数量随标签类型 / 条目类型变化
- * （搜索结果比普通目录多「打开所在文件夹」、少新建与粘贴），固定估值会让贴底的菜单被裁掉。
- */
-const ctxMenuEl = ref<HTMLElement | null>(null)
-watch(ctx, async (c) => {
-  if (!c) return
-  await nextTick()
-  const el = ctxMenuEl.value
-  if (!el) return
-  const rect = el.getBoundingClientRect()
-  c.x = Math.max(4, Math.min(c.x, window.innerWidth - rect.width - 4))
-  c.y = Math.max(4, Math.min(c.y, window.innerHeight - rect.height - 4))
-})
-
 function openCtx(ev: MouseEvent, entry: FileEntry) {
   ev.preventDefault()
+  if (isRemote.value) return
   if (!props.tab.selected.includes(entry.path)) props.tab.selected = [entry.path]
-  showCtxAt(ev, entry)
+  void showNativeCtx(ev, entry)
 }
 
-/** 当前所在目录对应的 FileEntry —— 供空白处右键时呈现与「文件夹右键」一致的菜单 */
 function currentDirEntry(): FileEntry {
   return {
     id: -1,
@@ -770,236 +707,32 @@ function currentDirEntry(): FileEntry {
   }
 }
 
-/** 文件窗格空白处右键：对「当前所在文件夹」弹出与文件夹右键相同的菜单 */
 function onBlankContextMenu(ev: MouseEvent) {
-  if (!isLocal.value && !isRemote.value) return // 搜索结果没有目录语义
+  if (isRemote.value) {
+    ev.preventDefault()
+    return
+  }
+  if (!isLocal.value) return
   const el = ev.target as HTMLElement | null
-  // 条目行 / 图标格 / 表头 / 行内输入 / 已弹出的右键菜单 上各有处理，其余空白归属当前目录
-  if (el?.closest('.row, .icon-cell, .header, .inline-new, .ctx-menu')) return
+  if (el?.closest('.row, .icon-cell, .header, .inline-new')) return
   if (props.tab.loading || props.tab.error) return
   ev.preventDefault()
-  showCtxAt(ev, currentDirEntry())
+  void showNativeCtx(ev, currentDirEntry())
 }
 
-function closeCtx() {
-  ctx.value = null
-}
-
-function openInNewTab(entry: FileEntry) {
-  if (!entry.isDir || !canFileOp.value) return
-  paneStore.addTab(props.paneId, entry.path)
-  closeCtx()
-}
-
-/** 搜索结果：跳到该条目所在文件夹并选中它（后退可回到搜索结果） */
-async function openContainingFolder(entry: FileEntry) {
-  closeCtx()
-  await paneStore.navigateTo(props.paneId, dirname(entry.path), props.tab.id)
-  props.tab.selected = [entry.path]
-  paneStore.revealTarget = { tabId: props.tab.id, path: entry.path }
-}
-
-async function searchFolder(entry: FileEntry) {
-  if (!entry.isDir || !canFileOp.value) return
-  paneStore.activePaneId = props.paneId
-  await paneStore.navigateTo(props.paneId, entry.path, props.tab.id)
-  ui.openCurrentDirectorySearch()
-  closeCtx()
-}
-
-/**
- * 右键菜单的作用目标：点中的条目若落在多选集合内，则作用于整个多选，
- * 否则只作用于该条目（与资源管理器一致）。空白处右键的合成条目不在选中集内，
- * 因此仍只作用于当前目录本身。
- */
-function ctxPaths(): string[] {
-  const c = ctx.value
-  if (!c) return []
-  const sel = props.tab.selected
-  return sel.length > 1 && sel.includes(c.entry.path) ? [...sel] : [c.entry.path]
-}
-
-/** 右键菜单里批量操作要显示的项数（1 表示单条，不额外提示）。 */
-const ctxTargetCount = computed(() => ctxPaths().length)
-
-/** 空白处右键的合成「当前目录」条目（id 固定为 -1）：它不是列表里的条目，不能重命名。 */
-const ctxIsCurrentDir = computed(() => ctx.value?.entry.id === -1)
-
-/** 对侧窗格为本地目录 / 远程目录时可作为跨设备传输目标。 */
-const otherLocalDir = computed(() => paneStore.otherPaneLocalDir(props.paneId))
-const otherRemote = computed(() => paneStore.otherPaneRemote(props.paneId))
-
-/** 右键目标对应的传输条目（带目录标记，远端下载目录时需要）。 */
-function ctxTransferItems(): RemoteTransferItem[] {
-  const c = ctx.value
-  const paths = ctxPaths()
-  if (!c || !paths.length) return []
-  const known = new Map<string, FileEntry>()
-  for (const entry of props.tab.entries) known.set(entry.path, entry)
-  for (const row of treeRows.value) known.set(row.entry.path, row.entry)
-  return paths.map((path) => ({
-    path,
-    // 空白处右键的合成条目按目录处理；其余优先取列表里的真实类型。
-    isDir: known.get(path)?.isDir ?? (c.entry.id === -1 || c.entry.isDir),
-  }))
-}
-
-/** 远程条目：下载到对侧本地窗格。 */
-async function downloadContextToOtherPane() {
-  const location = props.tab.remote
-  const target = otherLocalDir.value
-  if (!location || !target) return
-  const items = ctxTransferItems()
-  closeCtx()
-  await paneStore.downloadFromRemote(props.paneId, location, items, target, 'copy')
-}
-
-/** 远程条目 / 目录：选择本地目录后下载。 */
-async function chooseDownload() {
-  const location = props.tab.remote
-  if (!location) return
-  const items = ctxTransferItems()
-  closeCtx()
+async function showNativeCtx(event: MouseEvent, entry: FileEntry) {
+  cancelPendingRename()
+  if (!props.tab.selected.includes(entry.path)) props.tab.selected = [entry.path]
   try {
-    const picked = await openDialog({
-      directory: true,
-      multiple: false,
-      title: '选择下载位置',
+    await api.showNativeShellMenu(entry.path, {
+      x: event.clientX,
+      y: event.clientY,
+      scale: window.devicePixelRatio || 1,
     })
-    if (typeof picked !== 'string' || !picked) return
-    await paneStore.downloadFromRemote(props.paneId, location, items, picked, 'copy')
-  } catch (error) {
-    ui.setStatusText(`无法选择下载位置：${String(error)}`)
-  }
-}
-
-/** 远程标签：选择本地文件 / 文件夹上传到指定远端目录。 */
-async function chooseUpload(kind: 'files' | 'folder', targetDir?: string) {
-  const location = props.tab.remote
-  if (!location) return
-  const c = ctx.value
-  const target =
-    targetDir ?? (c?.entry.isDir && !ctxIsCurrentDir.value ? c.entry.path : props.tab.path)
-  closeCtx()
-  try {
-    const picked = await openDialog({
-      multiple: kind === 'files',
-      directory: kind === 'folder',
-      title: kind === 'files' ? '选择要上传的文件' : '选择要上传的文件夹',
-    })
-    if (!picked) return
-    const paths = Array.isArray(picked) ? picked : [picked]
-    if (!paths.length) return
-    const items = paths.map((path) => ({ path, isDir: kind === 'folder' }))
-    await paneStore.uploadToRemote(props.paneId, location, items, target, 'copy')
-  } catch (error) {
-    ui.setStatusText(`无法选择上传内容：${String(error)}`)
-  }
-}
-
-/** 本地条目：上传到对侧远程窗格当前目录。 */
-async function uploadContextToOtherPane() {
-  const target = otherRemote.value
-  if (!target) return
-  const items = ctxTransferItems()
-  closeCtx()
-  await paneStore.uploadToRemote(props.paneId, target.location, items, target.path, 'copy')
-}
-
-function copyToClipboard(op: 'copy' | 'move') {
-  const c = ctx.value
-  if (!c) return
-  const location = props.tab.remote
-  if (location) {
-    paneStore.setClipboard(op, ctxPaths(), location, ctxTransferItems())
-  } else {
-    paneStore.setClipboard(op, ctxPaths())
-  }
-  closeCtx()
-}
-
-async function copyPath() {
-  const c = ctx.value
-  if (!c) return
-  try {
-    await navigator.clipboard.writeText(c.entry.path)
-    ui.statusText = '路径已复制'
-  } catch {
-    ui.statusText = `路径：${c.entry.path}`
-  }
-  closeCtx()
-}
-
-async function copyFileName() {
-  const c = ctx.value
-  if (!c) return
-  try {
-    await navigator.clipboard.writeText(c.entry.name)
-    ui.statusText = '文件名已复制'
-  } catch {
-    ui.statusText = `文件名：${c.entry.name}`
-  }
-  closeCtx()
-}
-
-async function showProperties(entry: FileEntry) {
-  try {
-    await api.showItemProperties(entry.path)
-  } catch (error) {
-    ui.setStatusText(`无法打开属性：${String(error)}`)
-  }
-  closeCtx()
-}
-
-/** 文件专用：弹出系统原生「打开方式」，应用列表由操作系统维护。 */
-async function openWith(entry: FileEntry) {
-  closeCtx()
-  try {
-    await api.showOpenWith(entry.path)
-  } catch (error) {
-    ui.setStatusText(`无法打开「打开方式」：${String(error)}`)
-  }
-}
-
-/** 单条目：弹出经筛选的系统原生菜单（锚定在「更多」右侧）。 */
-async function showMoreMenu(entry: FileEntry, event: MouseEvent) {
-  const button = event.currentTarget as HTMLElement | null
-  const rect = button?.getBoundingClientRect()
-  const anchor = rect
-    ? { x: rect.right + 2, y: rect.top, scale: window.devicePixelRatio || 1 }
-    : null
-
-  closeCtx()
-  // 先让自绘菜单完成一帧重绘，再弹原生菜单，避免两层菜单叠在一起。
-  await nextTick()
-  await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
-  try {
-    const shown = await api.showShellMenu(entry.path, anchor)
-    if (!shown) ui.setStatusText('没有可用的系统菜单项')
   } catch (error) {
     ui.setStatusText(`无法打开系统菜单：${String(error)}`)
   }
 }
-
-async function paste(targetDir = props.tab.path) {
-  closeCtx()
-  await paneStore.pasteInto(props.paneId, targetDir)
-}
-
-/** 右键目标为文件夹且不是当前目录时，粘贴到该文件夹；否则粘贴到当前目录。 */
-function ctxPasteTarget(): string {
-  const c = ctx.value
-  return c?.entry.isDir && !ctxIsCurrentDir.value ? c.entry.path : props.tab.path
-}
-
-function onDocClick() {
-  closeCtx()
-}
-
-function onKey(ev: KeyboardEvent) {
-  if (ev.key === 'Escape') closeCtx()
-}
-
 // ---- 剪贴板 / 重命名快捷键（仅作用于当前活动窗格） ----
 
 function isEditableTarget(t: EventTarget | null): boolean {
@@ -1072,10 +805,7 @@ function onGlobalKey(ev: KeyboardEvent) {
 }
 
 onMounted(() => {
-  document.addEventListener('click', onDocClick)
-  document.addEventListener('keydown', onKey)
   window.addEventListener('keydown', onGlobalKey)
-  window.addEventListener(FAVORITES_CHANGED_EVENT, syncFavorites)
 })
 
 onBeforeUnmount(() => {
@@ -1083,10 +813,7 @@ onBeforeUnmount(() => {
   scrollPortObserver?.disconnect()
   scrollPortObserver = null
   cancelPendingRename()
-  document.removeEventListener('click', onDocClick)
-  document.removeEventListener('keydown', onKey)
   window.removeEventListener('keydown', onGlobalKey)
-  window.removeEventListener(FAVORITES_CHANGED_EVENT, syncFavorites)
   stopMarquee()
   paneStore.setVisibleDirs(props.paneId, [])
 })
@@ -1124,7 +851,6 @@ watch(
     if (scrollRef.value) scrollRef.value.scrollLeft = 0
     headerScrollX.value = 0
     cancelPendingRename()
-    closeCtx()
     cancelEdit()
   },
 )
@@ -1685,61 +1411,6 @@ function onDrop(ev: DragEvent) {
       }"
     />
 
-    <!-- 右键菜单 -->
-    <div
-      v-if="ctx"
-      ref="ctxMenuEl"
-      class="ctx-menu"
-      :style="{ left: `${ctx.x}px`, top: `${ctx.y}px` }"
-      @click.stop
-      @contextmenu.prevent
-    >
-      <template v-if="isRemote">
-        <button @click="chooseUpload('files')"><Icon name="upload" :size="14" />上传文件…</button>
-        <button @click="chooseUpload('folder')"><Icon name="upload" :size="14" />上传文件夹…</button>
-        <button @click="paste(ctxPasteTarget())"><Icon name="folder-open" :size="14" /><span>粘贴到此目录</span><kbd>Ctrl+V</kbd></button>
-        <div class="sep" />
-      </template>
-      <template v-if="isLocal">
-        <button @click="startCreate('mkdir'); closeCtx()"><Icon name="folder-plus" :size="14" />新建文件夹</button>
-        <button @click="startCreate('createFile'); closeCtx()"><Icon name="file-plus" :size="14" />新建文件</button>
-        <div class="sep" />
-      </template>
-      <button @click="openEntry(ctx.entry); closeCtx()"><Icon :name="ctx.entry.isDir ? 'folder-open' : 'file'" :size="14" />打开</button>
-      <button v-if="isRemote" @click="downloadContextToOtherPane" :disabled="!otherLocalDir"><Icon name="download" :size="14" />下载到对侧窗格</button>
-      <button v-if="isRemote" @click="chooseDownload"><Icon name="download" :size="14" />下载到…</button>
-      <button v-if="!isRemote && otherRemote" @click="uploadContextToOtherPane"><Icon name="upload" :size="14" />上传到对侧窗格</button>
-      <button v-if="!ctx.entry.isDir && canFileOp && ctxTargetCount === 1" @click="openWith(ctx.entry)"><Icon name="external-link" :size="14" />打开方式…</button>
-      <button v-if="isSearch" @click="openContainingFolder(ctx.entry)"><Icon name="folder-arrow" :size="14" />打开所在文件夹</button>
-      <button v-if="ctx.entry.isDir && canFileOp" @click="searchFolder(ctx.entry)"><Icon name="search" :size="14" />搜索此文件夹</button>
-      <button v-if="ctx.entry.isDir && canFileOp" @click="openInNewTab(ctx.entry)"><Icon name="plus" :size="14" />在新标签页打开</button>
-      <button v-if="ctx.entry.isDir && canFileOp" :disabled="favoritePaths.has(ctx.entry.path)" @click="addEntryFavorite(ctx.entry)"><Icon name="star" :size="14" />{{ favoritePaths.has(ctx.entry.path) ? '已在收藏中' : '添加到收藏' }}</button>
-      <button v-if="ctx.entry.isDir && canFileOp" @click="openInTerminal(ctx.entry)"><Icon name="terminal" :size="14" />在终端打开</button>
-      <template v-if="canTransfer">
-        <div class="sep" />
-        <button @click="copyToClipboard('copy')"><Icon name="copy" :size="14" /><span>复制{{ ctxTargetCount > 1 ? ` (${ctxTargetCount} 项)` : '' }}</span><kbd>Ctrl+C</kbd></button>
-        <button @click="copyToClipboard('move')"><Icon name="arrow-right" :size="14" /><span>剪切{{ ctxTargetCount > 1 ? ` (${ctxTargetCount} 项)` : '' }}</span><kbd>Ctrl+X</kbd></button>
-      </template>
-      <button v-if="isLocal || isRemote" @click="paste(ctxPasteTarget())"><Icon name="folder-open" :size="14" /><span>粘贴到此目录</span><kbd>Ctrl+V</kbd></button>
-      <template v-if="canFileOp">
-        <div class="sep" />
-        <button v-if="!ctxIsCurrentDir" @click="startRename(ctx.entry.path); closeCtx()"><Icon name="pencil" :size="14" /><span>重命名</span><kbd>F2</kbd></button>
-        <button class="danger" @click="emit('delete', ctxPaths()); closeCtx()"><Icon name="trash" :size="14" /><span>删除{{ ctxTargetCount > 1 ? ` (${ctxTargetCount} 项)` : '' }}</span><kbd>Delete</kbd></button>
-      </template>
-      <div class="sep" />
-      <button @click="copyFileName"><Icon name="file" :size="14" />复制文件名</button>
-      <button @click="copyPath"><Icon name="file-text" :size="14" />复制路径</button>
-      <template v-if="canFileOp">
-        <div class="sep" />
-        <button @click="showProperties(ctx.entry)"><Icon name="info" :size="14" />属性</button>
-      </template>
-      <template v-if="canFileOp && ctxTargetCount === 1">
-        <div class="sep" />
-        <button @click="showMoreMenu(ctx.entry, $event)">
-          <Icon name="package" :size="14" /><span>更多</span><Icon name="chevron-right" :size="12" class="more-arrow" />
-        </button>
-      </template>
-    </div>
   </div>
 </template>
 
@@ -2139,63 +1810,6 @@ function onDrop(ev: DragEvent) {
   text-align: center;
   font-size: 0.9167em;
   color: var(--fg-dim);
-}
-
-/* 右键菜单 */
-.ctx-menu {
-  position: fixed;
-  z-index: 200;
-  min-width: 168px;
-  padding: 4px;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-md);
-  display: flex;
-  flex-direction: column;
-}
-.ctx-menu button {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  text-align: left;
-  padding: 5px 8px;
-  border-radius: var(--radius);
-  font-size: 1.0417em;
-  color: var(--fg);
-}
-.ctx-menu button :deep(svg) {
-  flex: none;
-  color: var(--fg-muted);
-}
-.ctx-menu button kbd {
-  margin-left: auto;
-  padding-left: 16px;
-  color: var(--fg-dim);
-  font: inherit;
-  font-size: 0.9167em;
-}
-.ctx-menu button .more-arrow {
-  margin-left: auto;
-  color: var(--fg-dim);
-}
-.ctx-menu button.danger :deep(svg) {
-  color: var(--danger);
-}
-.ctx-menu button:hover:not(:disabled) {
-  background: var(--bg-hover);
-}
-.ctx-menu button:disabled {
-  color: var(--fg-dim);
-  cursor: default;
-}
-.ctx-menu button.danger {
-  color: var(--danger);
-}
-.ctx-menu .sep {
-  height: 1px;
-  margin: 4px 6px;
-  background: var(--border);
 }
 
 /* ---- 文件类型配色：让列表在不依赖彩色 emoji 的前提下仍有辨识度 ---- */

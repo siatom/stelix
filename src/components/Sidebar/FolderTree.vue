@@ -134,6 +134,21 @@ function go(path: string) {
   void pane.navigate(path)
 }
 
+async function onLocationContextMenu(event: MouseEvent, path: string) {
+  event.preventDefault()
+  event.stopPropagation()
+  try {
+    const shown = await api.showNativeShellMenu(path, {
+      x: event.clientX,
+      y: event.clientY,
+      scale: window.devicePixelRatio || 1,
+    })
+    if (!shown) ui.setStatusText('没有可用的系统菜单项')
+  } catch (cause) {
+    ui.setStatusText(`无法打开系统菜单：${String(cause)}`)
+  }
+}
+
 function removeFavorite(path: string) {
   favorites.value = favorites.value.filter((f) => f.path !== path)
   saveFavorites(favorites.value)
@@ -314,7 +329,7 @@ onBeforeUnmount(() => {
       <div v-if="sections.system && locLoading" class="state">加载中…</div>
       <div v-else-if="sections.system && locError" class="state err">系统路径不可用：{{ locError }}</div>
       <ul v-else-if="sections.system" class="nav-list">
-        <li v-for="loc in system" :key="loc.path" :title="loc.path" @click="go(loc.path)">
+        <li v-for="loc in system" :key="loc.path" :title="loc.path" @click="go(loc.path)" @contextmenu="onLocationContextMenu($event, loc.path)">
           <span class="ico system-ico" :class="`system-${loc.icon}`">
             <FileIcon :path="loc.path" :is-dir="true" :ext="null" :use-path-icon="true" :fallback="loc.icon" :size="18" />
           </span>
@@ -339,6 +354,7 @@ onBeforeUnmount(() => {
           :title="fav.path"
           :class="{ 'drag-over': dragOverFavorite === fav.path, 'file-drop-over': fileDropOverFavorite === fav.path, dragging: draggingFavorite === fav.path }"
           @click="onFavoriteClick(fav.path)"
+          @contextmenu="onLocationContextMenu($event, fav.path)"
           @pointerdown="startFavoriteDrag($event, fav.path)"
           @pointermove="moveFavorite"
           @pointerup="finishFavoriteDrag"
@@ -370,6 +386,7 @@ onBeforeUnmount(() => {
           :key="directory.path"
           :title="`${directory.path}（所选 24 小时窗口打开 ${directory.count} 次）`"
           @click="go(directory.path)"
+          @contextmenu="onLocationContextMenu($event, directory.path)"
         >
           <span class="ico">
             <FileIcon
@@ -406,6 +423,7 @@ onBeforeUnmount(() => {
           :node="root"
           :depth="0"
           @navigate="go"
+          @contextmenu="onLocationContextMenu"
         />
         <div v-if="wslDistros.length" class="wsl-tree">
           <button class="wsl-row" :title="`Linux（${wslDistros.length} 个 WSL 实例）`" @click="wslExpanded = !wslExpanded">
@@ -432,6 +450,7 @@ onBeforeUnmount(() => {
             :node="{ name: distro, path: `\\\\wsl.localhost\\${distro}` }"
             :depth="1"
             @navigate="go"
+            @contextmenu="onLocationContextMenu"
           />
         </div>
       </div>

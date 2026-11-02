@@ -12,7 +12,10 @@ import FileIcon from '../icons/FileIcon.vue'
 import { folderIcon } from '../Pane/utils'
 
 const props = defineProps<{ node: TreeNodeData; depth: number }>()
-const emit = defineEmits<{ (e: 'navigate', path: string): void }>()
+const emit = defineEmits<{
+  (e: 'navigate', path: string): void
+  (e: 'contextmenu', event: MouseEvent, path: string): void
+}>()
 
 const ui = useUiStore()
 
@@ -63,6 +66,10 @@ async function toggle() {
   await loadChildren(true)
 }
 
+function forwardContextMenu(event: MouseEvent, path: string) {
+  emit('contextmenu', event, path)
+}
+
 // 只有展开的节点才需要后端监听其目录。
 watch(expanded, (open) => {
   if (open) setWatchSource(WATCH_SOURCE, [props.node.path])
@@ -96,6 +103,7 @@ const childPad = (d: number) => `${d * 12 + 22}px`
       :style="{ paddingLeft: pad(depth) }"
       :title="node.path"
       @click="emit('navigate', node.path)"
+      @contextmenu="emit('contextmenu', $event, node.path)"
     >
       <span class="twist" :class="{ open: expanded }" @click.stop="toggle">
         <Icon name="chevron-right" :size="11" />
@@ -136,6 +144,7 @@ const childPad = (d: number) => `${d * 12 + 22}px`
         :node="child"
         :depth="depth + 1"
         @navigate="emit('navigate', $event)"
+        @contextmenu="forwardContextMenu"
       />
     </div>
   </div>
