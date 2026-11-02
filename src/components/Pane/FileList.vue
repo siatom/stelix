@@ -1489,7 +1489,7 @@ function onDrop(ev: DragEvent) {
 .header-clip {
   flex: none;
   overflow: hidden;
-  background: var(--bg-panel);
+  background: var(--pane-header-bg);
   border-bottom: 1px solid var(--border);
 }
 .header {
@@ -1524,12 +1524,19 @@ function onDrop(ev: DragEvent) {
 .col-resizer::after {
   content: '';
   position: absolute;
-  top: 5px;
-  bottom: 5px;
+  top: 4px;
+  bottom: 4px;
   right: 0;
   width: 1px;
+  /* 列间细分隔线：略短于表头高度，半透明的浅边框色，避免生硬 */
+  background: color-mix(in srgb, var(--border-strong) 55%, transparent);
+  transition:
+    background 120ms ease,
+    width 120ms ease;
+}
+/* 最后一列右侧不留分隔线，悬停时仍可拖动调整列宽 */
+.header .col:last-child .col-resizer:not(:hover)::after {
   background: transparent;
-  transition: background 120ms ease;
 }
 .col-resizer:hover::after,
 .col-resizer:active::after {

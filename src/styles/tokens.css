@@ -32,9 +32,11 @@
   --bg-input: #2b2b2b;
   --pane-title-bg: var(--bg-panel);
   --pane-title-bg-active: #263b50;
+  /* 详细视图列头：比顶部工具栏亮一档，与文件行略作区分 */
+  --pane-header-bg: #262626;
 
   /* 左侧图标栏 + 侧边栏底色：比主区更深，靠深浅区分（不留间隙、不用描边） */
-  --sidebar-bg: #171717;
+  --sidebar-bg: #121212;
   --sidebar-hover: #2f2f2f;
   --sidebar-active: #343434;
 
@@ -88,6 +90,8 @@
   --bg-selected: #eeeeee;
   --bg-input: #ffffff;
   --pane-title-bg-active: #e3edf9;
+  /* 浅色主题下与顶部工具栏同为白底，结构靠边框体现 */
+  --pane-header-bg: var(--bg-panel);
 
   --sidebar-bg: #f7f7f7;
   --sidebar-hover: #ececec;
