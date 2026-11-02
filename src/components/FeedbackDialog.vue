@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 意见反馈弹窗：在本机 gitee CLI 上直接把反馈创建为 Gitee issue。
+// 意见反馈弹窗：在本机 GitHub CLI 上直接把反馈创建为 GitHub issue。
 // 入口在活动栏底部（ActivityBar），状态由 ui store 的 feedbackOpen 控制。
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { openUrl } from '@tauri-apps/plugin-opener'
@@ -60,7 +60,7 @@ async function refreshAuth() {
     auth.value = {
       cliFound: false,
       loggedIn: false,
-      message: `无法检查 gitee CLI 状态：${String(e)}`,
+      message: `无法检查 GitHub CLI 状态：${String(e)}`,
     }
   }
 }
@@ -77,7 +77,7 @@ async function submit() {
       appVersion,
       commit: commitId,
     })
-    ui.setStatusText(`反馈已提交：${created.value.number}`)
+    ui.setStatusText(`反馈已提交：#${created.value.number}`)
   } catch (e) {
     error.value = String(e)
   } finally {
@@ -113,7 +113,7 @@ async function copyLink() {
         <header class="dialog-head">
           <div>
             <h2 id="feedback-title">意见反馈</h2>
-            <p>经本机 gitee CLI 直接创建 issue，提交到 silicon-atom/stelix</p>
+            <p>经本机 GitHub CLI (gh) 直接创建 issue，提交到 siatom/stelix</p>
           </div>
           <button type="button" class="close-btn" title="关闭" aria-label="关闭反馈" @click="ui.closeFeedback()">
             <Icon name="x" :size="16" />
@@ -125,7 +125,7 @@ async function copyLink() {
           <div v-if="created" class="fb-success">
             <Icon name="check-circle" :size="30" />
             <p class="fb-success-title">反馈已提交</p>
-            <p class="fb-success-no">{{ created.number }}</p>
+            <p class="fb-success-no">#{{ created.number }}</p>
             <button type="button" class="fb-link" :title="created.url" @click="openCreated">
               <Icon name="external-link" :size="13" />
               <span>{{ created.url }}</span>
@@ -160,7 +160,7 @@ async function copyLink() {
             </div>
             <div v-else class="fb-banner">
               <Icon name="loader" :size="14" class="spin" />
-              <p>正在检查 gitee CLI…</p>
+              <p>正在检查 GitHub CLI…</p>
             </div>
 
             <label class="fb-field">

@@ -369,7 +369,7 @@ export interface FeedbackCreated {
   url: string
 }
 
-/** gitee CLI 的可用性与登录状态。 */
+/** GitHub CLI 的可用性与登录状态。 */
 export interface FeedbackAuth {
   cliFound: boolean
   loggedIn: boolean

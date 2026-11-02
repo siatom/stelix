@@ -44,7 +44,7 @@ flowchart TB
     SETTINGS --> PREF[外观 / 快捷键 / 启动设置]
     SETTINGS --> AICONFIG[AI Provider 与模型配置]
     SETTINGS --> HISTORY[AI 对话历史]
-    SETTINGS --> FEEDBACK[Gitee Issue 反馈]
+    SETTINGS --> FEEDBACK[GitHub Issue 反馈]
 ```
 
 ## 二、技术架构图
@@ -78,7 +78,7 @@ flowchart TB
             SYS[shell_icon / shell_menu / clipboard / elevate\nWindows 原生能力]
             PERSIST[persistence\n配置、AI 历史、索引缓存]
             CREDS[credentials\nWindows Credential Manager]
-            FEED[feedback\n本机 Gitee CLI]
+            FEED[feedback\n本机 GitHub CLI]
         end
     end
 

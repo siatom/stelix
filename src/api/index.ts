@@ -137,9 +137,9 @@ export const api = {
   autostartGet: () => invoke<boolean>('autostart_get'),
   autostartSet: (enabled: boolean) => invoke<void>('autostart_set', { enabled }),
 
-  /** 检查本机 gitee CLI 是否可用并已登录（意见反馈入口）。 */
+  /** 检查本机 GitHub CLI 是否可用并已登录（意见反馈入口）。 */
   feedbackAuthStatus: () => invoke<FeedbackAuth>('feedback_auth_status'),
-  /** 通过本机 gitee CLI 把反馈提交为 Gitee issue，返回编号与链接。 */
+  /** 通过本机 GitHub CLI 把反馈提交为 GitHub issue，返回编号与链接。 */
   feedbackSubmit: (request: FeedbackRequest) => invoke<FeedbackCreated>('feedback_submit', { request }),
 }
 

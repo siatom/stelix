@@ -520,11 +520,11 @@ pub struct FeedbackCreated {
     pub url: String,
 }
 
-/// gitee CLI 的可用性与登录状态，供反馈表单提示。
+/// GitHub CLI 的可用性与登录状态，供反馈表单提示。
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FeedbackAuth {
-    /// 是否找到 gitee CLI
+    /// 是否找到 GitHub CLI
     pub cli_found: bool,
     /// 是否已登录
     pub logged_in: bool,

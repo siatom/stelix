@@ -669,7 +669,7 @@ fn dir_size_invalidate(state: State<'_, AppState>, paths: Vec<String>) {
 
 // ---------------------------------------------------------------- 意见反馈
 
-/// 检查本机 gitee CLI 是否可用并已登录（供反馈表单提示）。
+/// 检查本机 GitHub CLI 是否可用并已登录（供反馈表单提示）。
 #[tauri::command]
 async fn feedback_auth_status() -> Result<FeedbackAuth, String> {
     tauri::async_runtime::spawn_blocking(feedback::auth_status)
@@ -677,7 +677,7 @@ async fn feedback_auth_status() -> Result<FeedbackAuth, String> {
         .map_err(|error| format!("反馈状态检查任务失败: {error}"))
 }
 
-/// 通过本机 gitee CLI 把反馈提交为 Gitee issue，返回 issue 编号与链接。
+/// 通过本机 GitHub CLI 把反馈提交为 GitHub issue，返回 issue 编号与链接。
 #[tauri::command]
 async fn feedback_submit(request: FeedbackRequest) -> Result<FeedbackCreated, String> {
     tauri::async_runtime::spawn_blocking(move || feedback::submit(&request))
