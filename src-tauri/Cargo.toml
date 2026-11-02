@@ -101,6 +101,9 @@ strip = true
 # opt-level=0 会让"秒级检索"在 dev 下明显变慢。
 [profile.dev]
 opt-level = 1
+incremental = true
+debug = "line-tables-only"
 
 [profile.dev.package."*"]
 opt-level = 2
+debug = false
