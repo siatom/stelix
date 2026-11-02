@@ -59,6 +59,7 @@ const locError = ref<string | null>(null)
 const draggingFavorite = ref<string | null>(null)
 const dragOverFavorite = ref<string | null>(null)
 const fileDropOverFavorite = ref<string | null>(null)
+const openFavoriteMenu = ref<string | null>(null)
 let favoritePointerId: number | null = null
 let favoritePointerStart: { path: string; x: number; y: number } | null = null
 let favoriteDragMoved = false
@@ -149,7 +150,21 @@ async function onLocationContextMenu(event: MouseEvent, path: string) {
   }
 }
 
+function toggleFavoriteMenu(event: MouseEvent, path: string) {
+  event.stopPropagation()
+  openFavoriteMenu.value = openFavoriteMenu.value === path ? null : path
+}
+
+function closeFavoriteMenu() {
+  openFavoriteMenu.value = null
+}
+
+function onDocumentKeydown(event: KeyboardEvent) {
+  if (event.key === 'Escape' && openFavoriteMenu.value) closeFavoriteMenu()
+}
+
 function removeFavorite(path: string) {
+  if (openFavoriteMenu.value === path) openFavoriteMenu.value = null
   favorites.value = favorites.value.filter((f) => f.path !== path)
   saveFavorites(favorites.value)
 }
@@ -265,6 +280,8 @@ onMounted(() => {
   folderTreeMounted = true
   window.addEventListener(FAVORITES_CHANGED_EVENT, syncFavorites)
   window.addEventListener(RECENT_DIRECTORIES_CHANGED_EVENT, syncRecentDirectories)
+  document.addEventListener('click', closeFavoriteMenu)
+  document.addEventListener('keydown', onDocumentKeydown)
   refreshComputer()
   void listen('computer:drives-changed', () => void refreshRootsIfChanged()).then((unlisten) => {
     if (folderTreeMounted) unlistenDriveChanges = unlisten
@@ -312,6 +329,8 @@ onBeforeUnmount(() => {
   folderTreeMounted = false
   window.removeEventListener(FAVORITES_CHANGED_EVENT, syncFavorites)
   window.removeEventListener(RECENT_DIRECTORIES_CHANGED_EVENT, syncRecentDirectories)
+  document.removeEventListener('click', closeFavoriteMenu)
+  document.removeEventListener('keydown', onDocumentKeydown)
   if (recentRefreshTimer !== null) window.clearTimeout(recentRefreshTimer)
   unlistenDriveChanges?.()
 })
@@ -365,9 +384,21 @@ onBeforeUnmount(() => {
         >
           <span class="ico favorite-ico" :class="`favorite-color-${index % 5}`"><Icon name="folder" :size="18" /></span>
           <span class="label">{{ fav.label }}</span>
-          <button class="del" title="移除收藏" @click.stop="removeFavorite(fav.path)">
-            <Icon name="x" :size="11" />
-          </button>
+          <div class="fav-more-wrap" @keydown.esc.stop="closeFavoriteMenu">
+            <button
+              class="fav-more"
+              title="更多操作"
+              :aria-label="`${fav.label}更多操作`"
+              aria-haspopup="menu"
+              :aria-expanded="openFavoriteMenu === fav.path"
+              @click="toggleFavoriteMenu($event, fav.path)"
+            >
+              <Icon name="more" :size="14" />
+            </button>
+            <div v-if="openFavoriteMenu === fav.path" class="fav-menu" role="menu" @click.stop>
+              <button role="menuitem" @click="removeFavorite(fav.path)"><Icon name="x" :size="13" />取消收藏</button>
+            </div>
+          </div>
         </li>
       </TransitionGroup>
     </section>
@@ -647,19 +678,53 @@ onBeforeUnmount(() => {
   color: var(--fg-dim);
   font-size: 0.8333em;
 }
-.del {
+.favorites-section .nav-list li {
+  overflow: visible;
+}
+.fav-more-wrap {
+  position: relative;
   flex: none;
-  width: 16px;
-  height: 16px;
+}
+.fav-more {
+  width: 18px;
+  height: 18px;
   display: flex;
   align-items: center;
   justify-content: center;
   border-radius: var(--radius);
   color: var(--fg-dim);
 }
-.del:hover {
-  background: var(--danger);
-  color: var(--accent-fg);
+.fav-more:hover,
+.fav-more[aria-expanded="true"] {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+.fav-menu {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 3px);
+  right: 0;
+  min-width: 112px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-panel);
+  box-shadow: var(--shadow-md, var(--shadow-lg));
+}
+.fav-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border-radius: var(--radius);
+  color: var(--fg);
+  text-align: left;
+  font-size: 0.9167em;
+  white-space: nowrap;
+}
+.fav-menu button:hover {
+  background: var(--bg-hover);
 }
 .state {
   padding: 4px 6px;
