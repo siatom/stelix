@@ -8,6 +8,8 @@ mod app_core;
 mod clipboard;
 mod credentials;
 mod dir_size;
+#[cfg(windows)]
+mod drive_monitor;
 mod elevate;
 mod feedback;
 mod fs_core;
@@ -785,6 +787,8 @@ pub fn run() {
         ))
         .manage(AppState::new())
         .setup(|app| {
+            #[cfg(windows)]
+            drive_monitor::start(app.handle().clone());
             setup_tray(app.handle())?;
             // 清扫提权临时目录里上次遗留的残留文件（进程被杀时可能留下）。
             elevate::sweep_stale_temp();

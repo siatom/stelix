@@ -2,6 +2,7 @@
 // 文件导航面板：此电脑（驱动器 + 文件夹懒加载树） + 常用位置 + 收藏
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { api } from '../../api'
+import { listen } from '@tauri-apps/api/event'
 import { usePaneStore } from '../../stores/pane'
 import { useUiStore } from '../../stores/ui'
 import TreeNode from './TreeNode.vue'
@@ -62,6 +63,8 @@ let favoritePointerId: number | null = null
 let favoritePointerStart: { path: string; x: number; y: number } | null = null
 let favoriteDragMoved = false
 let recentRefreshTimer: number | null = null
+let unlistenDriveChanges: (() => void) | null = null
+let folderTreeMounted = false
 
 async function loadRoots() {
   loading.value = true
@@ -77,6 +80,20 @@ async function loadRoots() {
     roots.value = []
   } finally {
     loading.value = false
+  }
+}
+
+async function refreshRootsIfChanged() {
+  if (loading.value) return
+  try {
+    const drives = await api.getRoots()
+    const nextRoots = drives.map((d) => ({ name: d.name || d.mount, path: d.mount }))
+    if (nextRoots.length !== roots.value.length || nextRoots.some((root, i) => root.path !== roots.value[i]?.path)) {
+      roots.value = nextRoots
+      error.value = null
+    }
+  } catch {
+    // 临时枚举失败时保留当前列表，避免打断导航。
   }
 }
 
@@ -230,9 +247,14 @@ async function onFavoriteDrop(ev: DragEvent, targetPath: string) {
 }
 
 onMounted(() => {
+  folderTreeMounted = true
   window.addEventListener(FAVORITES_CHANGED_EVENT, syncFavorites)
   window.addEventListener(RECENT_DIRECTORIES_CHANGED_EVENT, syncRecentDirectories)
   refreshComputer()
+  void listen('computer:drives-changed', () => void refreshRootsIfChanged()).then((unlisten) => {
+    if (folderTreeMounted) unlistenDriveChanges = unlisten
+    else unlisten()
+  })
   void loadLocations()
   syncRecentDirectories()
 })
@@ -272,9 +294,11 @@ function scheduleRecentRefresh() {
 }
 
 onBeforeUnmount(() => {
+  folderTreeMounted = false
   window.removeEventListener(FAVORITES_CHANGED_EVENT, syncFavorites)
   window.removeEventListener(RECENT_DIRECTORIES_CHANGED_EVENT, syncRecentDirectories)
   if (recentRefreshTimer !== null) window.clearTimeout(recentRefreshTimer)
+  unlistenDriveChanges?.()
 })
 </script>
 
