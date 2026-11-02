@@ -1,6 +1,9 @@
-# Stelix File Manager 星索
+<p align="center">
+  <img src="src-tauri/icons/icon.png" width="96" height="96" alt="Stelix" />
+</p>
 
-![Stelix File Manager 星索标志](public/app-icon.svg)
+
+# Stelix File Manager 星索
 
 基于 Tauri 2、Vue 3 和 TypeScript 构建的桌面文件管理器。
 
