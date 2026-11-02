@@ -78,6 +78,17 @@ function toggleMaximizeFromTitlebar(event: MouseEvent) {
   void toggleMaximize()
 }
 
+/** 左上角品牌带（侧栏顶部 logo 区）也算窗口拖动区，双击同样切换最大化。 */
+function startBrandDrag(event: MouseEvent) {
+  if (!(event.target as HTMLElement).closest('.brand')) return
+  startWindowDrag(event)
+}
+
+function toggleMaximizeFromBrand(event: MouseEvent) {
+  if (!(event.target as HTMLElement).closest('.brand')) return
+  toggleMaximizeFromTitlebar(event)
+}
+
 function openTitlebarMenu(event: MouseEvent) {
   if ((event.target as HTMLElement).closest('.titlebar-controls')) return
   event.preventDefault()
@@ -277,7 +288,6 @@ onBeforeUnmount(() => {
       @dblclick="toggleMaximizeFromTitlebar"
       @contextmenu="openTitlebarMenu"
     >
-      <span class="titlebar-title">Stelix File Manager（星索）</span>
       <TitlebarActions />
       <div class="titlebar-controls">
         <button class="titlebar-button" type="button" aria-label="最小化" title="最小化" @click="appWindow.minimize()">
@@ -313,7 +323,11 @@ onBeforeUnmount(() => {
       </button>
     </div>
     <div v-if="titlebarActionMode" class="titlebar-mode-hint" role="status">{{ titlebarModeHint }}</div>
-    <ActivityBar class="area-activity" />
+    <ActivityBar
+      class="area-activity"
+      @mousedown="startBrandDrag"
+      @dblclick="toggleMaximizeFromBrand"
+    />
     <SidebarPanel v-if="!ui.sidebarCollapsed" class="area-sidebar" />
     <div
       v-if="!ui.sidebarCollapsed"
@@ -342,23 +356,17 @@ onBeforeUnmount(() => {
 }
 .app-titlebar {
   grid-area: titlebar;
-  grid-column: 1 / -1;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 32px;
-  padding-left: 18px;
+  /* 与侧栏品牌带等高，顶部形成一条连续的横带 */
+  height: 40px;
+  padding-left: 6px;
   font-family: 'Microsoft YaHei', '微软雅黑', sans-serif;
   color: var(--fg-muted);
   background: var(--bg-app);
   border-bottom: 1px solid var(--border);
   user-select: none;
-}
-.titlebar-title {
-  font-size: 12px;
-  font-weight: 400;
-  letter-spacing: 0.035em;
-  color: var(--fg-dim);
 }
 .titlebar-controls {
   display: flex;

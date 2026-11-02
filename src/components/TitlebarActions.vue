@@ -82,7 +82,6 @@ const scopeHint = computed(() => {
   align-items: center;
   gap: 4px;
   flex: none;
-  margin-left: 14px;
   margin-right: auto;
 }
 .group {
