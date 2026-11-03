@@ -688,8 +688,16 @@ onBeforeUnmount(() => {
 }
 .count {
   flex: none;
-  color: var(--fg-dim);
-  font-size: 0.8333em;
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 0.75em;
+  font-weight: 500;
+  line-height: 1.6;
+  font-variant-numeric: tabular-nums;
+  color: var(--fg-folder);
+  background: color-mix(in srgb, var(--fg-folder) 16%, transparent);
 }
 .favorites-section .nav-list li {
   overflow: visible;
