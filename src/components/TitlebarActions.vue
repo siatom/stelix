@@ -2,12 +2,15 @@
 // 顶部标题栏的文件操作区：新建文件夹 / 新建文件 / 删除 + 视图切换。
 // 全局唯一入口，始终作用于**当前活动窗格** —— 哪个窗格活动，这些按钮就控制哪个窗格。
 import { computed } from 'vue'
+import { api } from '../api'
 import type { ViewMode } from '../types'
 import { usePaneStore } from '../stores/pane'
+import { useUiStore } from '../stores/ui'
 import Icon from './icons/Icon.vue'
 import type { IconName } from './icons/paths'
 
 const paneStore = usePaneStore()
+const ui = useUiStore()
 
 const modes: { key: ViewMode; icon: IconName; title: string }[] = [
   { key: 'details', icon: 'view-details', title: '详细' },
@@ -16,11 +19,26 @@ const modes: { key: ViewMode; icon: IconName; title: string }[] = [
 ]
 
 const viewMode = computed(() => paneStore.activePane?.viewMode ?? 'details')
+const canOpenTerminal = computed(() => {
+  const tab = paneStore.activeTab
+  return !!tab && (!tab.kind || tab.kind === 'files')
+})
 /** 双窗格下在 tooltip 里点明作用对象，避免误以为按钮属于某一侧。 */
 const scopeHint = computed(() => {
   if (paneStore.singlePane) return ''
   return paneStore.activePaneId === 'right' ? '（右侧窗格）' : '（左侧窗格）'
 })
+
+async function openTerminalHere() {
+  const tab = paneStore.activeTab
+  if (!tab || !canOpenTerminal.value) return
+  try {
+    await api.openInTerminal(tab.path)
+    ui.setStatusText('已在当前文件夹打开系统终端')
+  } catch (error) {
+    ui.setStatusText(`无法打开系统终端：${String(error)}`)
+  }
+}
 </script>
 
 <template>
@@ -52,7 +70,7 @@ const scopeHint = computed(() => {
         :disabled="!paneStore.canDeleteInActivePane"
         @click="paneStore.requestAction('delete', $event.shiftKey)"
       >
-        <Icon name="trash" :size="15" />
+        <Icon name="trash" :size="18" />
       </button>
     </div>
 
@@ -73,6 +91,16 @@ const scopeHint = computed(() => {
         <Icon :name="m.icon" :size="15" />
       </button>
     </div>
+
+    <button
+      type="button"
+      :title="`在当前文件夹打开系统终端${scopeHint}`"
+      :aria-label="`在当前文件夹打开系统终端${scopeHint}`"
+      :disabled="!canOpenTerminal"
+      @click="openTerminalHere"
+    >
+      <Icon name="terminal" :size="15" />
+    </button>
   </div>
 </template>
 
