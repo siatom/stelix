@@ -156,7 +156,7 @@ async function confirmDelete() {
     <template v-if="tab">
       <div class="pane-topbar" :class="{ 'is-active': isActivePane }">
         <div v-if="tab.kind === 'terminal'" class="terminal-heading">
-          <Icon name="terminal" :size="13" />
+          <Icon name="terminal" :size="15" />
           <span class="terminal-host">
             {{ terminalSession ? `${terminalSession.location.username}@${terminalSession.location.host}:${terminalSession.location.port}` : tab.title }}
           </span>
@@ -186,14 +186,14 @@ async function confirmDelete() {
                 title="还原所选到原位置"
                 @click="trashView?.restoreSelected()"
               >
-                <Icon name="restore" :size="13" /><span>还原</span>
+                <Icon name="restore" :size="15" /><span>还原</span>
               </button>
               <button
                 :disabled="!trashView?.canOpenOriginal"
                 title="打开所选条目的原位置"
                 @click="trashView?.openOriginalSelected()"
               >
-                <Icon name="folder-arrow" :size="13" /><span>原位置</span>
+                <Icon name="folder-arrow" :size="15" /><span>原位置</span>
               </button>
               <button
                 class="danger"
@@ -201,7 +201,7 @@ async function confirmDelete() {
                 title="跳过回收站永久删除所选"
                 @click="trashView?.askPurgeSelected()"
               >
-                <Icon name="trash" :size="13" /><span>永久删除</span>
+                <Icon name="trash" :size="15" /><span>永久删除</span>
               </button>
               <button
                 class="danger"
@@ -209,7 +209,7 @@ async function confirmDelete() {
                 title="永久删除回收站中的全部条目"
                 @click="trashView?.askEmpty()"
               >
-                <Icon name="trash" :size="13" /><span>清空</span>
+                <Icon name="trash" :size="15" /><span>清空</span>
               </button>
             </div>
           </div>
@@ -280,7 +280,7 @@ async function confirmDelete() {
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-  background: var(--bg-app);
+  background: transparent;
   /* 不加描边：与侧栏靠背景深浅区分，与对侧窗格靠 DualPane 的 1px 分割线区分 */
   position: relative;
   overflow: hidden;
@@ -311,24 +311,28 @@ async function confirmDelete() {
   display: flex;
   min-width: 0;
   background: var(--bg-panel);
+  font-size: var(--file-font-size);
 }
 .pane-topbar :deep(.pane-toolbar) {
   flex: none;
   border-bottom: 0;
+  background: transparent;
 }
 .pane-topbar :deep(.path-bar) {
   flex: 1;
   min-width: 0;
   border-bottom: 0;
+  background: transparent;
 }
 .search-heading {
   flex: 1;
   min-width: 0;
   display: flex;
   align-items: center;
+  gap: 6px;
   padding: 0 12px;
   color: var(--fg-muted);
-  font-size: 1rem;
+  font-size: inherit;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -339,9 +343,9 @@ async function confirmDelete() {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 0 8px 0 12px;
+  padding: 0 12px;
   color: var(--fg);
-  font-size: 1rem;
+  font-size: inherit;
   overflow: hidden;
   white-space: nowrap;
 }
@@ -362,7 +366,7 @@ async function confirmDelete() {
 .trash-actions button {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   height: 24px;
   padding: 0 8px;
   border-radius: var(--radius);
@@ -387,10 +391,10 @@ async function confirmDelete() {
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   padding: 0 12px;
   color: var(--fg-muted);
-  font-size: 1rem;
+  font-size: inherit;
   overflow: hidden;
   white-space: nowrap;
 }

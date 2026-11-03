@@ -12,13 +12,47 @@ const pane = usePaneStore()
 const ui = useUiStore()
 const appVersion = __APP_VERSION__
 const commitId = __COMMIT_ID__
+const accentColors = [
+  { name: '星空蓝', value: '#6d8cff' },
+  { name: '海盐青', value: '#20a99a' },
+  { name: '薄荷绿', value: '#39a96b' },
+  { name: '琥珀橙', value: '#db8b2b' },
+  { name: '莓果红', value: '#d95770' },
+  { name: '薰衣紫', value: '#9270d8' },
+  { name: '玫瑰粉', value: '#d66caf' },
+  { name: '石墨灰', value: '#737b89' },
+]
 const tabs = [
   { id: 'general', label: '常规', icon: 'settings' },
+  { id: 'appearance', label: '外观', icon: 'image' },
   { id: 'index', label: '文件索引', icon: 'folder' },
   { id: 'shortcuts', label: '快捷键', icon: 'command' },
   { id: 'ai', label: 'AI 大模型', icon: 'sparkles' },
   { id: 'about', label: '关于', icon: 'info' },
 ] as const
+
+async function onBackgroundImageChange(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+  if (!['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(file.type) || file.size > 8 * 1024 * 1024) {
+    error.value = '请选择 PNG、JPG、WebP 或 GIF 图片，且文件不超过 8 MB。'
+    return
+  }
+  const reader = new FileReader()
+  try {
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      reader.onload = () => typeof reader.result === 'string' ? resolve(reader.result) : reject(new Error('无法读取图片数据'))
+      reader.onerror = () => reject(reader.error ?? new Error('读取背景图片失败'))
+      reader.readAsDataURL(file)
+    })
+    if (!await ui.setSettingsBackgroundImage(dataUrl)) throw new Error('保存图片失败，请重试')
+    error.value = null
+  } catch (cause) {
+    error.value = String(cause)
+  }
+}
 
 function onTabKey(event: KeyboardEvent, index: number) {
   let next = index
@@ -208,6 +242,65 @@ onMounted(() => {
         </div>
       </section>
 
+      <div v-show="ui.settingsTab === 'appearance'" class="appearance-layout">
+        <section class="appearance-section">
+          <div class="section-heading"><div><h3>主题色</h3><p>用于按钮、选中状态和交互提示</p></div><span class="appearance-current"><i :style="{ background: ui.accentColor }"></i>{{ accentColors.find(color => color.value === ui.accentColor)?.name || '自定义' }}</span></div>
+          <div class="color-swatches" role="group" aria-label="预设主题色">
+            <button v-for="color in accentColors" :key="color.value" type="button" class="color-swatch" :class="{ selected: ui.accentColor === color.value }" :style="{ '--swatch': color.value }" :aria-label="color.name" :aria-pressed="ui.accentColor === color.value" :title="color.name" @click="ui.setAccentColor(color.value)"><span>{{ color.name }}</span></button>
+            <label class="color-swatch custom-swatch" :style="{ '--swatch': ui.accentColor }" title="自定义颜色" :class="{ selected: !accentColors.some(color => color.value === ui.accentColor) }"><Icon name="plus" :size="16" /><input type="color" :value="ui.accentColor" aria-label="自定义主题色" @input="ui.setAccentColor(($event.target as HTMLInputElement).value)" /></label>
+          </div>
+        </section>
+
+        <section class="appearance-section">
+          <div class="section-heading"><div><h3>字体与行高</h3><p>调整列表的阅读舒适度和信息密度</p></div></div>
+          <div class="font-grid">
+            <label class="font-row">
+              <span><strong>侧边栏字体</strong><small>目录树与导航面板</small></span>
+              <select class="setting-select" :value="String(ui.sidebarFontSize || 12)" @change="ui.setSidebarFontSize(Number(($event.target as HTMLSelectElement).value))">
+                <option v-for="size in [11, 12, 13, 14, 15, 16]" :key="size" :value="String(size)">{{ size }}px</option>
+              </select>
+            </label>
+            <label class="font-row">
+              <span><strong>文件列表字体</strong><small>文件与文件夹名称</small></span>
+              <select class="setting-select" :value="String(ui.fileFontSize || 12)" @change="ui.setFileFontSize(Number(($event.target as HTMLSelectElement).value))">
+                <option v-for="size in [11, 12, 13, 14, 15, 16]" :key="size" :value="String(size)">{{ size }}px</option>
+              </select>
+            </label>
+            <label class="font-row">
+              <span><strong>侧边栏行高</strong><small>目录树与导航列表</small></span>
+              <select class="setting-select" :value="ui.sidebarRowHeight" @change="ui.setSidebarRowHeight(Number(($event.target as HTMLSelectElement).value))">
+                <option v-for="size in [20, 22, 24, 26, 28, 30, 32]" :key="size" :value="size">{{ size }}px</option>
+              </select>
+            </label>
+            <label class="font-row">
+              <span><strong>文件列表行高</strong><small>文件与文件夹条目</small></span>
+              <select class="setting-select" :value="ui.fileRowHeight" @change="ui.setFileRowHeight(Number(($event.target as HTMLSelectElement).value))">
+                <option v-for="size in [22, 24, 26, 28, 30, 32, 34, 36, 40]" :key="size" :value="size">{{ size }}px</option>
+              </select>
+            </label>
+          </div>
+        </section>
+
+        <section class="appearance-section opacity-section">
+          <div class="section-heading"><div><h3>界面透明度</h3><p>调整设置窗口表面的通透程度</p></div><strong class="opacity-value">{{ ui.uiOpacity }}%</strong></div>
+          <div class="opacity-control"><span>通透</span><input class="opacity-range" type="range" min="60" max="100" step="5" :value="ui.uiOpacity" aria-label="界面透明度" @input="ui.setUiOpacity(Number(($event.target as HTMLInputElement).value))" /><span>实色</span></div>
+        </section>
+
+        <section class="appearance-section background-section">
+          <div class="section-heading"><div><h3>背景图片</h3><p>铺满整个界面；调低界面透明度即可透出图片</p></div></div>
+          <div class="background-body">
+            <div class="background-preview" :class="{ empty: !ui.settingsBackgroundImage }" :style="ui.settingsBackgroundImage ? { backgroundImage: `url(${ui.settingsBackgroundImage})` } : undefined"><Icon v-if="!ui.settingsBackgroundImage" name="image" :size="22" /><span v-if="!ui.settingsBackgroundImage">未设置</span></div>
+            <div class="background-info">
+              <span class="background-format">PNG、JPG、WebP 或 GIF · 最大 8 MB</span>
+              <div class="background-actions">
+                <label class="background-button">{{ ui.settingsBackgroundImage ? '更换图片' : '选择图片' }}<input type="file" accept="image/png,image/jpeg,image/webp,image/gif" @change="onBackgroundImageChange" /></label>
+                <button v-if="ui.settingsBackgroundImage" class="background-button secondary" type="button" @click="ui.setSettingsBackgroundImage('')">移除</button>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+
       <section v-show="ui.settingsTab === 'general'" class="card">
         <header class="card-head">启动</header>
         <div class="card-body tight">
@@ -228,30 +321,6 @@ onMounted(() => {
         <header class="card-head">视图</header>
         <div class="card-body tight">
           <label class="row">
-            <span class="row-label">侧边栏字体大小</span>
-            <select class="setting-select" :value="String(ui.sidebarFontSize || 12)" @change="ui.setSidebarFontSize(Number(($event.target as HTMLSelectElement).value))">
-              <option v-for="size in [11, 12, 13, 14, 15, 16]" :key="size" :value="String(size)">{{ size }}px</option>
-            </select>
-          </label>
-          <label class="row">
-            <span class="row-label">文件列表字体大小</span>
-            <select class="setting-select" :value="String(ui.fileFontSize || 12)" @change="ui.setFileFontSize(Number(($event.target as HTMLSelectElement).value))">
-              <option v-for="size in [11, 12, 13, 14, 15, 16]" :key="size" :value="String(size)">{{ size }}px</option>
-            </select>
-          </label>
-          <label class="row">
-            <span class="row-label">侧边栏行高</span>
-            <select class="setting-select" :value="ui.sidebarRowHeight" @change="ui.setSidebarRowHeight(Number(($event.target as HTMLSelectElement).value))">
-              <option v-for="size in [20, 22, 24, 26, 28, 30, 32]" :key="size" :value="size">{{ size }}px</option>
-            </select>
-          </label>
-          <label class="row">
-            <span class="row-label">文件列表行高</span>
-            <select class="setting-select" :value="ui.fileRowHeight" @change="ui.setFileRowHeight(Number(($event.target as HTMLSelectElement).value))">
-              <option v-for="size in [22, 24, 26, 28, 30, 32, 34, 36, 40]" :key="size" :value="size">{{ size }}px</option>
-            </select>
-          </label>
-          <label class="row">
             <span class="row-label">隐藏受保护的操作系统文件</span>
             <input type="checkbox" :checked="ui.hideProtected" @change="ui.setHideProtected(($event.target as HTMLInputElement).checked)" />
           </label>
@@ -266,10 +335,10 @@ onMounted(() => {
         <header class="card-head">Stelix File Manager 星索</header>
         <div class="card-body"><p class="about-text">版本 {{ appVersion }}</p><p class="about-text">Commit {{ commitId }}</p></div>
       </section>
-      <div v-if="error && (ui.settingsTab === 'general' || ui.settingsTab === 'index')" class="error">操作失败：{{ error }}</div>
+      <div v-if="error && (ui.settingsTab === 'general' || ui.settingsTab === 'appearance' || ui.settingsTab === 'index')" class="error">操作失败：{{ error }}</div>
     </div>
 
-    <div v-if="ui.settingsTab === 'general'" class="panel-footer">
+    <div v-if="ui.settingsTab === 'general' || ui.settingsTab === 'appearance'" class="panel-footer">
       <button class="restore-btn" type="button" :disabled="busy" @click="restoreDefaults">
         <Icon name="refresh" :size="13" />
         <span>恢复默认</span>
@@ -286,6 +355,7 @@ onMounted(() => {
   height: 100%;
   min-height: 0;
   font-size: max(12px, var(--ui-font-size));
+  position: relative;
   background: var(--bg-app);
 }
 .settings-tabs {
@@ -308,14 +378,54 @@ onMounted(() => {
 }
 .settings-tabs button:hover { background: var(--bg-hover); color: var(--fg); }
 .settings-tabs button.active { background: var(--bg-active); color: var(--fg); font-weight: 600; }
-.settings-content { display: flex; flex-direction: column; min-width: 0; min-height: 0; padding: 20px; background: var(--bg-app); }
+.settings-content { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; padding: 20px; overflow: hidden; background: var(--bg-app); }
+.settings-scroll { position: relative; z-index: 1; }
 .page-title { margin: 0 0 6px; font-size: 1.3333rem; font-weight: 600; }
 .about-text { margin: 4px; color: var(--fg-muted); }
+.appearance-layout { display: flex; flex-direction: column; gap: 0; }
+.appearance-section { padding: 15px 2px; border-bottom: 1px solid var(--border); }
+.appearance-section:first-child { padding-top: 6px; }
+.appearance-section:last-child { border-bottom: 0; }
+.section-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.section-heading h3 { margin: 0; font-size: 1rem; font-weight: 600; }
+.section-heading p { margin: 3px 0 0; color: var(--fg-dim); font-size: 0.9167rem; }
+.appearance-current { display: inline-flex; align-items: center; gap: 7px; color: var(--fg); font-size: 0.9167rem; font-weight: 500; }
+.appearance-current i { width: 12px; height: 12px; border-radius: 50%; box-shadow: 0 0 0 2px color-mix(in srgb, var(--bg-elevated) 80%, transparent), 0 0 0 3px var(--accent); }
+.color-swatches { display: flex; flex-wrap: wrap; gap: 10px; padding: 12px 2px 2px; }
+.color-swatch { position: relative; display: flex; align-items: center; justify-content: center; flex: none; width: 34px; height: 34px; padding: 0; border: 2px solid transparent; border-radius: 50%; background: var(--swatch); color: white; cursor: pointer; transition: transform var(--t-fast), box-shadow var(--t-fast); }
+.color-swatch:hover { transform: translateY(-1px) scale(1.06); }
+.color-swatch.selected { border-color: var(--bg-elevated); box-shadow: 0 0 0 2px var(--swatch); }
+.color-swatch span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.custom-swatch { border: 1px dashed color-mix(in srgb, var(--fg-muted) 60%, transparent); background: var(--bg-hover); color: var(--fg-muted); overflow: hidden; }
+.custom-swatch input { position: absolute; inset: 0; width: 100%; height: 100%; padding: 0; opacity: 0; cursor: pointer; }
+.font-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 24px; padding-top: 8px; }
+.font-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 48px; padding: 5px 2px; border-bottom: 1px solid var(--border); }
+.font-row span { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.font-row strong { font-weight: 550; }
+.font-row small { color: var(--fg-dim); font-size: 0.8333rem; }
+.opacity-value { color: var(--accent); font-size: 1.15rem; font-weight: 650; }
+.opacity-control { display: flex; align-items: center; gap: 12px; padding-top: 10px; color: var(--fg-dim); font-size: 0.8333rem; }
+.opacity-range { flex: 1; height: 18px; margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; accent-color: var(--accent); box-shadow: none; }
+.opacity-range:focus { border: 0; box-shadow: none; }
+.background-body { display: flex; align-items: center; gap: 14px; padding-top: 10px; }
+.background-preview { display: flex; align-items: center; justify-content: center; flex-direction: column; flex: none; gap: 5px; width: 112px; height: 68px; border: 1px solid var(--border); border-radius: var(--radius-sm); background-position: center; background-size: cover; color: var(--fg-dim); font-size: 0.8333rem; overflow: hidden; }
+.background-preview.empty { background: linear-gradient(135deg, var(--bg-hover), var(--bg-panel)); border-style: dashed; }
+.background-info { display: flex; min-width: 0; flex-direction: column; align-items: flex-start; gap: 8px; }
+.background-format { color: var(--fg-dim); font-size: 0.9167rem; }
+.background-actions { display: flex; align-items: center; gap: 8px; }
+.background-button { display: inline-flex; align-items: center; padding: 7px 11px; border: 1px solid var(--accent); border-radius: var(--radius-sm); background: var(--accent); color: var(--accent-fg); font: inherit; font-weight: 600; cursor: pointer; }
+.background-button:hover { filter: brightness(0.94); }
+.background-button.secondary { border-color: var(--border); background: transparent; color: var(--fg-muted); font-weight: 500; }
+.background-button.secondary:hover { border-color: var(--danger); color: var(--danger); }
+.background-button input { display: none; }
 @media (max-width: 580px) {
   .settings-panel { grid-template-columns: 110px minmax(0, 1fr); }
   .settings-tabs { padding: 12px 6px; }
   .settings-tabs button { gap: 6px; padding: 8px 6px; }
   .settings-content { padding: 12px; }
+}
+@media (max-width: 760px) {
+  .font-grid { grid-template-columns: 1fr; }
 }
 /* 内容区滚动，版本信息固定在面板底部 */
 .settings-scroll {

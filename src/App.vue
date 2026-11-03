@@ -282,6 +282,13 @@ onBeforeUnmount(() => {
     :class="{ resizing: resizing !== null }"
     :style="{ '--sidebar-w': `${sidebarWidth}px` }"
   >
+    <img
+      v-if="ui.settingsBackgroundImage"
+      class="app-background-image"
+      :src="ui.settingsBackgroundImage"
+      alt=""
+      aria-hidden="true"
+    />
     <header
       class="app-titlebar"
       @mousedown="startWindowDrag"
@@ -353,6 +360,17 @@ onBeforeUnmount(() => {
 <style scoped>
 .app-root {
   position: relative;
+  isolation: isolate;
+}
+.app-background-image {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
+  user-select: none;
 }
 .app-titlebar {
   grid-area: titlebar;

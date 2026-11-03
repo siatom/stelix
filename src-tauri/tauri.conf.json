@@ -21,6 +21,7 @@
         "maximized": true,
         "visible": false,
         "decorations": false,
+        "transparent": true,
         "devtools": false,
         "dragDropEnabled": true
       }

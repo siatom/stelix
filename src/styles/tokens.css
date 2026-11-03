@@ -23,22 +23,22 @@
   --t: 0.2s ease;
 
   /* Quiet neutral dark surfaces inspired by the ChatGPT desktop UI */
-  --bg-app: #212121;
-  --bg-panel: #171717;
-  --bg-elevated: #2b2b2b;
-  --bg-hover: #2f2f2f;
-  --bg-active: #343434;
-  --bg-selected: #343434;
-  --bg-input: #2b2b2b;
+  --bg-app: color-mix(in srgb, #212121 var(--ui-opacity, 100%), transparent);
+  --bg-panel: color-mix(in srgb, #171717 var(--ui-opacity, 100%), transparent);
+  --bg-elevated: color-mix(in srgb, #2b2b2b var(--ui-opacity, 100%), transparent);
+  --bg-hover: color-mix(in srgb, #2f2f2f var(--ui-opacity, 100%), transparent);
+  --bg-active: color-mix(in srgb, #343434 var(--ui-opacity, 100%), transparent);
+  --bg-selected: color-mix(in srgb, var(--accent) 18%, var(--bg-active));
+  --bg-input: color-mix(in srgb, #2b2b2b var(--ui-opacity, 100%), transparent);
   --pane-title-bg: var(--bg-panel);
-  --pane-title-bg-active: #263b50;
+  --pane-title-bg-active: color-mix(in srgb, #263b50 var(--ui-opacity, 100%), transparent);
   /* 详细视图列头：比顶部工具栏亮一档，与文件行略作区分 */
-  --pane-header-bg: #262626;
+  --pane-header-bg: color-mix(in srgb, #262626 var(--ui-opacity, 100%), transparent);
 
   /* 左侧图标栏 + 侧边栏底色：比主区更深，靠深浅区分（不留间隙、不用描边） */
-  --sidebar-bg: #121212;
-  --sidebar-hover: #2f2f2f;
-  --sidebar-active: #343434;
+  --sidebar-bg: color-mix(in srgb, #121212 var(--ui-opacity, 100%), transparent);
+  --sidebar-hover: var(--bg-hover);
+  --sidebar-active: color-mix(in srgb, var(--accent) 18%, var(--bg-active));
 
   --border: #303030;
   --border-strong: #484848;
@@ -82,20 +82,20 @@
 
 :root[data-theme='light'] {
   /* Bright white canvas with subtle gray interaction surfaces */
-  --bg-app: #ffffff;
-  --bg-panel: #ffffff;
-  --bg-elevated: #ffffff;
-  --bg-hover: #f5f5f5;
-  --bg-active: #eeeeee;
-  --bg-selected: #eeeeee;
-  --bg-input: #ffffff;
-  --pane-title-bg-active: #e3edf9;
-  /* 浅色主题下与顶部工具栏同为白底，结构靠边框体现 */
-  --pane-header-bg: var(--bg-panel);
+  --bg-app: color-mix(in srgb, #ffffff calc(var(--ui-opacity, 100%) - var(--ui-image-opacity-offset, 0%)), transparent);
+  --bg-panel: color-mix(in srgb, #ffffff calc(var(--ui-opacity, 100%) - var(--ui-image-opacity-offset, 0%)), transparent);
+  --bg-elevated: color-mix(in srgb, #ffffff calc(var(--ui-opacity, 100%) - var(--ui-image-opacity-offset, 0%)), transparent);
+  --bg-hover: color-mix(in srgb, #f5f5f5 calc(var(--ui-opacity, 100%) - var(--ui-image-opacity-offset, 0%)), transparent);
+  --bg-active: color-mix(in srgb, #eeeeee calc(var(--ui-opacity, 100%) - var(--ui-image-opacity-offset, 0%)), transparent);
+  --bg-selected: color-mix(in srgb, var(--accent) 13%, var(--bg-active));
+  --bg-input: color-mix(in srgb, #ffffff calc(var(--ui-opacity, 100%) - var(--ui-image-opacity-offset, 0%)), transparent);
+  --pane-title-bg-active: color-mix(in srgb, #e3edf9 calc(var(--ui-opacity, 100%) - var(--ui-image-opacity-offset, 0%)), transparent);
+  /* 与顶部工具栏白底拉开层次，表头仍保持克制的浅灰 */
+  --pane-header-bg: color-mix(in srgb, #f1f3f5 calc(var(--ui-opacity, 100%) - var(--ui-image-opacity-offset, 0%)), transparent);
 
-  --sidebar-bg: #f7f7f7;
-  --sidebar-hover: #ececec;
-  --sidebar-active: #e2e2e2;
+  --sidebar-bg: color-mix(in srgb, #f7f7f7 calc(var(--ui-opacity, 100%) - var(--ui-image-opacity-offset, 0%)), transparent);
+  --sidebar-hover: color-mix(in srgb, #ececec calc(var(--ui-opacity, 100%) - var(--ui-image-opacity-offset, 0%)), transparent);
+  --sidebar-active: color-mix(in srgb, var(--accent) 13%, var(--bg-active));
 
   --border: #ededed;
   --border-strong: #d8d8d8;

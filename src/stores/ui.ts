@@ -8,7 +8,7 @@ import type { IndexProgress } from '../types'
 export type PanelKey = 'files' | 'tasks' | 'search' | 'ai'
 
 /** 设置面板分类 */
-export type SettingsTab = 'general' | 'index' | 'shortcuts' | 'ai' | 'about'
+export type SettingsTab = 'general' | 'appearance' | 'index' | 'shortcuts' | 'ai' | 'about'
 
 /** 主题模式 */
 export type ThemeMode = 'dark' | 'light'
@@ -38,6 +38,12 @@ export interface TrashColumnWidths {
 
 // ---- 本地偏好持久化（localStorage）----
 const LS_THEME = 'stelix.theme'
+const LS_ACCENT_COLOR = 'stelix.accentColor'
+const LS_UI_OPACITY = 'stelix.uiOpacity'
+const LS_SETTINGS_BACKGROUND = 'stelix.settingsBackground'
+const SETTINGS_DB_NAME = 'stelix-ui-settings'
+const SETTINGS_DB_STORE = 'preferences'
+const SETTINGS_BACKGROUND_KEY = 'backgroundImage'
 const LS_HIDE_PROTECTED = 'stelix.hideProtected'
 const LS_HIDE_FILE_EXTENSIONS = 'stelix.hideFileExtensions'
 const LS_SIDEBAR_COLLAPSED = 'stelix.sidebarCollapsed'
@@ -168,8 +174,97 @@ function readTheme(): ThemeMode {
   }
 }
 
+const DEFAULT_ACCENT_COLOR = '#6d8cff'
+function readAccentColor(): string {
+  try {
+    const saved = localStorage.getItem(LS_ACCENT_COLOR)
+    return saved && /^#[\da-f]{6}$/i.test(saved) ? saved : DEFAULT_ACCENT_COLOR
+  } catch {
+    return DEFAULT_ACCENT_COLOR
+  }
+}
+
+function readUiOpacity(): number {
+  try {
+    const value = Number(localStorage.getItem(LS_UI_OPACITY))
+    return Number.isInteger(value) && value >= 60 && value <= 100 ? value : 100
+  } catch { return 100 }
+}
+
+function readSettingsBackground(): string {
+  try {
+    const saved = localStorage.getItem(LS_SETTINGS_BACKGROUND) ?? ''
+    return /^data:image\/(png|jpeg|webp|gif);base64,[\da-z+/=]+$/i.test(saved) ? saved : ''
+  } catch { return '' }
+}
+
+let settingsDbPromise: Promise<IDBDatabase> | undefined
+function openSettingsDb(): Promise<IDBDatabase> {
+  if (!settingsDbPromise) {
+    settingsDbPromise = new Promise((resolve, reject) => {
+      const request = indexedDB.open(SETTINGS_DB_NAME, 1)
+      request.onupgradeneeded = () => request.result.createObjectStore(SETTINGS_DB_STORE)
+      request.onsuccess = () => resolve(request.result)
+      request.onerror = () => reject(request.error)
+    })
+  }
+  return settingsDbPromise
+}
+
+function readBackgroundFromDb(): Promise<string> {
+  return openSettingsDb().then((db) => new Promise((resolve, reject) => {
+    const request = db.transaction(SETTINGS_DB_STORE, 'readonly').objectStore(SETTINGS_DB_STORE).get(SETTINGS_BACKGROUND_KEY)
+    request.onsuccess = () => resolve(typeof request.result === 'string' && /^data:image\/(png|jpeg|webp|gif);base64,[\da-z+/=]+$/i.test(request.result) ? request.result : '')
+    request.onerror = () => reject(request.error)
+  }))
+}
+
+function writeBackgroundToDb(value: string): Promise<void> {
+  return openSettingsDb().then((db) => new Promise((resolve, reject) => {
+    const transaction = db.transaction(SETTINGS_DB_STORE, 'readwrite')
+    const store = transaction.objectStore(SETTINGS_DB_STORE)
+    if (value) store.put(value, SETTINGS_BACKGROUND_KEY)
+    else store.delete(SETTINGS_BACKGROUND_KEY)
+    transaction.oncomplete = () => resolve()
+    transaction.onerror = () => reject(transaction.error)
+    transaction.onabort = () => reject(transaction.error)
+  }))
+}
+
+async function loadSettingsBackground(): Promise<string> {
+  try {
+    const saved = await readBackgroundFromDb()
+    if (saved) return saved
+  } catch {
+    // Fall back to the previous localStorage setting and migrate it if possible.
+  }
+  const legacy = readSettingsBackground()
+  if (legacy) {
+    try {
+      await writeBackgroundToDb(legacy)
+      localStorage.removeItem(LS_SETTINGS_BACKGROUND)
+    } catch {
+      /* Keep the legacy value if migration cannot be completed. */
+    }
+  }
+  return legacy
+}
+
 function applyTheme(mode: ThemeMode) {
   document.documentElement.setAttribute('data-theme', mode)
+}
+
+function applyAccentColor(color: string) {
+  const root = document.documentElement.style
+  const hex = color.slice(1)
+  const r = parseInt(hex.slice(0, 2), 16) / 255
+  const g = parseInt(hex.slice(2, 4), 16) / 255
+  const b = parseInt(hex.slice(4, 6), 16) / 255
+  const luminance = [r, g, b].map((v) => v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4)
+    .reduce((sum, v, i) => sum + v * [0.2126, 0.7152, 0.0722][i]!, 0)
+  root.setProperty('--accent', color)
+  root.setProperty('--accent-fg', luminance > 0.42 ? '#171717' : '#ffffff')
+  root.setProperty('--accent-soft', `color-mix(in srgb, ${color} 16%, transparent)`)
 }
 
 function applyFontSize(size: number) {
@@ -198,6 +293,16 @@ function applyRowHeights(sidebar: number, file: number) {
 export const useUiStore = defineStore('ui', () => {
   const sidebarCollapsed = ref(readBool(LS_SIDEBAR_COLLAPSED, false))
   const theme = ref<ThemeMode>(readTheme())
+  const accentColor = ref(readAccentColor())
+  const uiOpacity = ref(readUiOpacity())
+  const settingsBackgroundImage = ref(readSettingsBackground())
+  let backgroundImageRevision = 0
+  void loadSettingsBackground().then((saved) => {
+    if (backgroundImageRevision === 0 && saved) {
+      settingsBackgroundImage.value = saved
+      applySurfaceOpacity()
+    }
+  })
   const fontSize = ref(readFontSize())
   const sidebarFontSize = ref(readFontSize(LS_SIDEBAR_FONT_SIZE, SIDEBAR_FONT_SIZE_DEF))
   const fileFontSize = ref(readFontSize(LS_FILE_FONT_SIZE, FILE_FONT_SIZE_DEF))
@@ -224,8 +329,16 @@ export const useUiStore = defineStore('ui', () => {
   const statusText = ref('就绪')
   const indexTotal = ref(0)
 
+  function applySurfaceOpacity() {
+    const root = document.documentElement.style
+    root.setProperty('--ui-opacity', `${uiOpacity.value}%`)
+    root.setProperty('--ui-image-opacity-offset', theme.value === 'light' && settingsBackgroundImage.value ? '18%' : '0%')
+  }
+
   // 首次进入时应用已持久化的主题
   applyTheme(theme.value)
+  applyAccentColor(accentColor.value)
+  applySurfaceOpacity()
   applyFontSize(fontSize.value)
   applySidebarFontSize(sidebarFontSize.value)
   applyFileFontSize(fileFontSize.value)
@@ -304,6 +417,7 @@ export const useUiStore = defineStore('ui', () => {
   function setTheme(mode: ThemeMode) {
     theme.value = mode
     applyTheme(mode)
+    applySurfaceOpacity()
     try {
       localStorage.setItem(LS_THEME, mode)
     } catch {
@@ -313,6 +427,34 @@ export const useUiStore = defineStore('ui', () => {
 
   function toggleTheme() {
     setTheme(theme.value === 'dark' ? 'light' : 'dark')
+  }
+
+  function setAccentColor(color: string) {
+    if (!/^#[\da-f]{6}$/i.test(color)) return
+    accentColor.value = color.toLowerCase()
+    applyAccentColor(accentColor.value)
+    try { localStorage.setItem(LS_ACCENT_COLOR, accentColor.value) } catch { /* ignore */ }
+  }
+
+  function setUiOpacity(value: number) {
+    if (!Number.isInteger(value) || value < 60 || value > 100) return
+    uiOpacity.value = value
+    applySurfaceOpacity()
+    try { localStorage.setItem(LS_UI_OPACITY, String(value)) } catch { /* ignore */ }
+  }
+
+  async function setSettingsBackgroundImage(value: string): Promise<boolean> {
+    if (value && !/^data:image\/(png|jpeg|webp|gif);base64,[\da-z+/=]+$/i.test(value)) return false
+    backgroundImageRevision += 1
+    settingsBackgroundImage.value = value
+    applySurfaceOpacity()
+    try {
+      await writeBackgroundToDb(value)
+      localStorage.removeItem(LS_SETTINGS_BACKGROUND)
+      return true
+    } catch {
+      return false
+    }
   }
 
   function setFontSize(size: number) {
@@ -482,6 +624,9 @@ export const useUiStore = defineStore('ui', () => {
     applyFileFontSize(fileFontSize.value)
     applyRowHeights(sidebarRowHeight.value, fileRowHeight.value)
     resetAllShortcuts()
+    setAccentColor(DEFAULT_ACCENT_COLOR)
+    setUiOpacity(100)
+    setSettingsBackgroundImage('')
   }
 
   function displayFileName(name: string, isDir: boolean): string {
@@ -535,6 +680,12 @@ export const useUiStore = defineStore('ui', () => {
   return {
     sidebarCollapsed,
     theme,
+    accentColor,
+    setAccentColor,
+    uiOpacity,
+    setUiOpacity,
+    settingsBackgroundImage,
+    setSettingsBackgroundImage,
     fontSize,
     sidebarFontSize,
     fileFontSize,

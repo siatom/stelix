@@ -15,7 +15,7 @@ body {
   font-family: var(--font);
   font-size: 1rem;
   color: var(--fg);
-  background: var(--bg-app);
+  background: transparent;
   user-select: none;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
@@ -123,7 +123,7 @@ button:disabled {
     'activity sidebar main';
   height: 100%;
   width: 100%;
-  background: var(--bg-app);
+  background: transparent;
 }
 
 .area-activity {

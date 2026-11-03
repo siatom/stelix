@@ -562,7 +562,7 @@ onBeforeUnmount(() => {
   flex: 1;
   min-width: 0;
   min-height: 0;
-  background: var(--bg-app);
+  background: transparent;
   font-size: var(--file-font-size);
 }
 .error-bar {
@@ -703,6 +703,7 @@ onBeforeUnmount(() => {
   min-height: 0;
   min-width: 0;
   overflow: auto;
+  background: var(--bg-app);
 }
 .trash-table {
   width: 100%;
@@ -795,6 +796,7 @@ onBeforeUnmount(() => {
   min-width: 0;
   min-height: 0;
   overflow: auto;
+  background: var(--bg-app);
 }
 .list-row {
   display: flex;
@@ -826,6 +828,7 @@ onBeforeUnmount(() => {
   min-height: 0;
   overflow: auto;
   padding: 10px;
+  background: var(--bg-app);
 }
 .icons-grid {
   display: grid;
