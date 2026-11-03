@@ -104,7 +104,7 @@ function titleOf(item: { key: PanelKey; title: string }): string {
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 40px 0 6px;
+  padding: 48px 0 6px;
   gap: 2px;
 }
 .brand {

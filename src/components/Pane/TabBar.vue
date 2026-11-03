@@ -41,7 +41,7 @@ function onContext(ev: MouseEvent, tabId: string) {
         @mousedown.middle="onMiddle($event, t.id)"
         @contextmenu="onContext($event, t.id)"
       >
-        <Icon v-if="t.kind === 'terminal'" class="tab-kind" name="terminal" :size="12" />
+        <Icon v-if="t.kind === 'terminal'" class="tab-kind" name="terminal" :size="15" />
         <FileIcon
           v-else-if="t.kind === 'trash'"
           class="tab-kind"
@@ -50,7 +50,7 @@ function onContext(ev: MouseEvent, tabId: string) {
           :ext="null"
           :trash-state="true"
           fallback="trash"
-          :size="12"
+          :size="15"
         />
         <span class="tab-name">{{ label(t) }}</span>
         <span
@@ -59,11 +59,11 @@ function onContext(ev: MouseEvent, tabId: string) {
           title="关闭标签"
           @click.stop="paneStore.closeTab(paneId, t.id)"
         >
-          <Icon name="x" :size="12" />
+          <Icon name="x" :size="15" />
         </span>
       </button>
       <button class="tab-add" title="新建标签" @click="paneStore.addTab(paneId)">
-        <Icon name="plus" :size="14" />
+        <Icon name="plus" :size="15" />
       </button>
     </div>
 
@@ -110,6 +110,7 @@ function onContext(ev: MouseEvent, tabId: string) {
   background: var(--pane-title-bg);
   border-bottom: 1px solid var(--border);
   transition: background 0.12s ease;
+  font-size: var(--file-font-size);
 }
 .tab-bar.is-active {
   background: var(--pane-title-bg-active);
@@ -149,6 +150,7 @@ function onContext(ev: MouseEvent, tabId: string) {
 .tab-name {
   overflow: hidden;
   text-overflow: ellipsis;
+  font-size: inherit;
 }
 .tab-kind {
   flex: none;

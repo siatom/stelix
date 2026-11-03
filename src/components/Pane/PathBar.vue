@@ -148,7 +148,7 @@ watch(
       @dblclick.stop.prevent="startEdit"
     >
       <template v-for="(seg, i) in segments" :key="seg.path">
-        <span v-if="i > 0" class="sep"><Icon name="chevron-right" :size="11" /></span>
+        <span v-if="i > 0" class="sep"><Icon name="chevron-right" :size="15" /></span>
         <button class="crumb" :class="{ last: i === segments.length - 1 }" @click="go(seg.path)">
           {{ seg.label }}
         </button>
@@ -183,11 +183,12 @@ watch(
 .path-bar {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   height: var(--pane-bar-h);
   padding: 0 6px;
   background: var(--bg-panel);
   border-bottom: 1px solid var(--border);
+  font-size: var(--file-font-size);
 }
 .favorite-button {
   flex: none;
@@ -214,7 +215,7 @@ watch(
   flex: 1;
   display: flex;
   align-items: center;
-  gap: 1px;
+  gap: 6px;
   min-width: 0;
   overflow-x: auto;
   white-space: nowrap;
@@ -227,7 +228,7 @@ watch(
   padding: 2px 6px;
   border-radius: var(--radius);
   color: var(--fg-muted);
-  font-size: 1rem;
+  font-size: inherit;
 }
 .crumb:hover {
   background: var(--bg-hover);
@@ -246,6 +247,6 @@ watch(
   height: 22px;
   min-width: 0;
   font-family: "Microsoft YaHei", "微软雅黑", sans-serif;
-  font-size: 1rem;
+  font-size: inherit;
 }
 </style>

@@ -21,16 +21,16 @@ const isTrash = computed(() => {
   <div class="pane-toolbar">
     <div class="group">
       <button title="后退" :disabled="!paneStore.canGoBack(paneId)" @click="paneStore.goBack(paneId)">
-        <Icon name="arrow-left" />
+        <Icon name="arrow-left" :size="15" />
       </button>
       <button title="前进" :disabled="!paneStore.canGoForward(paneId)" @click="paneStore.goForward(paneId)">
-        <Icon name="arrow-right" />
+        <Icon name="arrow-right" :size="15" />
       </button>
       <button title="上级目录" :disabled="isTrash" @click="paneStore.goUp(paneId)">
-        <Icon name="arrow-up" />
+        <Icon name="arrow-up" :size="15" />
       </button>
       <button title="刷新" @click="paneStore.refresh(paneId)">
-        <Icon name="refresh" />
+        <Icon name="refresh" :size="15" />
       </button>
     </div>
   </div>
