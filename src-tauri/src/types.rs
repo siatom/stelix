@@ -159,6 +159,35 @@ pub struct FsOpResult {
     pub denied: Vec<String>,
 }
 
+/// 回收站中的一个条目。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrashEntry {
+    /// 系统回收站内的 opaque id，用于还原 / 永久删除。
+    pub id: String,
+    pub name: String,
+    /// 删除前的完整路径。
+    pub original_path: String,
+    /// 删除前所在目录。
+    pub original_parent: String,
+    /// 删除时间（Unix 毫秒）。
+    pub deleted_at: i64,
+    pub is_dir: bool,
+    /// 文件字节数；目录为 0。
+    pub size: u64,
+    /// 目录的直接子项数量；文件为 0。
+    pub item_count: u64,
+}
+
+/// 回收站批量操作结果（允许部分成功）。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrashOpResult {
+    pub ok: usize,
+    #[serde(default)]
+    pub errors: Vec<String>,
+}
+
 /// AI 对话消息
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

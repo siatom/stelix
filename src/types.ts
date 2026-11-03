@@ -76,6 +76,30 @@ export interface FsOpResult {
   denied?: string[]
 }
 
+/** 回收站中的一个条目。 */
+export interface TrashEntry {
+  /** 系统回收站内的 opaque id，用于还原 / 永久删除。 */
+  id: string
+  name: string
+  /** 删除前的完整路径。 */
+  originalPath: string
+  /** 删除前所在目录。 */
+  originalParent: string
+  /** 删除时间（Unix 毫秒）。 */
+  deletedAt: number
+  isDir: boolean
+  /** 文件字节数；目录为 0。 */
+  size: number
+  /** 目录的直接子项数量；文件为 0。 */
+  itemCount: number
+}
+
+/** 回收站批量操作结果（允许部分成功）。 */
+export interface TrashOpResult {
+  ok: number
+  errors: string[]
+}
+
 export interface AiMessage {
   role: 'system' | 'user' | 'assistant'
   content: string
@@ -255,8 +279,8 @@ export interface SshExitEvent {
 export interface TabState {
   id: string
   path: string
-  /** 标签页类型：普通目录 / 搜索结果 / 远程（FTP/SFTP）目录 / SSH 终端 */
-  kind?: 'files' | 'search' | 'remote' | 'terminal'
+  /** 标签页类型：普通目录 / 搜索结果 / 远程（FTP/SFTP）目录 / SSH 终端 / 回收站 */
+  kind?: 'files' | 'search' | 'remote' | 'terminal' | 'trash'
   title?: string
   searchQuery?: string
   /** 远程标签的连接信息（`kind === 'remote'` 时有效）；`path` 为远程 POSIX 路径 */

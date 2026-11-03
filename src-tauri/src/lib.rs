@@ -16,6 +16,7 @@ mod fs_core;
 mod index_engine;
 mod network;
 mod persistence;
+mod recycle_bin;
 mod schedule;
 mod search_engine;
 mod sftp;
@@ -212,6 +213,38 @@ async fn fs_operation_elevated(op: FsOp) -> Result<FsOpResult, String> {
     tauri::async_runtime::spawn_blocking(move || elevate::run_elevated_fs_op(&op))
         .await
         .map_err(|error| format!("提权任务失败: {error}"))?
+}
+
+/// 列出系统回收站中的条目。
+#[tauri::command]
+async fn trash_list() -> Result<Vec<TrashEntry>, String> {
+    tauri::async_runtime::spawn_blocking(recycle_bin::list)
+        .await
+        .map_err(|error| format!("回收站读取任务失败: {error}"))?
+}
+
+/// 还原回收站中的指定条目。
+#[tauri::command]
+async fn trash_restore(ids: Vec<String>) -> Result<TrashOpResult, String> {
+    tauri::async_runtime::spawn_blocking(move || recycle_bin::restore(&ids))
+        .await
+        .map_err(|error| format!("回收站还原任务失败: {error}"))?
+}
+
+/// 永久删除回收站中的指定条目。
+#[tauri::command]
+async fn trash_purge(ids: Vec<String>) -> Result<TrashOpResult, String> {
+    tauri::async_runtime::spawn_blocking(move || recycle_bin::purge(&ids))
+        .await
+        .map_err(|error| format!("回收站删除任务失败: {error}"))?
+}
+
+/// 清空回收站。
+#[tauri::command]
+async fn trash_empty() -> Result<TrashOpResult, String> {
+    tauri::async_runtime::spawn_blocking(recycle_bin::empty)
+        .await
+        .map_err(|error| format!("清空回收站任务失败: {error}"))?
 }
 
 /// 取文件 / 文件夹的 Windows 系统图标，返回 `data:image/png;base64,...`。
@@ -872,6 +905,10 @@ pub fn run() {
             ssh_close,
             fs_operation,
             fs_operation_elevated,
+            trash_list,
+            trash_restore,
+            trash_purge,
+            trash_empty,
             get_file_icon,
             set_file_clipboard,
             get_file_clipboard,

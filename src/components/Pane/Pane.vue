@@ -3,14 +3,16 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { usePaneStore } from '../../stores/pane'
 import { isCapturingShortcut } from '../../stores/shortcuts'
-import { basename } from './utils'
+import { basename, RECYCLE_BIN_SHELL_PATH } from './utils'
 import TabBar from './TabBar.vue'
 import PaneToolbar from './PaneToolbar.vue'
 import PathBar from './PathBar.vue'
 import FileList from './FileList.vue'
+import TrashView from './TrashView.vue'
 import TerminalView from '../Terminal/TerminalView.vue'
 import StatusBar from '../StatusBar.vue'
 import Icon from '../icons/Icon.vue'
+import FileIcon from '../icons/FileIcon.vue'
 import { useTerminalStore } from '../../stores/terminal'
 import type { TabState } from '../../types'
 import type { TerminalSession } from '../../stores/terminal'
@@ -19,6 +21,8 @@ const props = defineProps<{ paneId: string; dropActive?: boolean }>()
 
 const paneStore = usePaneStore()
 const terminalStore = useTerminalStore()
+/** 回收站标签的内容与操作由子组件维护，标题栏按钮通过它读取选中态并触发操作。 */
+const trashView = ref<InstanceType<typeof TrashView> | null>(null)
 const pane = computed(() => paneStore.panes.find((p) => p.id === props.paneId))
 const isActivePane = computed(() => paneStore.activePaneId === props.paneId)
 const tab = computed(() => {
@@ -166,17 +170,61 @@ async function confirmDelete() {
           <div v-if="tab.kind === 'search'" class="search-heading" :title="tab.searchQuery">
             搜索结果：{{ tab.searchQuery }}
           </div>
+          <div v-else-if="tab.kind === 'trash'" class="trash-heading">
+            <FileIcon
+              :path="RECYCLE_BIN_SHELL_PATH"
+              :is-dir="false"
+              :ext="null"
+              :use-path-icon="true"
+              fallback="trash"
+              :size="15"
+            />
+            <span class="trash-title">回收站</span>
+            <div class="trash-actions">
+              <button
+                :disabled="!trashView?.canRestore"
+                title="还原所选到原位置"
+                @click="trashView?.restoreSelected()"
+              >
+                <Icon name="restore" :size="13" /><span>还原</span>
+              </button>
+              <button
+                :disabled="!trashView?.canOpenOriginal"
+                title="打开所选条目的原位置"
+                @click="trashView?.openOriginalSelected()"
+              >
+                <Icon name="folder-arrow" :size="13" /><span>原位置</span>
+              </button>
+              <button
+                class="danger"
+                :disabled="!trashView?.canPurge"
+                title="跳过回收站永久删除所选"
+                @click="trashView?.askPurgeSelected()"
+              >
+                <Icon name="trash" :size="13" /><span>永久删除</span>
+              </button>
+              <button
+                class="danger"
+                :disabled="!trashView?.canEmpty"
+                title="永久删除回收站中的全部条目"
+                @click="trashView?.askEmpty()"
+              >
+                <Icon name="trash" :size="13" /><span>清空</span>
+              </button>
+            </div>
+          </div>
           <PathBar v-else :pane-id="paneId" :tab="tab" />
         </template>
       </div>
       <FileList
-        v-if="tab.kind !== 'terminal'"
+        v-if="tab.kind !== 'terminal' && tab.kind !== 'trash'"
         :pane-id="paneId"
         :tab="tab"
         :create-request="createRequest"
         @delete="openDelete"
         @create-handled="onCreateHandled"
       />
+      <TrashView v-else-if="tab.kind === 'trash'" ref="trashView" :pane-id="paneId" :tab="tab" />
       <TerminalView
         v-for="item in terminalTabs"
         v-show="tab.kind === 'terminal' && tab.id === item.tab.id"
@@ -189,7 +237,11 @@ async function confirmDelete() {
     <div v-else class="state">没有可用标签</div>
     <div v-if="dropActive" class="drop-overlay"><span>复制到此文件夹</span></div>
     <TabBar :pane-id="paneId" />
-    <StatusBar :pane-id="paneId" />
+    <StatusBar
+      :pane-id="paneId"
+      :trash-count="tab?.kind === 'trash' ? trashView?.count ?? 0 : undefined"
+      :trash-selected-count="tab?.kind === 'trash' ? trashView?.selectedCount ?? 0 : undefined"
+    />
 
     <div v-if="errorMsg" class="error-bar">
       <span>{{ errorMsg }}</span>
@@ -280,6 +332,55 @@ async function confirmDelete() {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.trash-heading {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px 0 12px;
+  color: var(--fg);
+  font-size: 1rem;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.trash-title {
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 550;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.trash-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+  margin-left: auto;
+}
+.trash-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: var(--radius);
+  color: var(--fg-muted);
+  font-size: 0.875em;
+  white-space: nowrap;
+}
+.trash-actions button:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+.trash-actions button.danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+  color: var(--danger);
+}
+.trash-actions button:disabled {
+  opacity: 0.38;
+  cursor: default;
 }
 .terminal-heading {
   flex: 1;

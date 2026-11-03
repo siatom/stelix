@@ -77,7 +77,14 @@ onMounted(() => {
       const paneId = paneEl?.dataset.paneId
       const owner = paneId ? paneStore.panes.find((pane) => pane.id === paneId) : undefined
       const tab = owner?.tabs.find((item) => item.id === owner.activeTabId)
-      if (!paneId || !tab || tab.kind === 'remote' || tab.kind === 'search' || tab.kind === 'terminal') {
+      if (
+        !paneId ||
+        !tab ||
+        tab.kind === 'remote' ||
+        tab.kind === 'search' ||
+        tab.kind === 'terminal' ||
+        tab.kind === 'trash'
+      ) {
         dropTargetPaneId.value = null
         return
       }

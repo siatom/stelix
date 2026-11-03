@@ -2,8 +2,9 @@
 // 标签栏（窗格标题栏）：标签切换/关闭 + 新建；右侧双栏动作按钮；活动窗格用底色区分焦点（WS-D）
 import { computed } from 'vue'
 import { usePaneStore } from '../../stores/pane'
-import { basename } from './utils'
+import { basename, RECYCLE_BIN_SHELL_PATH } from './utils'
 import Icon from '../icons/Icon.vue'
+import FileIcon from '../icons/FileIcon.vue'
 
 const props = defineProps<{ paneId: string }>()
 const paneStore = usePaneStore()
@@ -41,6 +42,16 @@ function onContext(ev: MouseEvent, tabId: string) {
         @contextmenu="onContext($event, t.id)"
       >
         <Icon v-if="t.kind === 'terminal'" class="tab-kind" name="terminal" :size="12" />
+        <FileIcon
+          v-else-if="t.kind === 'trash'"
+          class="tab-kind"
+          :path="RECYCLE_BIN_SHELL_PATH"
+          :is-dir="false"
+          :ext="null"
+          :use-path-icon="true"
+          fallback="trash"
+          :size="12"
+        />
         <span class="tab-name">{{ label(t) }}</span>
         <span
           v-if="(pane?.tabs.length ?? 0) > 1"

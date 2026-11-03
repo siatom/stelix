@@ -69,6 +69,7 @@ windows-sys = { version = "0.59", features = [
     "Win32_System_Ole",
     "Win32_Graphics_Gdi",
     "Win32_UI_Shell",
+    "Win32_UI_Shell_Common",
     "Win32_UI_WindowsAndMessaging",
     # 提权子进程等待（WaitForSingleObject / GetExitCodeProcess）
     "Win32_System_Threading",

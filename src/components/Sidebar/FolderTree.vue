@@ -19,6 +19,7 @@ import {
 import type { QuickLocation, RecentDirectory, TreeNodeData } from './shared'
 import Icon from '../icons/Icon.vue'
 import FileIcon from '../icons/FileIcon.vue'
+import { RECYCLE_BIN_SHELL_PATH } from '../Pane/utils'
 
 const pane = usePaneStore()
 const ui = useUiStore()
@@ -488,6 +489,21 @@ onBeforeUnmount(() => {
             @contextmenu="onLocationContextMenu"
           />
         </div>
+        <div class="tree-sep" aria-hidden="true" />
+        <button class="trash-row" title="回收站" @click="pane.openTrash()">
+          <span class="trash-twist" aria-hidden="true" />
+          <span class="trash-icon">
+            <FileIcon
+              :path="RECYCLE_BIN_SHELL_PATH"
+              :is-dir="false"
+              :ext="null"
+              :use-path-icon="true"
+              fallback="trash"
+              :size="18"
+            />
+          </span>
+          <span class="label">回收站</span>
+        </button>
       </div>
       <div v-if="sections.computer && !loading && !wslLoading && !roots.length && !wslDistros.length && !error" class="state">未检测到驱动器或 WSL 实例</div>
       <div v-if="sections.computer && wslError" class="state err">WSL 实例读取失败：{{ wslError }}</div>
@@ -585,6 +601,30 @@ onBeforeUnmount(() => {
 .tree-body {
   display: flex;
   flex-direction: column;
+}
+.trash-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  height: var(--sidebar-row-h);
+  padding: 0 6px;
+  border-radius: var(--radius);
+  color: var(--fg-folder);
+  text-align: left;
+}
+.trash-row:hover { background: var(--bg-hover); }
+.trash-twist { width: 12px; flex: none; }
+.trash-icon {
+  flex: none;
+  display: flex;
+  color: var(--fg-muted);
+}
+.trash-row:hover .trash-icon { color: var(--fg); }
+.tree-sep {
+  height: 1px;
+  margin: 3px 6px 4px;
+  background: var(--border);
 }
 .wsl-row {
   display: flex;

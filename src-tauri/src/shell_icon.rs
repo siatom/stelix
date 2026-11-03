@@ -143,7 +143,11 @@ fn extract_windows(path: &str, is_dir: bool, use_path_icon: bool) -> Option<Stri
         format!("x.{ext}")
     };
 
-    let hicon: Option<HICON> = if is_dir {
+    // Shell 命名空间对象（如 `::{645FF040-...}` 回收站）必须先把字符串解析成
+    // PIDL，再以 `SHGFI_PIDL` 取图标；直接按普通路径查询只会得到通用文件图标。
+    let hicon: Option<HICON> = if path.starts_with("::") {
+        query_shell_icon(path, base)
+    } else if is_dir {
         if use_path_icon {
             query_icon(path, FILE_ATTRIBUTE_DIRECTORY, base).or_else(|| {
                 query_icon(
@@ -198,6 +202,53 @@ fn query_icon(
             flags,
         )
     };
+    if ret == 0 || info.hIcon.is_null() {
+        None
+    } else {
+        Some(info.hIcon)
+    }
+}
+
+/// 取 Shell 命名空间对象（`::{GUID}`）的图标：先解析为 PIDL，再用 `SHGFI_PIDL` 查询。
+#[cfg(windows)]
+fn query_shell_icon(
+    name: &str,
+    flags: u32,
+) -> Option<windows_sys::Win32::UI::WindowsAndMessaging::HICON> {
+    use std::ffi::c_void;
+    use windows_sys::Win32::System::Com::CoTaskMemFree;
+    use windows_sys::Win32::UI::Shell::{
+        SHGetFileInfoW, SHParseDisplayName, SHFILEINFOW, SHGFI_PIDL,
+    };
+
+    let wide: Vec<u16> = name.encode_utf16().chain(std::iter::once(0)).collect();
+    let mut pidl = std::ptr::null_mut();
+    let hr = unsafe {
+        SHParseDisplayName(
+            wide.as_ptr(),
+            std::ptr::null_mut(),
+            &mut pidl,
+            0,
+            std::ptr::null_mut(),
+        )
+    };
+    if hr < 0 || pidl.is_null() {
+        return None;
+    }
+
+    let mut info: SHFILEINFOW = unsafe { std::mem::zeroed() };
+    let ret = unsafe {
+        SHGetFileInfoW(
+            pidl as *const u16,
+            0,
+            &mut info,
+            std::mem::size_of::<SHFILEINFOW>() as u32,
+            flags | SHGFI_PIDL,
+        )
+    };
+    // SHParseDisplayName 返回的 PIDL 由调用方用 CoTaskMemFree 释放。
+    unsafe { CoTaskMemFree(pidl as *const c_void) };
+
     if ret == 0 || info.hIcon.is_null() {
         None
     } else {
@@ -433,6 +484,28 @@ mod tests {
             &[0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a],
             "应是合法 PNG 签名"
         );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn extracts_recycle_bin_shell_icon() {
+        use base64::Engine as _;
+        // 回收站是 Shell 命名空间对象，用它的 GUID 路径取系统图标。
+        let url = extract("::{645FF040-5081-101B-9F08-00AA002F954E}", false, true)
+            .expect("应能提取回收站系统图标");
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(url.strip_prefix("data:image/png;base64,").unwrap())
+            .unwrap();
+        let mut reader = png::Decoder::new(std::io::Cursor::new(bytes))
+            .read_info()
+            .unwrap();
+        let mut pixels = vec![0; reader.output_buffer_size()];
+        let frame = reader.next_frame(&mut pixels).unwrap();
+        let visible = pixels[..frame.buffer_size()]
+            .chunks_exact(4)
+            .filter(|p| p[3] > 0)
+            .count();
+        assert!(visible > 0, "回收站图标不应是全透明图");
     }
 
     #[cfg(windows)]

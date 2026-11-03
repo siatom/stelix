@@ -31,6 +31,8 @@ import type {
   TaskPlanReply,
   TaskPreview,
   ToolOutcome,
+  TrashEntry,
+  TrashOpResult,
 } from '../types'
 
 /** 后端 command 封装（与 src-tauri/src/lib.rs 注册表一一对应） */
@@ -76,6 +78,14 @@ export const api = {
   fsOperation: (op: FsOp) => invoke<FsOpResult>('fs_operation', { op }),
   /** 提权执行一次因权限不足失败的文件操作（Windows UAC）。 */
   fsOperationElevated: (op: FsOp) => invoke<FsOpResult>('fs_operation_elevated', { op }),
+  /** 列出系统回收站条目（按删除时间从新到旧）。 */
+  trashList: () => invoke<TrashEntry[]>('trash_list'),
+  /** 把回收站条目还原到原位置；同名冲突时逐项返回错误。 */
+  trashRestore: (ids: string[]) => invoke<TrashOpResult>('trash_restore', { ids }),
+  /** 永久删除回收站中的指定条目。 */
+  trashPurge: (ids: string[]) => invoke<TrashOpResult>('trash_purge', { ids }),
+  /** 清空回收站。 */
+  trashEmpty: () => invoke<TrashOpResult>('trash_empty'),
   setFileClipboard: (paths: string[], moveFiles: boolean) =>
     invoke<void>('set_file_clipboard', { paths, moveFiles }),
   getFileClipboard: () => invoke<{ paths: string[]; moveFiles: boolean } | null>('get_file_clipboard'),

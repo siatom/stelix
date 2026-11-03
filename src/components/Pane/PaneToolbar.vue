@@ -2,12 +2,19 @@
 // 窗格内嵌工具栏：目录导航。
 // 新建 / 删除 / 视图切换已上移到应用顶部标题栏（见 components/TitlebarActions.vue），
 // 这里只保留与当前窗格强绑定的前进后退与刷新。
+import { computed } from 'vue'
 import { usePaneStore } from '../../stores/pane'
 import Icon from '../icons/Icon.vue'
 
 const props = defineProps<{ paneId: string }>()
 
 const paneStore = usePaneStore()
+/** 回收站是虚拟位置，没有「上级目录」。 */
+const isTrash = computed(() => {
+  const pane = paneStore.panes.find((item) => item.id === props.paneId)
+  const tab = pane?.tabs.find((item) => item.id === pane.activeTabId) ?? pane?.tabs[0]
+  return tab?.kind === 'trash'
+})
 </script>
 
 <template>
@@ -19,7 +26,7 @@ const paneStore = usePaneStore()
       <button title="前进" :disabled="!paneStore.canGoForward(paneId)" @click="paneStore.goForward(paneId)">
         <Icon name="arrow-right" />
       </button>
-      <button title="上级目录" @click="paneStore.goUp(paneId)">
+      <button title="上级目录" :disabled="isTrash" @click="paneStore.goUp(paneId)">
         <Icon name="arrow-up" />
       </button>
       <button title="刷新" @click="paneStore.refresh(paneId)">

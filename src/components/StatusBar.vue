@@ -4,8 +4,15 @@ import { computed } from 'vue'
 import { usePaneStore } from '../stores/pane'
 import { useUiStore } from '../stores/ui'
 import Icon from './icons/Icon.vue'
+import FileIcon from './icons/FileIcon.vue'
+import { RECYCLE_BIN_SHELL_PATH } from './Pane/utils'
 
-const props = defineProps<{ paneId: string }>()
+const props = defineProps<{
+  paneId: string
+  /** 回收站标签的条目总数 / 选中数（由该窗格的 TrashView 提供）。 */
+  trashCount?: number
+  trashSelectedCount?: number
+}>()
 const paneStore = usePaneStore()
 const ui = useUiStore()
 
@@ -36,7 +43,24 @@ const isActivePane = computed(() => paneStore.activePaneId === props.paneId)
 
 <template>
   <footer class="status-bar">
-    <template v-if="tab?.kind !== 'terminal'">
+    <template v-if="tab?.kind === 'trash'">
+      <span
+        class="seg count"
+        :title="`回收站 ${trashSelectedCount ?? 0} / ${trashCount ?? 0} 项`"
+        aria-label="回收站条目数量"
+      >
+        <FileIcon
+          :path="RECYCLE_BIN_SHELL_PATH"
+          :is-dir="false"
+          :ext="null"
+          :use-path-icon="true"
+          fallback="trash"
+          :size="14"
+        />
+        <span>{{ trashSelectedCount ?? 0 }} / {{ trashCount ?? 0 }}</span>
+      </span>
+    </template>
+    <template v-else-if="tab?.kind !== 'terminal'">
       <span class="seg count" :title="`文件夹 ${folderStats.selected} / ${folderStats.total}`" aria-label="文件夹数量">
         <Icon name="folder" :size="14" />
         <span>{{ folderStats.selected }} / {{ folderStats.total }}</span>

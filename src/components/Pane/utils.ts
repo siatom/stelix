@@ -2,6 +2,9 @@
 import type { FileEntry } from '../../types'
 import type { IconName } from '../icons/paths'
 
+/** Windows 回收站的 Shell 命名空间路径，用于向系统请求回收站图标。 */
+export const RECYCLE_BIN_SHELL_PATH = '::{645FF040-5081-101B-9F08-00AA002F954E}'
+
 /** 去掉尾部斜杠后的路径 */
 function trimTrailing(p: string): string {
   const t = p.replace(/[\\/]+$/, '')

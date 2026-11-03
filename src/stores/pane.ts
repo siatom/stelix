@@ -149,7 +149,7 @@ function sameEntries(a: FileEntry[], b: FileEntry[]): boolean {
 /** 浏览历史中的一处位置：普通目录只记路径，搜索结果与远程目录还需带上还原所需的信息。 */
 interface HistoryItem {
   path: string
-  kind?: 'files' | 'search' | 'remote' | 'terminal'
+  kind?: 'files' | 'search' | 'remote' | 'terminal' | 'trash'
   title?: string
   searchQuery?: string
   entries?: FileEntry[]
@@ -161,7 +161,12 @@ interface HistoryItem {
  * 与 SSH 终端（依赖活动会话）都不写入 localStorage，否则恢复时会被当成普通本地目录标签。
  */
 function isPersistableTab(tab: TabState): boolean {
-  return tab.kind !== 'search' && tab.kind !== 'remote' && tab.kind !== 'terminal'
+  return (
+    tab.kind !== 'search' &&
+    tab.kind !== 'remote' &&
+    tab.kind !== 'terminal' &&
+    tab.kind !== 'trash'
+  )
 }
 
 interface HistoryEntry {
@@ -212,6 +217,8 @@ export const usePaneStore = defineStore('pane', () => {
   const histories = ref<Record<string, HistoryEntry>>({})
   /** 外部请求定位到某个条目（搜索结果 / AI 操作后） */
   const revealTarget = ref<{ tabId: string; path: string } | null>(null)
+  /** 回收站内容刷新信号：本地删除后递增，打开的回收站标签据此重载。 */
+  const trashRefreshSeq = ref(0)
   /**
    * 正在行内编辑（重命名 / 新建）的标签 id，由 `FileList` 上报。
    * 这些标签在收到目录变更时跳过自动刷新，避免打断正在进行的输入。
@@ -264,13 +271,23 @@ export const usePaneStore = defineStore('pane', () => {
   const canCreateInActivePane = computed(() => {
     const tab = activeTab.value
     return (
-      !!tab && tab.kind !== 'search' && tab.kind !== 'remote' && tab.kind !== 'terminal'
+      !!tab &&
+      tab.kind !== 'search' &&
+      tab.kind !== 'remote' &&
+      tab.kind !== 'terminal' &&
+      tab.kind !== 'trash'
     )
   })
   // 删除作用于选中项自身路径：搜索结果的命中项也是真实本地文件，与普通目录一样可删。
   const canDeleteInActivePane = computed(() => {
     const tab = activeTab.value
-    return !!tab && tab.kind !== 'remote' && tab.kind !== 'terminal' && tab.selected.length > 0
+    return (
+      !!tab &&
+      tab.kind !== 'remote' &&
+      tab.kind !== 'terminal' &&
+      tab.kind !== 'trash' &&
+      tab.selected.length > 0
+    )
   })
 
   // ---- 内部小工具 ----
@@ -428,6 +445,8 @@ export const usePaneStore = defineStore('pane', () => {
     if (tab.kind === 'search') return
     // 终端标签没有目录语义（`path` 只是展示用的 ssh:// 地址），不参与列目录。
     if (tab.kind === 'terminal') return
+    // 回收站内容由 TrashView 直接读取，不经过目录列举。
+    if (tab.kind === 'trash') return
     // 每次加载领一个递增 token：先发出的请求若后返回，其结果是过期目录，必须丢弃，
     // 否则会覆盖新目录的内容并清空选中。
     const token = (loadTokens.get(tab.id) ?? 0) + 1
@@ -454,6 +473,26 @@ export const usePaneStore = defineStore('pane', () => {
   /** 目录树 / 命令面板调用：把路径导航到当前活动窗格的活动标签 */
   async function navigate(path: string) {
     await navigateTo(activePaneId.value, path)
+  }
+
+  /** 在指定窗格打开回收站；已有回收站标签时直接切过去。 */
+  function openTrash(paneId: string = activePaneId.value) {
+    const pane = paneById(paneId)
+    if (!pane) return
+    const existing = pane.tabs.find((tab) => tab.kind === 'trash')
+    if (existing) {
+      pane.activeTabId = existing.id
+      return
+    }
+    const tab = makeTab('')
+    tab.kind = 'trash'
+    tab.title = '回收站'
+    tab.path = ''
+    tab.entries = []
+    tab.selected = []
+    pane.tabs.push(tab)
+    pane.activeTabId = tab.id
+    recordHistory(tab)
   }
 
   async function navigateTo(paneId: string, path: string, tabId?: string, pushHistory = true) {
@@ -637,6 +676,16 @@ export const usePaneStore = defineStore('pane', () => {
       await navigateRemote(paneId, item.remote, item.path, tab.id, false)
       return
     }
+    if (item.kind === 'trash') {
+      tab.kind = 'trash'
+      tab.title = '回收站'
+      tab.path = ''
+      tab.entries = []
+      tab.selected = []
+      tab.loading = false
+      tab.error = null
+      return
+    }
     await navigateTo(paneId, item.path, tab.id, false)
   }
 
@@ -683,6 +732,7 @@ export const usePaneStore = defineStore('pane', () => {
     if (!pane) return
     const tab = activeTabOf(pane)
     if (!tab) return
+    if (tab.kind === 'trash') return
     if (tab.kind === 'remote' && tab.remote) {
       const parent = remoteDirname(tab.path)
       if (parent === tab.path) return
@@ -699,6 +749,10 @@ export const usePaneStore = defineStore('pane', () => {
     if (!pane) return
     const tab = activeTabOf(pane)
     if (!tab) return
+    if (tab.kind === 'trash') {
+      trashRefreshSeq.value += 1
+      return
+    }
     await load(tab)
     // 手动刷新是「深层变更」唯一确定的观测时机（notify 只监听被打开目录的直接子项，
     // 深层删除不会触发事件），因此在这里让该目录子树的大小缓存失效并重算；
@@ -714,7 +768,14 @@ export const usePaneStore = defineStore('pane', () => {
    * 供「目录变更自动刷新」使用，避免应用内操作与 watcher 事件造成重复刷新与闪烁。
    */
   async function reloadQuiet(tab: TabState) {
-    if (tab.loading || tab.kind === 'search' || tab.kind === 'remote') return
+    if (
+      tab.loading ||
+      tab.kind === 'search' ||
+      tab.kind === 'remote' ||
+      tab.kind === 'trash'
+    ) {
+      return
+    }
     let listing: DirListing
     try {
       listing = await api.listDir(tab.path)
@@ -760,6 +821,7 @@ export const usePaneStore = defineStore('pane', () => {
       if (applied) patchSearchHits(tab, applied)
       return
     }
+    if (tab?.kind === 'trash') return
     await refresh(paneId)
   }
 
@@ -1408,6 +1470,8 @@ export const usePaneStore = defineStore('pane', () => {
       setStatus(`操作失败：${String(e)}`)
     }
     await refreshAfterOp(paneId, applied)
+    // 普通删除会改变回收站内容；已打开的回收站标签据此自动刷新。
+    if (applied?.op === 'delete' && !applied.permanent) trashRefreshSeq.value += 1
     return result
   }
 
@@ -1459,7 +1523,7 @@ export const usePaneStore = defineStore('pane', () => {
     const failures: FolderCreateFailure[] = []
     const pane = paneById(paneId)
     const tab = pane ? activeTabOf(pane) : undefined
-    if (!tab || tab.kind === 'remote' || tab.kind === 'search') {
+    if (!tab || tab.kind === 'remote' || tab.kind === 'search' || tab.kind === 'trash') {
       return {
         created,
         failures: names.map((name) => ({ name, reason: '当前标签不支持新建文件夹' })),
@@ -1801,6 +1865,8 @@ export const usePaneStore = defineStore('pane', () => {
     clearExpand,
     navigate,
     navigateTo,
+    openTrash,
+    trashRefreshSeq,
     openRemote,
     openRemoteWorkspace,
     addRemoteTab,
