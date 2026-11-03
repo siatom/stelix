@@ -9,8 +9,8 @@ import {
   Code, File, FilePlus2, FileText, Filter, Folder, FolderOpen, FolderOutput, FolderPlus, FolderSymlink,
   Globe, HardDrive, Home, Image, Info, LayoutGrid, LayoutList, List, LoaderCircle,
   Megaphone, MessageSquare, Minus, Moon, MoreHorizontal, Music2, Network, PanelLeftClose,
-  PanelLeftOpen, PanelLeft, Pencil, Play, Plus, RefreshCw, RotateCcw, Search,
-  PanelsLeftRight, Rows3, Send, Settings, Sparkles, Square, Star, Sun, Terminal,
+  PanelLeftOpen, Pencil, Play, Plus, RefreshCw, RotateCcw, Search,
+  Send, Settings, Sparkles, Square, Star, Sun, Terminal,
   Trash2, TriangleAlert, Upload, UserRound, Video, X, type LucideIcon,
 } from '@lucide/vue'
 import { ICONS, type IconName } from './paths'
