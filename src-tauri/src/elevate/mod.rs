@@ -244,6 +244,7 @@ mod tests {
             op: FsOpKind::Mkdir,
             sources: Vec::new(),
             target: Some(target.to_string_lossy().to_string()),
+            permanent: false,
         };
         std::fs::write(&op_path, serde_json::to_vec(&op).unwrap()).unwrap();
 

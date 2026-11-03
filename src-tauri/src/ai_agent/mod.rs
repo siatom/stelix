@@ -248,7 +248,7 @@ fn system_prompt(context: &AiContext) -> String {
          当前上下文（选中或用户附带引用的路径）：{selected}\n\
          可用工具：\n\
          - 只读（可直接调用）：search_files、list_dir、get_metadata\n\
-         - 写操作（调用后系统会先请用户确认，不会立即执行）：move_files、delete_files、rename_file、mkdir\n\
+         - 写操作（调用后系统会先请用户确认，不会立即执行）：move_files、delete_files（默认移到系统回收站，可还原）、rename_file、mkdir\n\
          规则：\n\
          1. 涉及写操作时，先用一句话说明将要做什么，再调用对应工具；不要声称已经执行。\n\
          2. 只读工具返回结果后，用简洁的中文总结，并列出关键文件（名称 + 大小 + 路径，最多 20 条）。\n\
@@ -297,7 +297,7 @@ fn tools_schema() -> Value {
         }},
         {"type":"function","function":{
             "name":"delete_files",
-            "description":"删除若干文件/目录（写操作，需用户确认）",
+            "description":"把若干文件/目录移到系统回收站（写操作，需用户确认）",
             "parameters":{"type":"object","properties":{
                 "paths":{"type":"array","items":{"type":"string"}}
             },"required":["paths"]}
@@ -619,6 +619,7 @@ fn build_fs_op(call: &AiToolCall) -> Result<(FsOp, String), String> {
                     op: FsOpKind::Move,
                     sources,
                     target: Some(target),
+                    permanent: false,
                 },
                 desc,
             ))
@@ -628,12 +629,13 @@ fn build_fs_op(call: &AiToolCall) -> Result<(FsOp, String), String> {
             if paths.is_empty() {
                 return Err("delete_files 缺少 paths".into());
             }
-            let desc = format!("删除 {} 项：{}", paths.len(), paths.join("、"));
+            let desc = format!("移到回收站 {} 项：{}", paths.len(), paths.join("、"));
             Ok((
                 FsOp {
                     op: FsOpKind::Delete,
                     sources: paths,
                     target: None,
+                    permanent: false,
                 },
                 desc,
             ))
@@ -663,6 +665,7 @@ fn build_fs_op(call: &AiToolCall) -> Result<(FsOp, String), String> {
                     op: FsOpKind::Rename,
                     sources: vec![path],
                     target: Some(target),
+                    permanent: false,
                 },
                 desc,
             ))
@@ -682,6 +685,7 @@ fn build_fs_op(call: &AiToolCall) -> Result<(FsOp, String), String> {
                     op: FsOpKind::Mkdir,
                     sources: vec![],
                     target: Some(path),
+                    permanent: false,
                 },
                 desc,
             ))
@@ -831,6 +835,7 @@ fn try_write_ops(
                         op: FsOpKind::Mkdir,
                         sources: vec![],
                         target: Some(path),
+                        permanent: false,
                     },
                 ));
             }
@@ -891,6 +896,7 @@ fn try_write_ops(
                     op: FsOpKind::Move,
                     sources,
                     target: Some(target),
+                    permanent: false,
                 },
             ));
         }
@@ -912,6 +918,7 @@ fn try_write_ops(
                     op: FsOpKind::Copy,
                     sources,
                     target: Some(target),
+                    permanent: false,
                 },
             ));
         }
@@ -954,13 +961,18 @@ fn try_write_ops(
                 });
             }
             let paths: Vec<String> = files.iter().map(|f| f.path.clone()).collect();
-            let desc = format!("删除最大的 {} 个文件：\n{}", paths.len(), paths.join("\n"));
+            let desc = format!(
+                "移到回收站（最大的 {} 个文件）：\n{}",
+                paths.len(),
+                paths.join("\n")
+            );
             return Some(confirm_reply(
                 desc,
                 FsOp {
                     op: FsOpKind::Delete,
                     sources: paths,
                     target: None,
+                    permanent: false,
                 },
             ));
         }
@@ -968,13 +980,14 @@ fn try_write_ops(
             .into_iter()
             .map(|s| resolve_path(&s, context))
             .collect::<Vec<_>>();
-        let desc = format!("删除 {} 项：\n{}", sources.len(), sources.join("\n"));
+        let desc = format!("移到回收站 {} 项：\n{}", sources.len(), sources.join("\n"));
         return Some(confirm_reply(
             desc,
             FsOp {
                 op: FsOpKind::Delete,
                 sources,
                 target: None,
+                permanent: false,
             },
         ));
     }
@@ -993,6 +1006,7 @@ fn rename_op(full_path: &str, new_name: &str) -> Option<FsOp> {
         op: FsOpKind::Rename,
         sources: vec![full_path.to_string()],
         target: Some(target),
+        permanent: false,
     })
 }
 

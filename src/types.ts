@@ -65,6 +65,8 @@ export interface FsOp {
   op: FsOpKind
   sources?: string[]
   target?: string | null
+  /** delete 时是否跳过回收站直接永久删除；默认 false（移到回收站）。 */
+  permanent?: boolean
 }
 
 export interface FsOpResult {

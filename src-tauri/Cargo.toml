@@ -77,6 +77,8 @@ windows-sys = { version = "0.59", features = [
 rusqlite = { version = "0.40.2", features = ["bundled", "cache"], default-features = false }
 notify = "8.2.0"
 tauri-plugin-drag = "2.1.1"
+# 删除文件：默认为「移到回收站 / 废纸篓」，跨平台由该 crate 处理
+trash = "5"
 
 # Windows Shell 原生右键菜单（IContextMenu / TrackPopupMenuEx）
 [target.'cfg(windows)'.dependencies]

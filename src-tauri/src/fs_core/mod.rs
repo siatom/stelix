@@ -4,10 +4,9 @@
 //! 本文件在保留原有行为的基础上，为 `execute` 增加了路径安全校验、
 //! 重名自动改名、跨盘 Move 回退（复制 + 删除）等增强。
 //!
-//! ⚠️ MVP 取舍：删除操作**未接入回收站**（`trash` crate 未在冻结的
-//! Cargo.toml 中，且 WS-B 不得修改依赖清单），因此 Delete 走 `std::fs`
-//! 直接物理删除。后续 Phase 可通过实现 `IndexSource`/注入 `TrashBackend`
-//! trait 的方式接入回收站，而不改动本模块对外签名。
+//! **删除默认进入系统回收站**（Windows 回收站 / macOS 废纸篓 / Linux Trash），
+//! 可通过系统回收站还原；`FsOp::permanent = true` 时跳过回收站永久删除。
+//! Move 的跨盘回退等内部清理仍直接物理删除。
 
 use std::fs;
 use std::path::{Component, Path, PathBuf};
@@ -278,7 +277,7 @@ fn drive_space(root: &str) -> (u64, u64) {
 ///    拒绝把目录移动/复制到它自身的子目录。
 /// 2. **重名自动改名**：Copy/Move 目标已存在同名项时，自动使用 `name (1).ext`。
 /// 3. **跨盘 Move 回退**：`rename` 失败（跨盘）时回退为「复制 + 删除」。
-/// 4. **删除**：MVP 直接物理删除（见文件头说明，未接入回收站）。
+/// 4. **删除**：默认移到系统回收站；`permanent = true` 时直接物理删除。
 ///
 /// 注意：`execute` 的签名不含 `AppHandle`，因此这里**不 emit** 任何进度事件，
 /// 以保持冻结契约不变。
@@ -370,12 +369,20 @@ pub fn execute(op: &FsOp) -> FsOpResult {
                     errors.push(format!("删除失败 {src}: 路径不存在"));
                     continue;
                 }
-                // MVP：直接物理删除（未接入回收站，见文件头）。
-                if let Err(e) = remove_path(p) {
-                    if is_access_denied(&e) {
+                if op.permanent {
+                    // 显式永久删除：跳过回收站，直接物理删除。
+                    if let Err(e) = remove_path(p) {
+                        if is_access_denied(&e) {
+                            denied.push(src.clone());
+                        }
+                        errors.push(format!("永久删除失败 {src}: {e}"));
+                    }
+                } else if let Err(e) = trash_path(p) {
+                    // 默认移到系统回收站：用户可在回收站中还原误删项。
+                    if is_trash_access_denied(&e) {
                         denied.push(src.clone());
                     }
-                    errors.push(format!("删除失败 {src}: {e}"));
+                    errors.push(format!("移到回收站失败 {src}: {e}"));
                 }
             }
         }
@@ -609,6 +616,27 @@ fn move_path(src: &Path, dest: &Path) -> std::io::Result<()> {
     }
 }
 
+/// 把单个路径移到系统回收站。
+///
+/// `trash` crate 在 Windows 上走 `IFileOperation`（回收站），
+/// macOS / Linux 分别走废纸篓与 Freedesktop Trash 规范。
+pub(crate) fn trash_path(p: &Path) -> Result<(), trash::Error> {
+    trash::delete(p)
+}
+
+/// 回收站操作是否属于权限不足（可触发 UAC 提权重试）。
+///
+/// Windows 下多为 `HRESULT_FROM_WIN32(ERROR_ACCESS_DENIED)` = `0x80070005`；
+/// `CouldNotAccess` 表示路径不存在或当前进程无权读取。
+fn is_trash_access_denied(e: &trash::Error) -> bool {
+    match e {
+        trash::Error::Os { code, .. } => *code as u32 == 0x8007_0005,
+        trash::Error::CouldNotAccess { .. } => true,
+        _ => false,
+    }
+}
+
+/// 直接物理删除（仅用于 Move 跨盘回退等内部清理，不面向用户的删除操作）。
 fn remove_path(p: &Path) -> std::io::Result<()> {
     if p.is_dir() {
         fs::remove_dir_all(p)
@@ -650,6 +678,7 @@ mod tests {
             op: kind,
             sources: Vec::new(),
             target: Some(target.to_string_lossy().to_string()),
+            permanent: false,
         }
     }
 
@@ -736,6 +765,7 @@ mod tests {
                 existing.to_string_lossy().to_string(),
             ],
             target: None,
+            permanent: false,
         });
         // 已存在的项报错，但不影响其它目录创建。
         assert!(!res.ok);
@@ -765,11 +795,48 @@ mod tests {
     }
 
     #[test]
+    fn only_trash_access_errors_are_elevatable() {
+        // HRESULT_FROM_WIN32(ERROR_ACCESS_DENIED) 与「无法访问目标」都要触发提权重试。
+        assert!(is_trash_access_denied(&trash::Error::Os {
+            code: 0x8007_0005u32 as i32,
+            description: String::new(),
+        }));
+        assert!(is_trash_access_denied(&trash::Error::CouldNotAccess {
+            target: "C:\\tmp\\a.txt".into(),
+        }));
+        // 文件被占用（0x80070020）等其它 shell 错误不触发提权。
+        assert!(!is_trash_access_denied(&trash::Error::Os {
+            code: 0x8007_0020u32 as i32,
+            description: String::new(),
+        }));
+        assert!(!is_trash_access_denied(&trash::Error::Unknown {
+            description: String::new(),
+        }));
+    }
+
+    #[test]
+    fn permanent_delete_removes_file_directly() {
+        let dir = temp_dir("permanent-delete");
+        let file = dir.join("a.txt");
+        fs::write(&file, b"x").unwrap();
+        let res = execute(&FsOp {
+            op: FsOpKind::Delete,
+            sources: vec![file.to_string_lossy().to_string()],
+            target: None,
+            permanent: true,
+        });
+        assert!(res.ok, "{:?}", res.errors);
+        assert!(!file.exists(), "永久删除后文件不应存在");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn result_serializes_denied_field() {
         let res = execute(&FsOp {
             op: FsOpKind::Delete,
             sources: vec![String::new()],
             target: None,
+            permanent: false,
         });
         let json = serde_json::to_string(&res).unwrap();
         assert!(

@@ -342,7 +342,7 @@ fn execute(task: &ScheduledTask) -> String {
             let verb = if task.action.kind == "move" {
                 "移动"
             } else {
-                "删除"
+                "移到回收站"
             };
             let mut summary = format!("已{verb} {count} 个文件（{}）", human_size(bytes));
             if errors > 0 {
@@ -368,10 +368,12 @@ fn run_action(action: &TaskAction) -> Result<(usize, u64, usize), String> {
     let mut bytes = 0u64;
     let mut errors = 0usize;
     for (path, size) in &matches {
-        let result = if action.kind == "move" {
+        let result: Result<(), String> = if action.kind == "move" {
             move_file(path, action.move_target.as_deref().unwrap_or(""))
+                .map_err(|error| error.to_string())
         } else {
-            std::fs::remove_file(path)
+            // 与手动删除保持一致：默认移到系统回收站，避免定时任务静默永久删除。
+            crate::fs_core::trash_path(path).map_err(|error| error.to_string())
         };
         match result {
             Ok(()) => {

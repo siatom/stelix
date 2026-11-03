@@ -47,10 +47,10 @@ const scopeHint = computed(() => {
       <button
         type="button"
         class="danger"
-        :title="`删除所选${scopeHint}`"
-        :aria-label="`删除所选${scopeHint}`"
+        :title="`删除所选（移到回收站，Shift 点击永久删除）${scopeHint}`"
+        :aria-label="`删除所选（移到回收站，Shift 点击永久删除）${scopeHint}`"
         :disabled="!paneStore.canDeleteInActivePane"
-        @click="paneStore.requestAction('delete')"
+        @click="paneStore.requestAction('delete', $event.shiftKey)"
       >
         <Icon name="trash" :size="15" />
       </button>

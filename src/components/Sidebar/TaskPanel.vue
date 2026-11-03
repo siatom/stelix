@@ -93,7 +93,7 @@ function scheduleText(task: ScheduledTask): string {
 
 function actionText(task: ScheduledTask): string {
   const a = task.action
-  const verb = a.kind === 'move' ? `移动到 ${a.moveTarget ?? ''}` : '删除'
+  const verb = a.kind === 'move' ? `移动到 ${a.moveTarget ?? ''}` : '移到回收站'
   const conds: string[] = []
   if (a.filters.extensions.length) conds.push(a.filters.extensions.map((e) => `.${e}`).join('/'))
   if (a.filters.nameContains) conds.push(`含「${a.filters.nameContains}」`)

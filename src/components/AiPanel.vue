@@ -22,7 +22,7 @@ const streamingActive = computed(() => ai.responding && ai.busyConversationId ==
 const activeDir = computed(() => pane.activeTab?.path ?? '')
 const selectionCount = computed(() => pane.activeTab?.selected.length ?? 0)
 const examples = ['找出这个目录下最大的 5 个文件', '把所有 png 图片列出来', '按扩展名统计当前目录']
-const opLabels: Record<string, string> = { copy: '复制', move: '移动', delete: '删除', rename: '重命名', mkdir: '新建文件夹' }
+const opLabels: Record<string, string> = { copy: '复制', move: '移动', delete: '移到回收站', rename: '重命名', mkdir: '新建文件夹' }
 const confirmSummary = computed(() => {
   const op = ai.pendingConfirm
   return op ? { op: opLabels[op.op] ?? op.op, sources: op.sources ?? [], target: op.target ?? '' } : null

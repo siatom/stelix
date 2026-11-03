@@ -138,6 +138,9 @@ pub struct FsOp {
     /// Mkdir 为新目录路径（批量创建时也可只填 sources），CreateFile 为新文件的完整路径
     #[serde(default)]
     pub target: Option<String>,
+    /// Delete 时是否跳过回收站直接物理删除（永久删除，不可恢复）。默认 false。
+    #[serde(default)]
+    pub permanent: bool,
 }
 
 /// 文件操作结果

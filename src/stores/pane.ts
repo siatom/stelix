@@ -240,13 +240,19 @@ export const usePaneStore = defineStore('pane', () => {
    * 顶部标题栏（App.vue）发起、目标窗格尚未消费的一次性操作。
    * 标题栏是全局唯一入口，目标固定为**当前活动窗格**，由窗格在 watcher 里消费后置空。
    */
-  const pendingAction = ref<{ paneId: string; kind: PaneActionKind; seq: number } | null>(null)
+  const pendingAction = ref<{
+    paneId: string
+    kind: PaneActionKind
+    /** 仅 delete：true 表示跳过回收站永久删除。 */
+    permanent?: boolean
+    seq: number
+  } | null>(null)
   let actionSeq = 0
 
   /** 派发一次文件操作给当前活动窗格（哪个窗格活动就控制哪个窗格）。 */
-  function requestAction(kind: PaneActionKind) {
+  function requestAction(kind: PaneActionKind, permanent = false) {
     actionSeq += 1
-    pendingAction.value = { paneId: activePaneId.value, kind, seq: actionSeq }
+    pendingAction.value = { paneId: activePaneId.value, kind, permanent, seq: actionSeq }
   }
 
   /** 目标窗格处理完请求后回执，避免重复消费。 */
@@ -1328,8 +1334,9 @@ export const usePaneStore = defineStore('pane', () => {
       return { op: op.op, target: denied[0] }
     }
     // 删除 / 重命名 / 移动 / 复制：沿用原 target，只把 sources 收窄为被拒绝项，
-    // 避免对已成功的项重复执行（那会误报「路径不存在」）。
-    return { op: op.op, sources: denied, target: op.target }
+    // 避免对已成功的项重复执行（那会误报「路径不存在」）。permanent 必须保留，
+    // 否则提权重试会把「永久删除」降级成「移到回收站」。
+    return { op: op.op, sources: denied, target: op.target, permanent: op.permanent }
   }
 
   /**
@@ -1350,7 +1357,7 @@ export const usePaneStore = defineStore('pane', () => {
     const deniedSet = new Set(denied.map(normalizePath))
     const sources = (op.sources ?? []).filter((path) => !deniedSet.has(normalizePath(path)))
     if (!sources.length) return null
-    return { op: op.op, sources, target: op.target }
+    return { op: op.op, sources, target: op.target, permanent: op.permanent }
   }
 
   async function runFs(paneId: string, op: FsOp): Promise<FsOpResult> {

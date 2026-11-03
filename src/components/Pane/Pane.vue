@@ -86,7 +86,7 @@ watch(
     const t = tab.value
     if (!t) return
     if (req.kind === 'delete') {
-      if (paneStore.canDeleteInActivePane) openDelete([...t.selected])
+      if (paneStore.canDeleteInActivePane) openDelete([...t.selected], req.permanent)
       return
     }
     createSeq += 1
@@ -101,6 +101,8 @@ function onCreateHandled() {
 // ---- 删除确认对话框 ----
 
 const deleteDialog = ref<string[] | null>(null)
+/** 当前确认框是否走「永久删除」；Shift+Delete / Shift 点击标题栏删除时置为 true。 */
+const permanentDelete = ref(false)
 const errorMsg = ref<string | null>(null)
 const busy = ref(false)
 
@@ -115,13 +117,15 @@ function handleDeleteDialogKeydown(event: KeyboardEvent) {
 onMounted(() => window.addEventListener('keydown', handleDeleteDialogKeydown, true))
 onBeforeUnmount(() => window.removeEventListener('keydown', handleDeleteDialogKeydown, true))
 
-function openDelete(paths: string[]) {
+function openDelete(paths: string[], permanent = false) {
   errorMsg.value = null
+  permanentDelete.value = permanent
   deleteDialog.value = [...paths]
 }
 
 function closeDialogs() {
   deleteDialog.value = null
+  permanentDelete.value = false
 }
 
 async function confirmDelete() {
@@ -129,9 +133,14 @@ async function confirmDelete() {
   if (!paths || !paths.length) return
   busy.value = true
   try {
-    const res = await paneStore.runFs(props.paneId, { op: 'delete', sources: paths })
+    const res = await paneStore.runFs(props.paneId, {
+      op: 'delete',
+      sources: paths,
+      permanent: permanentDelete.value,
+    })
     if (!res.ok) errorMsg.value = res.errors.join('; ')
     deleteDialog.value = null
+    permanentDelete.value = false
   } finally {
     busy.value = false
   }
@@ -190,15 +199,23 @@ async function confirmDelete() {
     <!-- 删除确认 -->
     <div v-if="deleteDialog" class="mask" @mousedown.stop @click.self="closeDialogs">
       <div class="dialog">
-        <h3>确认删除</h3>
-        <p class="warn-text">将永久删除以下 {{ deleteDialog.length }} 项，此操作不可撤销：</p>
+        <h3>{{ permanentDelete ? '确认永久删除' : '确认删除' }}</h3>
+        <p v-if="permanentDelete" class="warn-text danger">
+          将永久删除以下 {{ deleteDialog.length }} 项，不进入回收站，此操作不可撤销：
+        </p>
+        <p v-else class="warn-text">将把以下 {{ deleteDialog.length }} 项移到系统回收站，之后可在回收站中还原：</p>
         <ul class="del-list">
           <li v-for="p in deleteDialog.slice(0, 8)" :key="p">{{ basename(p) }}</li>
         </ul>
         <p v-if="deleteDialog.length > 8" class="more">… 等共 {{ deleteDialog.length }} 项</p>
         <div class="actions">
+          <button class="mode-toggle" :disabled="busy" @click="permanentDelete = !permanentDelete">
+            {{ permanentDelete ? '改为移到回收站' : '永久删除…' }}
+          </button>
           <button :disabled="busy" @click="closeDialogs">取消</button>
-          <button class="danger" :disabled="busy" @click="confirmDelete">删除</button>
+          <button class="danger" :disabled="busy" @click="confirmDelete">
+            {{ permanentDelete ? '永久删除' : '移到回收站' }}
+          </button>
         </div>
       </div>
     </div>
@@ -372,6 +389,9 @@ async function confirmDelete() {
   font-size: 1rem;
   color: var(--fg-muted);
 }
+.warn-text.danger {
+  color: var(--danger);
+}
 .del-list {
   margin: 0;
   padding-left: 18px;
@@ -399,6 +419,14 @@ async function confirmDelete() {
 .actions button:hover:not(:disabled) {
   background: var(--bg-hover);
   color: var(--fg);
+}
+.actions button.mode-toggle {
+  margin-right: auto;
+  border-color: transparent;
+  color: var(--fg-dim);
+}
+.actions button.mode-toggle:hover:not(:disabled) {
+  color: var(--danger);
 }
 .actions button.danger {
   background: var(--danger);

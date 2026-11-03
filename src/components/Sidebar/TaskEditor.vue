@@ -243,7 +243,7 @@ function formatSize(bytes: number): string {
       <label class="te-field">
         <span>动作</span>
         <select :value="form.action.kind" @change="setActionKind">
-          <option value="delete">删除</option>
+          <option value="delete">删除（移到回收站）</option>
           <option value="move">移动到</option>
         </select>
       </label>

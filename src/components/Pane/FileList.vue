@@ -23,7 +23,7 @@ interface CreateRequest {
 
 const props = defineProps<{ paneId: string; tab: TabState; createRequest?: CreateRequest | null }>()
 const emit = defineEmits<{
-  (e: 'delete', paths: string[]): void
+  (e: 'delete', paths: string[], permanent?: boolean): void
   (e: 'create-handled'): void
 }>()
 
@@ -795,10 +795,11 @@ function onGlobalKey(ev: KeyboardEvent) {
       }
       return
     case 'delete':
+    case 'delete-permanent':
       if (!canFileOp.value) return // 远程删除不在本轮本地文件操作范围内
       if (props.tab.selected.length) {
         ev.preventDefault()
-        emit('delete', [...props.tab.selected])
+        emit('delete', [...props.tab.selected], id === 'delete-permanent')
       }
       return
   }
