@@ -544,7 +544,7 @@ function toggleHost(item: RemoteHost) {
             <button class="row-main" :title="`打开 ${item.protocol}://${item.host}:${item.port}`" @click="openHostInPane(item)">
               <Icon name="drive" :size="18" /><span class="label">{{ item.label }}</span><small>{{ item.protocol.toUpperCase() }}{{ item.authMethod === 'key' ? ' · 密钥' : '' }}</small>
             </button>
-            <div class="host-actions" @keydown.esc.stop="openHostMenuId = null">
+            <div class="host-actions" :class="{ 'menu-open': openHostMenuId === item.id }" @keydown.esc.stop="openHostMenuId = null">
               <button v-if="item.protocol === 'sftp'" class="remove" title="打开 SSH 终端" aria-label="打开 SSH 终端" @click="openTerminal(item)"><Icon name="terminal" :size="12" /></button>
               <div class="host-menu-wrap">
                 <button class="remove" title="更多操作" :aria-label="`${item.label}更多操作`" aria-haspopup="menu" :aria-expanded="openHostMenuId === item.id" @click.stop="toggleHostMenu(item.id)"><Icon name="more" :size="14" /></button>
@@ -670,7 +670,13 @@ function toggleHost(item: RemoteHost) {
 .row-main small { margin-left: auto; color: var(--fg-dim); font-size: 0.8333em; }
 .action, .remove { display: flex; align-items: center; justify-content: center; flex: none; width: 20px; height: 20px; color: var(--fg-dim); border-radius: var(--radius); }
 .action:hover, .remove:hover { background: var(--bg-active); color: var(--fg); }
-.action:disabled { opacity: .4; cursor: default; }
+/* 行内操作（刷新 / 添加 / 终端 / 更多）默认隐藏，悬停或键盘聚焦该行时出现 */
+.action, .host-actions { opacity: 0; transition: opacity 120ms ease; }
+.tree-row:hover .action, .tree-row:focus-within .action,
+.tree-row:hover .host-actions, .tree-row:focus-within .host-actions,
+.tree-row .host-actions.menu-open { opacity: 1; }
+.action:disabled { cursor: default; }
+.action:disabled :deep(svg) { opacity: .4; }
 .share-node { position: relative; }
 .share-remove { position: absolute; right: 1px; top: 1px; }
 .state { margin: 3px 6px 5px 30px; font-size: 0.9167em; color: var(--fg-dim); overflow-wrap: anywhere; }

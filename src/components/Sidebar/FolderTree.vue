@@ -384,7 +384,11 @@ onBeforeUnmount(() => {
         >
           <span class="ico favorite-ico" :class="`favorite-color-${index % 5}`"><Icon name="folder" :size="18" /></span>
           <span class="label">{{ fav.label }}</span>
-          <div class="fav-more-wrap" @keydown.esc.stop="closeFavoriteMenu">
+          <div
+            class="fav-more-wrap"
+            :class="{ 'menu-open': openFavoriteMenu === fav.path }"
+            @keydown.esc.stop="closeFavoriteMenu"
+          >
             <button
               class="fav-more"
               title="更多操作"
@@ -560,14 +564,23 @@ onBeforeUnmount(() => {
   justify-content: center;
   border-radius: var(--radius);
   color: var(--fg-muted);
+  /* 默认隐藏，鼠标悬停分区标题或键盘聚焦时才出现（占位不变，避免标题跳动） */
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+.nav-head:hover .mini,
+.nav-head:focus-within .mini {
+  opacity: 1;
 }
 .mini:hover:not(:disabled) {
   background: var(--bg-hover);
   color: var(--fg);
 }
 .mini:disabled {
-  opacity: 0.4;
   cursor: default;
+}
+.mini:disabled :deep(svg) {
+  opacity: 0.4;
 }
 .tree-body {
   display: flex;
@@ -684,6 +697,14 @@ onBeforeUnmount(() => {
 .fav-more-wrap {
   position: relative;
   flex: none;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+/* 仅鼠标悬停在收藏项、键盘聚焦或菜单展开时显示“更多操作” */
+.nav-list li:hover .fav-more-wrap,
+.fav-more-wrap:focus-within,
+.fav-more-wrap.menu-open {
+  opacity: 1;
 }
 .fav-more {
   width: 18px;
