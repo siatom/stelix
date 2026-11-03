@@ -73,11 +73,11 @@ function titleOf(item: { key: PanelKey; title: string }): string {
     <button
       type="button"
       class="activity-btn"
-      :title="`主题：${ui.theme === 'system' ? `跟随系统（当前${ui.resolvedTheme === 'dark' ? '深色' : '浅色'}）` : ui.theme === 'dark' ? '深色' : '浅色'}，点击切换`"
+      :title="`主题：${ui.theme === 'dark' ? '深色' : '浅色'}，点击切换`"
       aria-label="切换主题模式"
       @click="ui.toggleTheme()"
     >
-      <Icon :name="ui.theme === 'system' ? 'monitor' : ui.theme === 'dark' ? 'sun' : 'moon'" :size="19" />
+      <Icon :name="ui.theme === 'dark' ? 'sun' : 'moon'" :size="19" />
     </button>
     <button
       type="button"

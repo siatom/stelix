@@ -11,7 +11,7 @@ export type PanelKey = 'files' | 'tasks' | 'search' | 'ai'
 export type SettingsTab = 'general' | 'index' | 'shortcuts' | 'ai' | 'about'
 
 /** 主题模式 */
-export type ThemeMode = 'system' | 'dark' | 'light'
+export type ThemeMode = 'dark' | 'light'
 
 /** 详细视图的列（表头可拖动调整宽度） */
 export type DetailColumnKey = 'name' | 'path' | 'size' | 'time' | 'type'
@@ -162,18 +162,14 @@ function readBool(key: string, fallback: boolean): boolean {
 function readTheme(): ThemeMode {
   try {
     const saved = localStorage.getItem(LS_THEME)
-    return saved === 'dark' || saved === 'light' ? saved : 'system'
+    return saved === 'light' ? 'light' : 'dark'
   } catch {
-    return 'system'
+    return 'dark'
   }
 }
 
-function systemTheme(): 'dark' | 'light' {
-  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
-}
-
 function applyTheme(mode: ThemeMode) {
-  document.documentElement.setAttribute('data-theme', mode === 'system' ? systemTheme() : mode)
+  document.documentElement.setAttribute('data-theme', mode)
 }
 
 function applyFontSize(size: number) {
@@ -207,7 +203,7 @@ export const useUiStore = defineStore('ui', () => {
   const fileFontSize = ref(readFontSize(LS_FILE_FONT_SIZE, FILE_FONT_SIZE_DEF))
   const sidebarRowHeight = ref(readRowHeight(LS_SIDEBAR_ROW_H, SIDEBAR_ROW_MIN, SIDEBAR_ROW_MAX, SIDEBAR_ROW_DEF))
   const fileRowHeight = ref(readRowHeight(LS_FILE_ROW_H, FILE_ROW_MIN, FILE_ROW_MAX, FILE_ROW_DEF))
-  const resolvedTheme = computed(() => theme.value === 'system' ? systemTheme() : theme.value)
+  const resolvedTheme = computed(() => theme.value)
   const hideProtected = ref(readBool(LS_HIDE_PROTECTED, HIDE_PROTECTED_DEF))
   const hideFileExtensions = ref(readBool(LS_HIDE_FILE_EXTENSIONS, HIDE_FILE_EXTENSIONS_DEF))
   /** 详细视图列宽（表头拖动后持久化） */
@@ -234,10 +230,6 @@ export const useUiStore = defineStore('ui', () => {
   applySidebarFontSize(sidebarFontSize.value)
   applyFileFontSize(fileFontSize.value)
   applyRowHeights(sidebarRowHeight.value, fileRowHeight.value)
-  const systemThemeQuery = window.matchMedia('(prefers-color-scheme: dark)')
-  systemThemeQuery.addEventListener('change', () => {
-    if (theme.value === 'system') applyTheme('system')
-  })
 
   /** 索引根目录列表（由设置面板维护） */
   const indexRoots = ref<string[]>([])
@@ -320,7 +312,7 @@ export const useUiStore = defineStore('ui', () => {
   }
 
   function toggleTheme() {
-    setTheme(theme.value === 'system' ? 'light' : theme.value === 'light' ? 'dark' : 'system')
+    setTheme(theme.value === 'dark' ? 'light' : 'dark')
   }
 
   function setFontSize(size: number) {
