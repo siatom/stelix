@@ -56,9 +56,9 @@ const scopeHint = computed(() => {
       </button>
     </div>
 
-    <span v-if="paneStore.activeTab?.kind !== 'trash'" class="divider" aria-hidden="true" />
+    <span class="divider" aria-hidden="true" />
 
-    <div v-if="paneStore.activeTab?.kind !== 'trash'" class="group">
+    <div class="group">
       <button
         v-for="m in modes"
         :key="m.key"

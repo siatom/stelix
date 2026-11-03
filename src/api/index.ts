@@ -89,9 +89,17 @@ export const api = {
   setFileClipboard: (paths: string[], moveFiles: boolean) =>
     invoke<void>('set_file_clipboard', { paths, moveFiles }),
   getFileClipboard: () => invoke<{ paths: string[]; moveFiles: boolean } | null>('get_file_clipboard'),
-  /** 取文件/文件夹的 Windows 系统图标（base64 PNG data URL）；失败返回 null。 */
-  getFileIcon: (path: string, isDir: boolean, usePathIcon = false) =>
-    invoke<string | null>('get_file_icon', { path, isDir, usePathIcon }),
+  /**
+   * 取文件/文件夹的 Windows 系统图标（base64 PNG data URL）；失败返回 null。
+   * `emptyTrash` 固定返回空桶图标；`trashState` 跟随回收站当前是否有内容。
+   */
+  getFileIcon: (
+    path: string,
+    isDir: boolean,
+    usePathIcon = false,
+    emptyTrash = false,
+    trashState = false,
+  ) => invoke<string | null>('get_file_icon', { path, isDir, usePathIcon, emptyTrash, trashState }),
   pathIsFile: (path: string) => invoke<boolean>('path_is_file', { path }),
   /** 展开地址栏输入中的 Windows 环境变量（`%APPDATA%`）与 `~` 主目录。 */
   expandPath: (path: string) => invoke<string>('expand_path', { path }),

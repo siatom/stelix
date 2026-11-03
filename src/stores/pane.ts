@@ -9,6 +9,7 @@ import { matchesTypeFilter } from '../searchFilters'
 import { normalizePath, setWatchSource } from '../shell/dirWatch'
 import { normalizeRemotePath, remoteDirname, resolveRemoteAuth } from '../shell/remote'
 import { compareNames } from '../naturalSort'
+import { refreshTrashIcon } from '../components/icons/fileIconCache'
 import { useTerminalStore } from './terminal'
 
 /**
@@ -751,6 +752,7 @@ export const usePaneStore = defineStore('pane', () => {
     if (!tab) return
     if (tab.kind === 'trash') {
       trashRefreshSeq.value += 1
+      refreshTrashIcon()
       return
     }
     await load(tab)
@@ -1470,8 +1472,11 @@ export const usePaneStore = defineStore('pane', () => {
       setStatus(`操作失败：${String(e)}`)
     }
     await refreshAfterOp(paneId, applied)
-    // 普通删除会改变回收站内容；已打开的回收站标签据此自动刷新。
-    if (applied?.op === 'delete' && !applied.permanent) trashRefreshSeq.value += 1
+    // 普通删除会改变回收站内容；已打开的回收站标签据此自动刷新，侧边栏图标同步切换。
+    if (applied?.op === 'delete' && !applied.permanent) {
+      trashRefreshSeq.value += 1
+      refreshTrashIcon()
+    }
     return result
   }
 

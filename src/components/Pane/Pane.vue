@@ -175,7 +175,7 @@ async function confirmDelete() {
               :path="RECYCLE_BIN_SHELL_PATH"
               :is-dir="false"
               :ext="null"
-              :use-path-icon="true"
+              :trash-state="true"
               fallback="trash"
               :size="15"
             />

@@ -4,11 +4,12 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { api } from '../../api'
 import type { TabState, TrashEntry, TrashOpResult } from '../../types'
 import { usePaneStore } from '../../stores/pane'
-import { useUiStore } from '../../stores/ui'
+import { useUiStore, type TrashColumnKey } from '../../stores/ui'
 import { isCapturingShortcut } from '../../stores/shortcuts'
 import { formatSize, formatTime, RECYCLE_BIN_SHELL_PATH } from './utils'
 import Icon from '../icons/Icon.vue'
 import FileIcon from '../icons/FileIcon.vue'
+import { refreshTrashIcon } from '../icons/fileIconCache'
 
 const props = defineProps<{ paneId: string; tab: TabState }>()
 const paneStore = usePaneStore()
@@ -24,6 +25,147 @@ let selectionAnchor: string | null = null
 
 const selectedIds = computed(() => entries.value.filter((item) => selected.value.has(item.id)).map((item) => item.id))
 const selectedEntries = computed(() => entries.value.filter((item) => selected.value.has(item.id)))
+
+// ---- 排序（点击表头切换，默认按删除时间从新到旧） ----
+const sortKey = ref<TrashColumnKey>('deleted')
+const sortAsc = ref(false)
+const collator = new Intl.Collator('zh-CN', { numeric: true, sensitivity: 'base' })
+
+const sortedEntries = computed(() => {
+  const dir = sortAsc.value ? 1 : -1
+  return [...entries.value].sort((a, b) => {
+    // 文件夹始终排在文件之前，与文件窗格的详细视图一致。
+    if (a.isDir !== b.isDir) return a.isDir ? -1 : 1
+    let cmp = 0
+    switch (sortKey.value) {
+      case 'origin':
+        cmp = collator.compare(a.originalParent, b.originalParent)
+        if (cmp === 0) cmp = collator.compare(a.name, b.name)
+        break
+      case 'deleted':
+        cmp = a.deletedAt - b.deletedAt
+        if (cmp === 0) cmp = collator.compare(a.name, b.name)
+        break
+      case 'size':
+        cmp = (a.isDir ? a.itemCount : a.size) - (b.isDir ? b.itemCount : b.size)
+        break
+      default:
+        cmp = collator.compare(a.name, b.name)
+    }
+    return cmp * dir
+  })
+})
+
+function toggleSort(key: TrashColumnKey) {
+  if (sortKey.value === key) {
+    sortAsc.value = !sortAsc.value
+  } else {
+    sortKey.value = key
+    sortAsc.value = key === 'name' || key === 'origin'
+  }
+}
+
+// ---- 列宽（表头拖动调整，ui store 持久化；与文件窗格详细视图同规则） ----
+
+/** 表头与行左右内边距之和，计算最小表格宽度时补上，保证表头与行严格对齐。 */
+const TABLE_PAD = 16
+/** 名称列自适应（未手动调整）时的最小宽度。 */
+const NAME_COL_MIN = 160
+/** 行尾操作列固定宽度。 */
+const ACTIONS_COL_WIDTH = 78
+
+const columnWidths = computed(() => ui.trashColumnWidths)
+/** 当前窗格的视图模式（详细 / 列表 / 图标），与普通文件夹共用同一窗格设置。 */
+const viewMode = computed(
+  () => paneStore.panes.find((pane) => pane.id === props.paneId)?.viewMode ?? 'details',
+)
+/** 图标视图渲染上限，避免回收站条目过多时一次性创建大量节点。 */
+const ICON_CAP = 600
+const iconEntries = computed(() => sortedEntries.value.slice(0, ICON_CAP))
+const columnTemplate = computed(() => {
+  const w = columnWidths.value
+  const cols = [w.name === null ? `minmax(${NAME_COL_MIN}px, 1fr)` : `${w.name}px`]
+  cols.push(`${w.origin}px`, `${w.deleted}px`, `${w.size}px`, `${ACTIONS_COL_WIDTH}px`)
+  return cols.join(' ')
+})
+/** 各列宽度之和：内容超出窗格时出现横向滚动，而不是挤压列宽。 */
+const tableWidth = computed(() => {
+  const w = columnWidths.value
+  return (w.name ?? NAME_COL_MIN) + w.origin + w.deleted + w.size + ACTIONS_COL_WIDTH
+})
+const tableMinWidth = computed(() => `${tableWidth.value + TABLE_PAD}px`)
+
+/** 列表可视区宽度（不含垂直滚动条），用于让表头与行严格对齐。 */
+const scrollRef = ref<HTMLElement | null>(null)
+const rootRef = ref<HTMLElement | null>(null)
+const scrollPortWidth = ref(0)
+const headerScrollX = ref(0)
+const tableDisplayWidth = computed(() => Math.max(scrollPortWidth.value, tableWidth.value + TABLE_PAD))
+const headerStyle = computed(() => ({
+  gridTemplateColumns: columnTemplate.value,
+  width: `${tableDisplayWidth.value}px`,
+  transform: `translateX(-${headerScrollX.value}px)`,
+}))
+
+/** 表格独立横向滚动时，表头跟随内容平移，保持列对齐。 */
+function onScroll() {
+  const x = scrollRef.value?.scrollLeft ?? 0
+  if (x !== headerScrollX.value) headerScrollX.value = x
+}
+
+let scrollPortObserver: ResizeObserver | null = null
+watch(scrollRef, (el) => {
+  scrollPortObserver?.disconnect()
+  scrollPortObserver = null
+  if (!el) return
+  scrollPortWidth.value = el.clientWidth
+  scrollPortObserver = new ResizeObserver(() => {
+    scrollPortWidth.value = el.clientWidth
+  })
+  scrollPortObserver.observe(el)
+})
+
+interface ColumnDrag {
+  key: TrashColumnKey
+  startX: number
+  startWidth: number
+}
+let columnDrag: ColumnDrag | null = null
+
+/** 表头当前真实列宽（名称列自适应时也能拿到实际像素值）。 */
+function measureColumn(key: TrashColumnKey): number {
+  const el = rootRef.value?.querySelector<HTMLElement>(`.header .col[data-col="${key}"]`)
+  if (el) return el.getBoundingClientRect().width
+  return columnWidths.value[key] ?? NAME_COL_MIN
+}
+
+function startColumnResize(ev: MouseEvent, key: TrashColumnKey) {
+  if (ev.button !== 0) return
+  ev.preventDefault()
+  ev.stopPropagation()
+  // 名称列自适应时先固定为当前像素宽度：否则它会把相邻列的增量全部吸收。
+  if (columnWidths.value.name === null) ui.setTrashColumnWidth('name', measureColumn('name'))
+  columnDrag = { key, startX: ev.clientX, startWidth: measureColumn(key) }
+  document.body.classList.add('col-resizing')
+  window.addEventListener('mousemove', onColumnResizeMove)
+  window.addEventListener('mouseup', stopColumnResize)
+  window.addEventListener('blur', stopColumnResize)
+}
+
+function onColumnResizeMove(ev: MouseEvent) {
+  if (!columnDrag) return
+  ui.setTrashColumnWidth(columnDrag.key, columnDrag.startWidth + ev.clientX - columnDrag.startX)
+}
+
+function stopColumnResize() {
+  if (!columnDrag) return
+  columnDrag = null
+  document.body.classList.remove('col-resizing')
+  window.removeEventListener('mousemove', onColumnResizeMove)
+  window.removeEventListener('mouseup', stopColumnResize)
+  window.removeEventListener('blur', stopColumnResize)
+}
+
 const canRestore = computed(() => !busy.value && selectedIds.value.length > 0)
 const canPurge = computed(() => !busy.value && selectedIds.value.length > 0)
 const canOpenOriginal = computed(() => !busy.value && selectedEntries.value.length === 1)
@@ -48,6 +190,8 @@ async function load() {
   try {
     const next = await api.trashList()
     entries.value = next
+    // 回收站内容可能已被还原 / 清空 / 外部修改，侧边栏图标随之刷新。
+    refreshTrashIcon()
     const alive = new Set(next.map((item) => item.id))
     selected.value = new Set([...selected.value].filter((id) => alive.has(id)))
     if (selectionAnchor && !alive.has(selectionAnchor)) selectionAnchor = null
@@ -65,12 +209,12 @@ function clearSelection() {
 
 function onRowClick(event: MouseEvent, item: TrashEntry) {
   if (event.shiftKey && selectionAnchor) {
-    const anchor = entries.value.findIndex((entry) => entry.id === selectionAnchor)
-    const current = entries.value.findIndex((entry) => entry.id === item.id)
+    const anchor = sortedEntries.value.findIndex((entry) => entry.id === selectionAnchor)
+    const current = sortedEntries.value.findIndex((entry) => entry.id === item.id)
     if (anchor >= 0 && current >= 0) {
       const [start, end] = anchor < current ? [anchor, current] : [current, anchor]
       const next = event.ctrlKey || event.metaKey ? new Set(selected.value) : new Set<string>()
-      for (let i = start; i <= end; i += 1) next.add(entries.value[i].id)
+      for (let i = start; i <= end; i += 1) next.add(sortedEntries.value[i].id)
       selected.value = next
       return
     }
@@ -228,11 +372,13 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown, true)
+  scrollPortObserver?.disconnect()
+  stopColumnResize()
 })
 </script>
 
 <template>
-  <div class="trash-view">
+  <div ref="rootRef" class="trash-view">
     <div v-if="error" class="error-bar" role="alert">
       <Icon name="alert-circle" :size="13" />
       <span>{{ error }}</span>
@@ -248,6 +394,7 @@ onBeforeUnmount(() => {
           :is-dir="false"
           :ext="null"
           :use-path-icon="true"
+          :empty-trash="true"
           fallback="trash"
           :size="34"
         />
@@ -256,29 +403,106 @@ onBeforeUnmount(() => {
       <span>删除的文件会先放到这里，之后可以随时还原。</span>
     </div>
 
-    <div v-else class="table-scroll" @click.self="clearSelection">
-      <div class="trash-table" :aria-busy="loading">
-        <div class="trash-head">
-          <span>名称</span>
-          <span>原位置</span>
-          <span>删除时间</span>
-          <span class="num">大小</span>
-          <span />
+    <template v-else>
+      <div v-if="viewMode === 'details'" class="table-area">
+      <div class="header-clip">
+        <div class="header" :style="headerStyle">
+          <button class="col name" data-col="name" @click="toggleSort('name')">
+            名称 <Icon v-if="sortKey === 'name'" :name="sortAsc ? 'chevron-up' : 'chevron-down'" :size="11" />
+            <span
+              class="col-resizer"
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="调整名称列宽度"
+              title="拖动调整「名称」列宽，双击恢复默认"
+              @mousedown="startColumnResize($event, 'name')"
+              @click.stop
+              @dblclick.stop="ui.resetTrashColumnWidth('name')"
+            />
+          </button>
+          <button class="col origin" data-col="origin" @click="toggleSort('origin')">
+            原位置 <Icon v-if="sortKey === 'origin'" :name="sortAsc ? 'chevron-up' : 'chevron-down'" :size="11" />
+            <span
+              class="col-resizer"
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="调整原位置列宽度"
+              title="拖动调整「原位置」列宽，双击恢复默认"
+              @mousedown="startColumnResize($event, 'origin')"
+              @click.stop
+              @dblclick.stop="ui.resetTrashColumnWidth('origin')"
+            />
+          </button>
+          <button class="col deleted" data-col="deleted" @click="toggleSort('deleted')">
+            删除时间 <Icon v-if="sortKey === 'deleted'" :name="sortAsc ? 'chevron-up' : 'chevron-down'" :size="11" />
+            <span
+              class="col-resizer"
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="调整删除时间列宽度"
+              title="拖动调整「删除时间」列宽，双击恢复默认"
+              @mousedown="startColumnResize($event, 'deleted')"
+              @click.stop
+              @dblclick.stop="ui.resetTrashColumnWidth('deleted')"
+            />
+          </button>
+          <button class="col size num" data-col="size" @click="toggleSort('size')">
+            大小 <Icon v-if="sortKey === 'size'" :name="sortAsc ? 'chevron-up' : 'chevron-down'" :size="11" />
+            <span
+              class="col-resizer"
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="调整大小列宽度"
+              title="拖动调整「大小」列宽，双击恢复默认"
+              @mousedown="startColumnResize($event, 'size')"
+              @click.stop
+              @dblclick.stop="ui.resetTrashColumnWidth('size')"
+            />
+          </button>
+          <span class="col actions" aria-hidden="true" />
         </div>
+      </div>
+
+      <div ref="scrollRef" class="table-scroll" @scroll="onScroll" @click.self="clearSelection">
+        <div class="trash-table" :style="{ minWidth: tableMinWidth }">
+          <div
+            v-for="item in sortedEntries"
+            :key="item.id"
+            class="trash-row"
+            :class="{ selected: selected.has(item.id), dir: item.isDir }"
+            :style="{ gridTemplateColumns: columnTemplate }"
+            @click="onRowClick($event, item)"
+          >
+            <div class="name-cell" :title="item.name">
+              <FileIcon :path="item.originalPath" :is-dir="item.isDir" :ext="extOf(item.name)" :size="18" />
+              <span class="name">{{ ui.displayFileName(item.name, item.isDir) }}</span>
+            </div>
+            <span class="path-cell" :title="item.originalPath">{{ item.originalParent }}</span>
+            <span class="time-cell">{{ formatTime(item.deletedAt) }}</span>
+            <span class="size-cell num">{{ sizeLabel(item) }}</span>
+            <span class="row-actions">
+              <button title="还原" @click.stop="restore([item.id])"><Icon name="restore" :size="12" /></button>
+              <button title="打开原位置" @click.stop="openOriginal(item)"><Icon name="folder-arrow" :size="12" /></button>
+              <button class="danger" title="永久删除" @click.stop="askPurge([item.id])"><Icon name="trash" :size="12" /></button>
+            </span>
+          </div>
+        </div>
+      </div>
+      </div>
+
+      <div v-else-if="viewMode === 'list'" class="list-scroll" @click.self="clearSelection">
         <div
-          v-for="item in entries"
+          v-for="item in sortedEntries"
           :key="item.id"
-          class="trash-row"
-          :class="{ selected: selected.has(item.id) }"
+          class="list-row"
+          :class="{ selected: selected.has(item.id), dir: item.isDir }"
+          :title="item.originalPath"
           @click="onRowClick($event, item)"
         >
-          <div class="name-cell" :title="item.name">
-            <FileIcon :path="item.originalPath" :is-dir="item.isDir" :ext="extOf(item.name)" :size="17" />
-            <span class="name">{{ item.name }}</span>
+          <div class="name-cell">
+            <FileIcon :path="item.originalPath" :is-dir="item.isDir" :ext="extOf(item.name)" :size="18" />
+            <span class="name">{{ ui.displayFileName(item.name, item.isDir) }}</span>
           </div>
-          <span class="path-cell" :title="item.originalPath">{{ item.originalParent }}</span>
-          <span class="time-cell">{{ formatTime(item.deletedAt) }}</span>
-          <span class="size-cell num">{{ sizeLabel(item) }}</span>
           <span class="row-actions">
             <button title="还原" @click.stop="restore([item.id])"><Icon name="restore" :size="12" /></button>
             <button title="打开原位置" @click.stop="openOriginal(item)"><Icon name="folder-arrow" :size="12" /></button>
@@ -286,7 +510,28 @@ onBeforeUnmount(() => {
           </span>
         </div>
       </div>
-    </div>
+
+      <div v-else class="icons-scroll" @click.self="clearSelection">
+        <div class="icons-grid">
+          <div
+            v-for="item in iconEntries"
+            :key="item.id"
+            class="icon-cell"
+            :class="{ selected: selected.has(item.id), dir: item.isDir }"
+            :title="item.originalPath"
+            @click="onRowClick($event, item)"
+          >
+            <span class="icon-big">
+              <FileIcon :path="item.originalPath" :is-dir="item.isDir" :ext="extOf(item.name)" :size="38" />
+            </span>
+            <span class="icon-name">{{ ui.displayFileName(item.name, item.isDir) }}</span>
+          </div>
+        </div>
+        <p v-if="sortedEntries.length > ICON_CAP" class="cap-hint">
+          条目较多，仅显示前 {{ ICON_CAP }} 项（共 {{ sortedEntries.length }} 项）
+        </p>
+      </div>
+    </template>
 
     <div v-if="confirm" class="mask" @mousedown.stop @click.self="closeConfirm">
       <div class="dialog">
@@ -318,6 +563,7 @@ onBeforeUnmount(() => {
   min-width: 0;
   min-height: 0;
   background: var(--bg-app);
+  font-size: var(--file-font-size);
 }
 .error-bar {
   display: flex;
@@ -370,39 +616,104 @@ onBeforeUnmount(() => {
 .empty-state span {
   font-size: 0.9167em;
 }
+/* 表头固定在列表上方，横向滚动时随内容平移（与文件窗格详细视图一致） */
+.table-area {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+.header-clip {
+  flex: none;
+  overflow: hidden;
+  background: var(--pane-header-bg);
+  border-bottom: 1px solid var(--border);
+}
+.header {
+  display: grid;
+  align-items: center;
+  height: 23px;
+  padding: 0 8px;
+  will-change: transform;
+}
+.header .col {
+  position: relative;
+  text-align: left;
+  padding: 0 6px;
+  font-size: 0.9167em;
+  color: var(--fg-muted);
+  white-space: nowrap;
+  overflow: hidden;
+}
+/* 「名称」左移与文件名文字对齐（让开条目图标的位置） */
+.header .col.name {
+  padding-left: 24px;
+}
+.header .col:hover {
+  color: var(--fg);
+}
+.header .col .icon {
+  color: var(--accent);
+  vertical-align: -0.1em;
+}
+.header .col.num {
+  text-align: right;
+}
+/* 列宽拖动手柄：贴在列右边缘，悬停时显示强调色分隔线 */
+.col-resizer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 1;
+  width: 7px;
+  height: 100%;
+  cursor: col-resize;
+  touch-action: none;
+}
+.col-resizer::after {
+  content: '';
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  right: 0;
+  width: 1px;
+  background: color-mix(in srgb, var(--border-strong) 55%, transparent);
+  transition:
+    background 120ms ease,
+    width 120ms ease;
+}
+/* 最后一列右侧不留分隔线 */
+.header .col:last-child .col-resizer:not(:hover)::after {
+  background: transparent;
+}
+.col-resizer:hover::after,
+.col-resizer:active::after {
+  width: 2px;
+  background: var(--accent);
+}
+/* 拖动列宽期间统一光标，避免划过其他元素时闪烁 */
+:global(body.col-resizing),
+:global(body.col-resizing *) {
+  cursor: col-resize !important;
+  user-select: none !important;
+}
 .table-scroll {
   flex: 1;
   min-height: 0;
+  min-width: 0;
   overflow: auto;
 }
 .trash-table {
-  min-width: 720px;
+  width: 100%;
 }
-.trash-head,
 .trash-row {
   display: grid;
-  grid-template-columns: minmax(180px, 1.4fr) minmax(160px, 1.6fr) 145px 96px 78px;
   align-items: center;
-  gap: 8px;
-  padding: 0 10px;
-}
-.trash-head {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  height: 30px;
-  border-bottom: 1px solid var(--border);
-  background: var(--bg-panel);
-  color: var(--fg-dim);
-  font-size: 0.875em;
-  user-select: none;
-}
-.trash-row {
-  position: relative;
-  height: 34px;
-  border-bottom: 1px solid color-mix(in srgb, var(--border) 62%, transparent);
+  padding: 0 8px;
+  height: var(--file-row-h);
   color: var(--fg);
-  font-size: 0.9583em;
+  font-size: 1em;
   cursor: default;
   user-select: none;
 }
@@ -410,10 +721,7 @@ onBeforeUnmount(() => {
   background: var(--bg-hover);
 }
 .trash-row.selected {
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
-}
-.trash-row.selected:hover {
-  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  background: var(--bg-selected);
 }
 .name-cell {
   display: flex;
@@ -431,17 +739,23 @@ onBeforeUnmount(() => {
 .name {
   font-weight: 450;
 }
+.trash-row.dir .name,
+.list-row.dir .name {
+  color: var(--fg-folder);
+}
 .path-cell,
 .time-cell {
+  padding: 0 6px;
   color: var(--fg-muted);
-  font-size: 0.9167em;
+  font-size: 0.9583em;
 }
 .time-cell {
   font-variant-numeric: tabular-nums;
 }
 .size-cell {
+  padding: 0 6px;
   color: var(--fg-muted);
-  font-size: 0.9167em;
+  font-size: 0.9583em;
 }
 .num {
   text-align: right;
@@ -474,6 +788,96 @@ onBeforeUnmount(() => {
 .row-actions button.danger:hover {
   background: color-mix(in srgb, var(--danger) 16%, transparent);
   color: var(--danger);
+}
+/* 列表视图：单列展示名称，行内操作靠右（与文件窗格的列表视图一致） */
+.list-scroll {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+}
+.list-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: var(--file-row-h);
+  padding: 0 8px;
+  color: var(--fg);
+  font-size: 1em;
+  cursor: default;
+  user-select: none;
+}
+.list-row:hover {
+  background: var(--bg-hover);
+}
+.list-row.selected {
+  background: var(--bg-selected);
+}
+.list-row .name-cell {
+  flex: 1 1 auto;
+}
+.list-row:hover .row-actions,
+.list-row.selected .row-actions {
+  opacity: 1;
+}
+/* 图标视图（与文件窗格的图标视图一致） */
+.icons-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 10px;
+}
+.icons-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+  gap: 8px;
+}
+.icon-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 6px;
+  border-radius: var(--radius);
+  cursor: default;
+  text-align: center;
+  user-select: none;
+}
+.icon-cell:hover {
+  background: var(--bg-hover);
+}
+.icon-cell.selected {
+  background: var(--bg-selected);
+}
+.icon-big {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
+  background: transparent;
+  transition: transform 120ms ease;
+}
+.icon-cell:hover .icon-big {
+  transform: translateY(-1px);
+}
+.icon-name {
+  font-size: 1em;
+  color: var(--fg);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.icon-cell.dir .icon-name {
+  color: var(--fg-folder);
+}
+.cap-hint {
+  margin: 12px 0 4px;
+  text-align: center;
+  font-size: 0.9167em;
+  color: var(--fg-dim);
 }
 .mask {
   position: fixed;

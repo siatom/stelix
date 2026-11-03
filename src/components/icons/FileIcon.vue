@@ -18,6 +18,10 @@ const props = withDefaults(
     ext: string | null
     isDrive?: boolean
     usePathIcon?: boolean
+    /** 强制使用 Windows「空回收站」图标（空状态占位用）。 */
+    emptyTrash?: boolean
+    /** 跟随回收站当前状态显示空桶 / 满桶图标。 */
+    trashState?: boolean
     fallback?: IconName
     size?: number
   }>(),
@@ -25,7 +29,17 @@ const props = withDefaults(
 )
 
 // computed：虚拟滚动的行会被复用（key 为索引），path 变化时需要重新取图标。
-const url = computed(() => fileIconRef(props.path, props.isDir, props.isDrive, props.usePathIcon).value)
+const url = computed(
+  () =>
+    fileIconRef(
+      props.path,
+      props.isDir,
+      props.isDrive,
+      props.usePathIcon,
+      props.emptyTrash,
+      props.trashState,
+    ).value,
+)
 </script>
 
 <template>

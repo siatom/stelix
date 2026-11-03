@@ -257,11 +257,24 @@ async fn get_file_icon(
     path: String,
     is_dir: bool,
     use_path_icon: bool,
+    empty_trash: bool,
+    trash_state: bool,
 ) -> Result<Option<String>, String> {
+    use shell_icon::TrashIcon;
+
+    let trash = if empty_trash {
+        TrashIcon::Empty
+    } else if trash_state {
+        TrashIcon::State
+    } else {
+        TrashIcon::None
+    };
     let cache = state.icons.clone();
-    tauri::async_runtime::spawn_blocking(move || cache.get_or_load(&path, is_dir, use_path_icon))
-        .await
-        .map_err(|error| format!("图标提取任务失败: {error}"))
+    tauri::async_runtime::spawn_blocking(move || {
+        cache.get_or_load(&path, is_dir, use_path_icon, trash)
+    })
+    .await
+    .map_err(|error| format!("图标提取任务失败: {error}"))
 }
 
 #[tauri::command]

@@ -5,6 +5,8 @@
  * - 目录 → `dir`
  * - 磁盘根目录 → `drive:<path>`
  * - 系统位置 → `system:<path>`
+ * - 空回收站 → `system:empty-recycle-bin`
+ * - 跟随状态的回收站 → `system:recycle-bin:v<版本>`
  * - 普通文件 → `e:<ext>`
  * - 自带图标资源的文件（exe/lnk/ico/…）→ `p:<小写路径>`
  *
@@ -26,6 +28,17 @@ const PER_FILE_EXTS = new Set([
 
 const refs = new Map<string, Ref<string | null>>()
 
+/**
+ * 回收站状态版本号。回收站内容变化（删除/还原/清空等）后递增，
+ * 使「跟随回收站状态」的图标换用新 key 重新取图。
+ */
+const trashVersion = ref(0)
+
+/** 通知回收站图标重新加载（回收站内容变化后调用）。 */
+export function refreshTrashIcon() {
+  trashVersion.value += 1
+}
+
 /** 取文件名最后一段（与后端 `extension_of` 的输入保持一致）。 */
 function baseName(path: string): string {
   return path.slice(Math.max(path.lastIndexOf('\\'), path.lastIndexOf('/')) + 1)
@@ -39,7 +52,18 @@ function iconExtension(path: string): string {
 }
 
 /** 计算缓存 key。 */
-export function iconKey(path: string, isDir: boolean, isDrive = false, usePathIcon = false): string {
+export function iconKey(
+  path: string,
+  isDir: boolean,
+  isDrive = false,
+  usePathIcon = false,
+  emptyTrash = false,
+  trashState = false,
+): string {
+  // 空回收站使用固定的空桶图标，与回收站当前的系统图标分开缓存。
+  if (emptyTrash) return 'system:empty-recycle-bin'
+  // 跟随回收站状态：按版本号换 key，内容变化后重新请求。
+  if (trashState) return `system:recycle-bin:v${trashVersion.value}`
   if (isDrive) return `drive:${path.toLowerCase()}`
   if (usePathIcon) return `system:${path.toLowerCase()}`
   if (isDir) return 'dir'
@@ -56,15 +80,17 @@ export function fileIconRef(
   isDir: boolean,
   isDrive = false,
   usePathIcon = false,
+  emptyTrash = false,
+  trashState = false,
 ): Ref<string | null> {
-  const key = iconKey(path, isDir, isDrive, usePathIcon)
+  const key = iconKey(path, isDir, isDrive, usePathIcon, emptyTrash, trashState)
   const existing = refs.get(key)
   if (existing) return existing
 
   const url = ref<string | null>(null)
   refs.set(key, url)
   api
-    .getFileIcon(path, isDir, usePathIcon)
+    .getFileIcon(path, isDir, usePathIcon, emptyTrash, trashState)
     .then((value) => {
       if (value) url.value = value
     })

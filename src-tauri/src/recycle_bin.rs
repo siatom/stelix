@@ -45,6 +45,13 @@ mod imp {
         }
     }
 
+    /// 回收站是否为空；读取失败时按「非空」处理（用于图标显示）。
+    pub fn is_empty() -> bool {
+        os_limited::list()
+            .map(|items| items.is_empty())
+            .unwrap_or(false)
+    }
+
     /// 按 id 从当前回收站快照中取条目；不存在的 id 记入 `result.errors`。
     fn select(ids: &[String]) -> Result<(Vec<trash::TrashItem>, TrashOpResult), String> {
         let items = os_limited::list().map_err(|error| format!("读取回收站失败：{error}"))?;
@@ -136,11 +143,16 @@ mod imp {
 }
 
 #[cfg(windows)]
-pub use imp::{empty, list, purge, restore};
+pub use imp::{empty, is_empty, list, purge, restore};
 
 #[cfg(not(windows))]
 pub fn list() -> Result<Vec<TrashEntry>, String> {
     Ok(Vec::new())
+}
+
+#[cfg(not(windows))]
+pub fn is_empty() -> bool {
+    true
 }
 
 #[cfg(not(windows))]

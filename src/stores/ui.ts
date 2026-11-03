@@ -25,6 +25,17 @@ export interface DetailColumnWidths {
   type: number
 }
 
+/** 回收站视图的列（表头可拖动调整宽度） */
+export type TrashColumnKey = 'name' | 'origin' | 'deleted' | 'size'
+
+/** 回收站各列宽度（px）；`name: null` 表示自动占满剩余空间。 */
+export interface TrashColumnWidths {
+  name: number | null
+  origin: number
+  deleted: number
+  size: number
+}
+
 // ---- 本地偏好持久化（localStorage）----
 const LS_THEME = 'stelix.theme'
 const LS_HIDE_PROTECTED = 'stelix.hideProtected'
@@ -36,12 +47,16 @@ const LS_FILE_FONT_SIZE = 'stelix.fileFontSize'
 const LS_SIDEBAR_ROW_H = 'stelix.sidebarRowHeight'
 const LS_FILE_ROW_H = 'stelix.fileRowHeight'
 const LS_DETAIL_COLUMNS = 'stelix.detailColumnWidths'
+const LS_TRASH_COLUMNS = 'stelix.trashColumnWidths'
 
 // 详细视图列宽：默认值与 FileList 原有布局一致；名称列默认自适应（null）。
 const DETAIL_COL_DEF: DetailColumnWidths = { name: null, path: 240, size: 90, time: 140, type: 90 }
 const DETAIL_COL_MIN = 56
 const DETAIL_NAME_MIN = 120
 const DETAIL_COL_MAX = 1600
+
+// 回收站列宽：与旧版固定列宽一致；名称列默认自适应（null）。
+const TRASH_COL_DEF: TrashColumnWidths = { name: null, origin: 240, deleted: 145, size: 96 }
 
 function clampColumnWidth(value: number, min: number): number {
   return Math.min(DETAIL_COL_MAX, Math.max(min, Math.round(value)))
@@ -71,6 +86,32 @@ function readDetailColumnWidths(): DetailColumnWidths {
     }
   } catch {
     return { ...DETAIL_COL_DEF }
+  }
+}
+
+/** 校验并读取回收站列宽（无效 / 缺失的字段回落到默认值）。 */
+function readTrashColumnWidths(): TrashColumnWidths {
+  try {
+    const raw = localStorage.getItem(LS_TRASH_COLUMNS)
+    if (!raw) return { ...TRASH_COL_DEF }
+    const saved = JSON.parse(raw) as Partial<Record<TrashColumnKey, unknown>>
+    const width = (key: Exclude<TrashColumnKey, 'name'>): number => {
+      const value = saved[key]
+      return typeof value === 'number' && Number.isFinite(value)
+        ? clampColumnWidth(value, DETAIL_COL_MIN)
+        : TRASH_COL_DEF[key]
+    }
+    return {
+      name:
+        typeof saved.name === 'number' && Number.isFinite(saved.name)
+          ? clampColumnWidth(saved.name, DETAIL_NAME_MIN)
+          : null,
+      origin: width('origin'),
+      deleted: width('deleted'),
+      size: width('size'),
+    }
+  } catch {
+    return { ...TRASH_COL_DEF }
   }
 }
 
@@ -171,6 +212,8 @@ export const useUiStore = defineStore('ui', () => {
   const hideFileExtensions = ref(readBool(LS_HIDE_FILE_EXTENSIONS, HIDE_FILE_EXTENSIONS_DEF))
   /** 详细视图列宽（表头拖动后持久化） */
   const detailColumnWidths = ref<DetailColumnWidths>(readDetailColumnWidths())
+  /** 回收站列宽（表头拖动后持久化） */
+  const trashColumnWidths = ref<TrashColumnWidths>(readTrashColumnWidths())
   // 每次启动都落在「文件导航」面板（不持久化上次停留的面板）
   const activePanel = ref<PanelKey>('files')
   const searchScope = ref<'global' | 'current'>('global')
@@ -367,6 +410,35 @@ export const useUiStore = defineStore('ui', () => {
     persistDetailColumnWidths()
   }
 
+  function persistTrashColumnWidths() {
+    try {
+      localStorage.setItem(LS_TRASH_COLUMNS, JSON.stringify(trashColumnWidths.value))
+    } catch {
+      /* ignore */
+    }
+  }
+
+  /** 设置回收站某列宽度；`name` 传 null 表示恢复自适应。 */
+  function setTrashColumnWidth(key: TrashColumnKey, width: number | null) {
+    const min = key === 'name' ? DETAIL_NAME_MIN : DETAIL_COL_MIN
+    const next: TrashColumnWidths = { ...trashColumnWidths.value }
+    if (key === 'name') {
+      next.name = width === null ? null : clampColumnWidth(width, min)
+    } else {
+      next[key] = clampColumnWidth(width ?? TRASH_COL_DEF[key], min)
+    }
+    if (next[key] === trashColumnWidths.value[key]) return
+    trashColumnWidths.value = next
+    persistTrashColumnWidths()
+  }
+
+  /** 双击回收站表头分隔线：该列恢复默认宽度（名称列回到自适应）。 */
+  function resetTrashColumnWidth(key: TrashColumnKey) {
+    if (trashColumnWidths.value[key] === TRASH_COL_DEF[key]) return
+    trashColumnWidths.value = { ...trashColumnWidths.value, [key]: TRASH_COL_DEF[key] }
+    persistTrashColumnWidths()
+  }
+
   function setHideProtected(value: boolean) {
     hideProtected.value = value
     try {
@@ -400,6 +472,7 @@ export const useUiStore = defineStore('ui', () => {
       localStorage.removeItem(LS_HIDE_PROTECTED)
       localStorage.removeItem(LS_HIDE_FILE_EXTENSIONS)
       localStorage.removeItem(LS_DETAIL_COLUMNS)
+      localStorage.removeItem(LS_TRASH_COLUMNS)
     } catch {
       /* ignore */
     }
@@ -411,6 +484,7 @@ export const useUiStore = defineStore('ui', () => {
     hideProtected.value = HIDE_PROTECTED_DEF
     hideFileExtensions.value = HIDE_FILE_EXTENSIONS_DEF
     detailColumnWidths.value = { ...DETAIL_COL_DEF }
+    trashColumnWidths.value = { ...TRASH_COL_DEF }
     applyFontSize(fontSize.value)
     applySidebarFontSize(sidebarFontSize.value)
     applyFileFontSize(fileFontSize.value)
@@ -513,6 +587,9 @@ export const useUiStore = defineStore('ui', () => {
     detailColumnWidths,
     setDetailColumnWidth,
     resetDetailColumnWidth,
+    trashColumnWidths,
+    setTrashColumnWidth,
+    resetTrashColumnWidth,
     resetViewDefaults,
     displayFileName,
     setIndexRoots,

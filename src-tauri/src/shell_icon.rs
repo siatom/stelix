@@ -20,6 +20,17 @@ const PER_FILE_EXTS: &[&str] = &[
     "exe", "lnk", "ico", "msi", "scr", "cpl", "url", "cur", "ani", "appx",
 ];
 
+/// 回收站图标模式。
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum TrashIcon {
+    /// 普通路径图标。
+    None,
+    /// 固定空桶图标（空状态占位用）。
+    Empty,
+    /// 跟随回收站当前状态：空 → 空桶，有内容 → 满桶。
+    State,
+}
+
 /// 图标缓存。缓存 `None` 表示提取失败，避免对同一 key 反复做慢查询。
 #[derive(Default)]
 pub struct IconCache {
@@ -34,12 +45,22 @@ impl IconCache {
     }
 
     /// 取指定路径的图标（`data:image/png;base64,...`）；失败返回 `None`。
-    pub fn get_or_load(&self, path: &str, is_dir: bool, use_path_icon: bool) -> Option<String> {
-        let key = cache_key(path, is_dir, use_path_icon);
+    ///
+    /// `trash` 为回收站模式时忽略路径本身，返回对应的回收站图标。
+    pub fn get_or_load(
+        &self,
+        path: &str,
+        is_dir: bool,
+        use_path_icon: bool,
+        trash: TrashIcon,
+    ) -> Option<String> {
+        // 跟随状态时先确定回收站是否为空，缓存 key 与提取结果都按状态区分。
+        let trash_empty = trash == TrashIcon::State && crate::recycle_bin::is_empty();
+        let key = cache_key(path, is_dir, use_path_icon, trash, trash_empty);
         if let Some(hit) = self.map.get(&key) {
             return hit.clone();
         }
-        let value = extract(path, is_dir, use_path_icon);
+        let value = extract(path, is_dir, use_path_icon, trash, trash_empty);
         self.map.insert(key, value.clone());
         value
     }
@@ -47,7 +68,26 @@ impl IconCache {
 
 /// 计算缓存 key（与前端 `fileIconCache.ts` 的 `iconKey` 同规则）。
 /// 磁盘根目录单独缓存，避免与无扩展名文件共用图标。
-pub fn cache_key(path: &str, is_dir: bool, use_path_icon: bool) -> String {
+pub fn cache_key(
+    path: &str,
+    is_dir: bool,
+    use_path_icon: bool,
+    trash: TrashIcon,
+    trash_empty: bool,
+) -> String {
+    // 空回收站与满回收站图标不同，且与回收站路径本身无关。
+    match trash {
+        TrashIcon::Empty => return "system:empty-recycle-bin".to_string(),
+        TrashIcon::State => {
+            return if trash_empty {
+                "system:recycle-bin:empty"
+            } else {
+                "system:recycle-bin:full"
+            }
+            .to_string();
+        }
+        TrashIcon::None => {}
+    }
     if use_path_icon {
         return format!("system:{}", path.to_lowercase());
     }
@@ -94,20 +134,32 @@ fn extension_of(path: &str) -> String {
 
 // ---------------------------------------------------------------- 提取
 
-fn extract(path: &str, is_dir: bool, use_path_icon: bool) -> Option<String> {
+fn extract(
+    path: &str,
+    is_dir: bool,
+    use_path_icon: bool,
+    trash: TrashIcon,
+    trash_empty: bool,
+) -> Option<String> {
     #[cfg(windows)]
     {
-        extract_windows(path, is_dir, use_path_icon)
+        extract_windows(path, is_dir, use_path_icon, trash, trash_empty)
     }
     #[cfg(not(windows))]
     {
-        let _ = (path, is_dir, use_path_icon);
+        let _ = (path, is_dir, use_path_icon, trash, trash_empty);
         None
     }
 }
 
 #[cfg(windows)]
-fn extract_windows(path: &str, is_dir: bool, use_path_icon: bool) -> Option<String> {
+fn extract_windows(
+    path: &str,
+    is_dir: bool,
+    use_path_icon: bool,
+    trash: TrashIcon,
+    trash_empty: bool,
+) -> Option<String> {
     // Shell 首次初始化并发查询可能返回空图标；串行提取也避免争用系统图标缓存。
     static SHELL_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
     let _shell = SHELL_LOCK.lock().unwrap_or_else(|error| error.into_inner());
@@ -132,6 +184,24 @@ fn extract_windows(path: &str, is_dir: bool, use_path_icon: bool) -> Option<Stri
     }
     let _com =
         ComGuard(unsafe { CoInitializeEx(std::ptr::null(), COINIT_APARTMENTTHREADED as u32) >= 0 });
+
+    // 回收站图标：Shell 命名空间图标不保证按需刷新，直接取 imageres.dll
+    // 的空桶 / 满桶资源，空状态与「跟随状态」的显示才稳定。
+    match trash {
+        TrashIcon::Empty => {
+            let hicon = recycle_bin_icon(true)?;
+            let png = hicon_to_data_url(hicon);
+            unsafe { DestroyIcon(hicon) };
+            return png;
+        }
+        TrashIcon::State => {
+            let hicon = recycle_bin_icon(trash_empty)?;
+            let png = hicon_to_data_url(hicon);
+            unsafe { DestroyIcon(hicon) };
+            return png;
+        }
+        TrashIcon::None => {}
+    }
 
     let ext = extension_of(path);
     let base = SHGFI_ICON | SHGFI_LARGEICON;
@@ -180,6 +250,34 @@ fn extract_windows(path: &str, is_dir: bool, use_path_icon: bool) -> Option<Stri
     // SHGetFileInfoW 返回的 HICON 需要调用方释放。
     unsafe { DestroyIcon(hicon) };
     png
+}
+
+/// 回收站系统图标：`imageres.dll` 资源 -55（空桶）/ -54（满桶）。
+///
+/// 不用回收站命名空间的 `SHGetFileInfoW`：Shell 返回的图标不一定随内容刷新，
+/// 无法可靠反映回收站当前状态。
+#[cfg(windows)]
+fn recycle_bin_icon(empty: bool) -> Option<windows_sys::Win32::UI::WindowsAndMessaging::HICON> {
+    use windows_sys::Win32::UI::Shell::SHDefExtractIconW;
+
+    let resource = if empty { -55 } else { -54 };
+    let dll: Vec<u16> = "imageres.dll\0".encode_utf16().collect();
+    let mut large = std::ptr::null_mut();
+    let hr = unsafe {
+        SHDefExtractIconW(
+            dll.as_ptr(),
+            resource,
+            0,
+            &mut large,
+            std::ptr::null_mut(),
+            64,
+        )
+    };
+    if hr < 0 || large.is_null() {
+        None
+    } else {
+        Some(large)
+    }
 }
 
 /// 调用 `SHGetFileInfoW` 取 HICON。
@@ -445,26 +543,49 @@ fn encode_png_data_url(width: u32, height: u32, rgba: &[u8]) -> Option<String> {
 mod tests {
     use super::*;
 
+    const RECYCLE_BIN: &str = "::{645FF040-5081-101B-9F08-00AA002F954E}";
+
     #[test]
     fn cache_key_matches_expected_rules() {
-        assert_eq!(cache_key(r"C:\Windows", true, false), "dir");
-        assert_eq!(cache_key(r"C:\a\b.txt", false, false), "e:txt");
-        assert_eq!(cache_key(r"C:\a\b.PDF", false, false), "e:pdf");
-        assert_eq!(cache_key(r"C:\a\b", false, false), "e:");
+        let none = TrashIcon::None;
+        assert_eq!(cache_key(r"C:\Windows", true, false, none, false), "dir");
+        assert_eq!(cache_key(r"C:\a\b.txt", false, false, none, false), "e:txt");
+        assert_eq!(cache_key(r"C:\a\b.PDF", false, false, none, false), "e:pdf");
+        assert_eq!(cache_key(r"C:\a\b", false, false, none, false), "e:");
         assert_eq!(
-            cache_key(r"C:\Program Files\App.EXE", false, false),
+            cache_key(r"C:\Program Files\App.EXE", false, false, none, false),
             r"p:c:\program files\app.exe"
         );
         // dotfile 按 Windows Shell 规则去掉前导点取扩展名；
         // 不同 dotfile 必须分开缓存，否则会互相串用图标。
-        assert_eq!(cache_key(r"C:\a\.env", false, false), "e:env");
-        assert_eq!(cache_key(r"C:\a\.gitignore", false, false), "e:gitignore");
-        assert_ne!(
-            cache_key(r"C:\a\.env", false, false),
-            cache_key(r"C:\a\.gitignore", false, false)
+        assert_eq!(cache_key(r"C:\a\.env", false, false, none, false), "e:env");
+        assert_eq!(
+            cache_key(r"C:\a\.gitignore", false, false, none, false),
+            "e:gitignore"
         );
-        assert_eq!(cache_key(r"C:\a\README", false, false), "e:");
-        assert_eq!(cache_key(r"C:\a\.env.local", false, false), "e:local");
+        assert_ne!(
+            cache_key(r"C:\a\.env", false, false, none, false),
+            cache_key(r"C:\a\.gitignore", false, false, none, false)
+        );
+        assert_eq!(cache_key(r"C:\a\README", false, false, none, false), "e:");
+        assert_eq!(
+            cache_key(r"C:\a\.env.local", false, false, none, false),
+            "e:local"
+        );
+        // 空回收站图标按「空状态」固定缓存，与回收站路径的系统图标互不影响。
+        assert_eq!(
+            cache_key(RECYCLE_BIN, false, true, TrashIcon::Empty, false),
+            "system:empty-recycle-bin"
+        );
+        // 跟随状态的图标按「空 / 满」分开缓存，状态变化后不会命中旧图标。
+        assert_eq!(
+            cache_key(RECYCLE_BIN, false, true, TrashIcon::State, true),
+            "system:recycle-bin:empty"
+        );
+        assert_eq!(
+            cache_key(RECYCLE_BIN, false, true, TrashIcon::State, false),
+            "system:recycle-bin:full"
+        );
     }
 
     #[cfg(windows)]
@@ -472,7 +593,8 @@ mod tests {
     fn extracts_folder_icon_as_png_data_url() {
         use base64::Engine as _;
 
-        let url = extract(r"C:\Windows", true, false).expect("应能提取文件夹图标");
+        let url = extract(r"C:\Windows", true, false, TrashIcon::None, false)
+            .expect("应能提取文件夹图标");
         let encoded = url
             .strip_prefix("data:image/png;base64,")
             .expect("应返回 base64 PNG data URL");
@@ -491,7 +613,7 @@ mod tests {
     fn extracts_recycle_bin_shell_icon() {
         use base64::Engine as _;
         // 回收站是 Shell 命名空间对象，用它的 GUID 路径取系统图标。
-        let url = extract("::{645FF040-5081-101B-9F08-00AA002F954E}", false, true)
+        let url = extract(RECYCLE_BIN, false, true, TrashIcon::None, false)
             .expect("应能提取回收站系统图标");
         let bytes = base64::engine::general_purpose::STANDARD
             .decode(url.strip_prefix("data:image/png;base64,").unwrap())
@@ -510,6 +632,60 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
+    fn extracts_empty_recycle_bin_icon() {
+        use base64::Engine as _;
+        // 空状态占位图标必须来自 imageres.dll 的空桶资源，
+        // 不能随系统回收站当前是否为空而变成满桶图标。
+        let url = extract(RECYCLE_BIN, false, true, TrashIcon::Empty, false)
+            .expect("应能提取空回收站图标");
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(url.strip_prefix("data:image/png;base64,").unwrap())
+            .unwrap();
+        let mut reader = png::Decoder::new(std::io::Cursor::new(bytes))
+            .read_info()
+            .unwrap();
+        let mut pixels = vec![0; reader.output_buffer_size()];
+        let frame = reader.next_frame(&mut pixels).unwrap();
+        assert!(
+            pixels[..frame.buffer_size()]
+                .chunks_exact(4)
+                .any(|p| p[3] > 0),
+            "空回收站图标不应是全透明图"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn extracts_state_recycle_bin_icons() {
+        use base64::Engine as _;
+
+        let render = |empty: bool| {
+            let url = extract(RECYCLE_BIN, false, true, TrashIcon::State, empty)
+                .unwrap_or_else(|| panic!("应能提取{}回收站图标", if empty { "空" } else { "满" }));
+            let bytes = base64::engine::general_purpose::STANDARD
+                .decode(url.strip_prefix("data:image/png;base64,").unwrap())
+                .unwrap();
+            let mut reader = png::Decoder::new(std::io::Cursor::new(bytes))
+                .read_info()
+                .unwrap();
+            let mut pixels = vec![0; reader.output_buffer_size()];
+            let frame = reader.next_frame(&mut pixels).unwrap();
+            assert!(
+                pixels[..frame.buffer_size()]
+                    .chunks_exact(4)
+                    .any(|p| p[3] > 0),
+                "回收站图标不应是全透明图"
+            );
+            url
+        };
+
+        let empty = render(true);
+        let full = render(false);
+        assert_ne!(empty, full, "空桶与满桶应是不同图标");
+    }
+
+    #[cfg(windows)]
+    #[test]
     fn extracts_document_icons_with_visible_pixels() {
         use base64::Engine as _;
 
@@ -517,7 +693,7 @@ mod tests {
         for ext in ["docx", "xlsx", "pdf", "txt"] {
             let path = format!(r"C:\stelix-icon-test-missing.{ext}");
             let url = cache
-                .get_or_load(&path, false, false)
+                .get_or_load(&path, false, false, TrashIcon::None)
                 .unwrap_or_else(|| panic!("应能提取 {ext} 系统类型图标"));
             let bytes = base64::engine::general_purpose::STANDARD
                 .decode(url.strip_prefix("data:image/png;base64,").unwrap())
@@ -531,7 +707,10 @@ mod tests {
             assert!(pixels[..frame.buffer_size()]
                 .chunks_exact(4)
                 .any(|p| p[3] > 0));
-            assert_eq!(cache.get_or_load(&path, false, false), Some(url));
+            assert_eq!(
+                cache.get_or_load(&path, false, false, TrashIcon::None),
+                Some(url)
+            );
         }
     }
 }
