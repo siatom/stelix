@@ -10,6 +10,7 @@ import { useUiStore, type DetailColumnKey } from '../../stores/ui'
 import { match, isCapturingShortcut } from '../../stores/shortcuts'
 import { api } from '../../api'
 import { basename, dirname, fileIcon, fileKind, formatSize, formatTime, joinPath, typeLabel } from './utils'
+import { validateEntryName } from '../../utils/nameRules'
 import Icon from '../icons/Icon.vue'
 import FileIcon from '../icons/FileIcon.vue'
 import BatchRenameDialog from './BatchRenameDialog.vue'
@@ -923,6 +924,12 @@ const editingFolder = computed(
   () => editing.value?.mode === 'mkdir' || editing.value?.mode === 'mkdirMove',
 )
 
+/** 取文件名的扩展名（不含点、小写）；无扩展名（含 `.gitignore` 这类点开头）返回空串。 */
+function extOf(fileName: string): string {
+  const dot = fileName.lastIndexOf('.')
+  return dot > 0 ? fileName.slice(dot + 1).toLowerCase() : ''
+}
+
 async function commitEdit(reopenFailed = false) {
   const e = editing.value
   if (!e) return
@@ -944,21 +951,32 @@ async function commitEdit(reopenFailed = false) {
   editing.value = null // 先关闭，避免 Enter 与 blur 重复提交
   if (e.mode === 'mkdir') {
     if (!names.length) return
-    const result = await paneStore.createFolders(props.paneId, names)
-    if (result.failures.length) {
-      const details = result.failures.map((item) => `${item.name}（${item.reason}）`).join('；')
+    // 名称校验在本地完成：非法项不提交，合法项照常创建。
+    const failures: { name: string; reason: string }[] = []
+    const validNames: string[] = []
+    for (const item of names) {
+      const reason = validateEntryName(item)
+      if (reason) failures.push({ name: item, reason })
+      else validNames.push(item)
+    }
+    if (validNames.length) {
+      const result = await paneStore.createFolders(props.paneId, validNames)
+      failures.push(...result.failures)
+    }
+    if (failures.length) {
+      const details = failures.map((item) => `${item.name}（${item.reason}）`).join('；')
       emit(
         'error',
-        result.failures.length === 1
+        failures.length === 1
           ? `无法创建文件夹：${details}`
-          : `有 ${result.failures.length} 个文件夹创建失败：${details}`,
+          : `有 ${failures.length} 个文件夹创建失败：${details}`,
       )
     } else {
       emit('error', null)
     }
-    if (reopenFailed && result.failures.length && editSeq === seq && !editing.value) {
+    if (reopenFailed && failures.length && editSeq === seq && !editing.value) {
       // 回车提交失败时保留失败项，便于修正后直接重试（原因已由 store 汇总到状态栏）。
-      const failedNames = result.failures.map((item) => item.name).filter(Boolean)
+      const failedNames = failures.map((item) => item.name).filter(Boolean)
       if (failedNames.length) {
         const text = failedNames.join('\n')
         editing.value = { mode: 'mkdir', name: text, selStart: text.length, selEnd: text.length }
@@ -969,6 +987,15 @@ async function commitEdit(reopenFailed = false) {
   }
   if (e.mode === 'mkdirMove') {
     if (!name) return
+    const nameError = validateEntryName(name)
+    if (nameError) {
+      emit('error', `无法创建文件夹「${name}」：${nameError}`)
+      if (reopenFailed && editSeq === seq && !editing.value) {
+        editing.value = { mode: 'mkdirMove', name, selStart: 0, selEnd: name.length }
+        focusEdit()
+      }
+      return
+    }
     const result = await paneStore.createFolderAndMove(props.paneId, name)
     if (!result.ok) {
       const reason = result.reason || '未知原因'
@@ -995,6 +1022,15 @@ async function commitEdit(reopenFailed = false) {
   }
   if (!name) return
   if (creating) {
+    const nameError = validateEntryName(name)
+    if (nameError) {
+      emit('error', `无法新建文件：${nameError}`)
+      if (reopenFailed && editSeq === seq && !editing.value) {
+        editing.value = { mode: e.mode, name: e.name, selStart: 0, selEnd: e.name.length }
+        focusEdit()
+      }
+      return
+    }
     const result = await paneStore.runFs(props.paneId, {
       op: e.mode,
       target: joinPath(props.tab.path, name),
@@ -1004,13 +1040,31 @@ async function commitEdit(reopenFailed = false) {
     return
   }
   if (!e.path || name === basename(e.path)) return // 名称未变则取消
+  const nameError = validateEntryName(name)
+  if (nameError) {
+    emit('error', `无法重命名：${nameError}`)
+    if (reopenFailed && editSeq === seq && !editing.value) {
+      // 回车提交失败时保留用户输入，便于修正后直接重试。
+      editing.value = { mode: 'rename', path: e.path, name: e.name, selStart: 0, selEnd: e.name.length }
+      focusEdit()
+    }
+    return
+  }
   const result = await paneStore.runFs(props.paneId, {
     op: 'rename',
     sources: [e.path],
     target: joinPath(dirname(e.path), name),
   })
-  if (!result.ok) emit('error', result.errors.join('；') || '重命名失败')
-  else emit('error', null)
+  if (!result.ok) {
+    emit('error', result.errors.join('；') || '重命名失败')
+    return
+  }
+  emit('error', null)
+  // 扩展名决定文件类型（图标 / 打开方式），变更后提示一次。
+  const oldExt = extOf(basename(e.path))
+  if (oldExt && oldExt !== extOf(name)) {
+    ui.setStatusText('已重命名：扩展名已变更，文件类型可能改变')
+  }
 }
 
 function openCtx(ev: MouseEvent, entry: FileEntry) {
@@ -1047,15 +1101,65 @@ function onBlankContextMenu(ev: MouseEvent) {
   void showNativeCtx(ev, currentDirEntry())
 }
 
+/**
+ * 系统菜单末尾追加的应用扩展项（顺序固定）。
+ * 回收站标签不追加任何应用项；远程标签不会走到这里。
+ */
+function contextMenuItems(): { id: string; label: string }[] {
+  if (props.tab.kind === 'trash') return []
+  const selected = props.tab.selected.length
+  const items: { id: string; label: string }[] = [{ id: 'undo', label: '撤销上一步' }]
+  if (selected) {
+    items.push({ id: 'duplicate', label: '复制副本' })
+    items.push({ id: 'copy-to', label: '复制到…' })
+    items.push({ id: 'move-to', label: '移动到…' })
+  }
+  if (selected >= 2) items.push({ id: 'batch-rename', label: '批量重命名…' })
+  if (isSearch.value) items.push({ id: 'open-containing', label: '打开所在文件夹' })
+  return items
+}
+
+/** 分发系统菜单里被选中的应用扩展项（目标一律取当前选中集，而非可能已过期的 entry）。 */
+function handleCtxAction(id: string, entry: FileEntry) {
+  switch (id) {
+    case 'undo':
+      void paneStore.undoLast()
+      return
+    case 'duplicate': {
+      const sources = [...props.tab.selected]
+      if (!sources.length) return
+      void paneStore.runFs(props.paneId, { op: 'duplicate', sources })
+      return
+    }
+    case 'copy-to':
+      void paneStore.copySelectedTo(props.paneId, 'copy')
+      return
+    case 'move-to':
+      void paneStore.copySelectedTo(props.paneId, 'move')
+      return
+    case 'batch-rename':
+      batchRenameOpen.value = true
+      return
+    case 'open-containing':
+      void paneStore.reveal(entry.path)
+      return
+  }
+}
+
 async function showNativeCtx(event: MouseEvent, entry: FileEntry) {
   cancelPendingRename()
   if (!props.tab.selected.includes(entry.path)) props.tab.selected = [entry.path]
   try {
-    await api.showNativeShellMenu(entry.path, {
-      x: event.clientX,
-      y: event.clientY,
-      scale: window.devicePixelRatio || 1,
-    })
+    const picked = await api.showNativeShellMenu(
+      entry.path,
+      {
+        x: event.clientX,
+        y: event.clientY,
+        scale: window.devicePixelRatio || 1,
+      },
+      contextMenuItems(),
+    )
+    if (picked) handleCtxAction(picked, entry)
   } catch (error) {
     ui.setStatusText(`无法打开系统菜单：${String(error)}`)
   }
@@ -1158,6 +1262,11 @@ function onGlobalKey(ev: KeyboardEvent) {
     case 'undo':
       ev.preventDefault()
       void paneStore.undoLast()
+      return
+    case 'redo':
+      ev.preventDefault()
+      // 重做能力由文件操作栈并行提供，这里用可选调用保证不依赖其存在。
+      void (paneStore as unknown as { redoLast?: () => void }).redoLast?.()
       return
     case 'duplicate':
       if (!canFileOp.value || !props.tab.selected.length) return
