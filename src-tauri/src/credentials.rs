@@ -8,6 +8,8 @@ use parking_lot::Mutex;
 
 const SERVICE: &str = "stelix.remote-host";
 const KEY_SERVICE: &str = "stelix.remote-host-key";
+/// 云存储（百度网盘 / 迅雷云盘）令牌：同一账号的 access / refresh token 以 JSON 保存。
+const CLOUD_SERVICE: &str = "stelix.cloud-account";
 static CREDENTIALS_LOCK: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
 
 fn entry(service: &str, host_id: &str) -> Result<keyring::Entry, String> {
@@ -64,4 +66,17 @@ pub fn get_remote_key_passphrase(host_id: &str) -> Result<Option<String>, String
 
 pub fn delete_remote_key_passphrase(host_id: &str) -> Result<(), String> {
     delete(KEY_SERVICE, host_id)
+}
+
+/// 云存储账号令牌（JSON：access / refresh token、过期时间、OAuth 客户端信息等）。
+pub fn save_cloud_token(account_id: &str, token_json: &str) -> Result<(), String> {
+    save(CLOUD_SERVICE, account_id, token_json)
+}
+
+pub fn get_cloud_token(account_id: &str) -> Result<Option<String>, String> {
+    load(CLOUD_SERVICE, account_id)
+}
+
+pub fn delete_cloud_token(account_id: &str) -> Result<(), String> {
+    delete(CLOUD_SERVICE, account_id)
 }

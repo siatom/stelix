@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { nextTick, ref, watch } from 'vue'
 import { open as openFileDialog } from '@tauri-apps/plugin-dialog'
 import { api } from '../../api'
 import { usePaneStore } from '../../stores/pane'
@@ -7,6 +7,7 @@ import { resolveRemoteAuth, setRemoteKeyPassphrase, setRemotePassword } from '..
 import { compareNames } from '../../naturalSort'
 import TreeNode from './TreeNode.vue'
 import RemoteTreeNode from './RemoteTreeNode.vue'
+import CloudAccounts from './CloudAccounts.vue'
 import Icon from '../icons/Icon.vue'
 
 type RemoteAuthMethod = 'password' | 'key'
@@ -86,6 +87,14 @@ const scanError = ref('')
 const hosts = ref(readHosts())
 const openHostMenuId = ref<string | null>(null)
 const sections = ref({ smb: false, remote: false, cloud: false })
+const cloudRef = ref<InstanceType<typeof CloudAccounts> | null>(null)
+
+/** 云存储的「+」在分类行：展开分区后把添加账号弹窗交给子组件。 */
+async function openCloudLogin() {
+  sections.value.cloud = true
+  await nextTick()
+  cloudRef.value?.openLogin()
+}
 const smbDraft = ref('')
 const showSmbForm = ref(false)
 const showHostForm = ref(false)
@@ -575,8 +584,9 @@ function toggleHost(item: RemoteHost) {
           <span class="twist" :class="{ open: sections.cloud }"><Icon name="chevron-right" :size="11" /></span>
           <Icon class="category-icon category-cloud" name="cloud" :size="18" /><span>云存储</span>
         </button>
+        <button class="action" title="添加云存储账号" aria-label="添加云存储账号" @click="openCloudLogin"><Icon name="plus" :size="13" /></button>
       </div>
-      <p v-if="sections.cloud" class="state">暂无云存储连接</p>
+      <CloudAccounts v-if="sections.cloud" ref="cloudRef" />
     </section>
     <Teleport to="body">
       <div v-if="showSmbForm" class="dialog-backdrop" tabindex="-1" @keydown.esc.prevent.stop>

@@ -661,6 +661,7 @@ mod tests {
             auth_method: RemoteAuth::Password,
             private_key: String::new(),
             key_passphrase: String::new(),
+            account_id: String::new(),
         };
 
         let client = SftpClient::connect(&connection)

@@ -6,6 +6,7 @@
 mod ai_agent;
 mod app_core;
 mod clipboard;
+mod cloud;
 mod credentials;
 mod dir_size;
 #[cfg(windows)]
@@ -66,6 +67,11 @@ fn get_roots() -> Vec<DriveInfo> {
 /// SFTP 走内置 russh 实现（不依赖 curl 对主机密钥算法的支持），FTP 仍走 curl。
 #[tauri::command]
 async fn list_remote_dir(request: network::RemoteRequest) -> Result<DirListing, String> {
+    if request.connection.protocol == cloud::BAIDU_PROTOCOL
+        || request.connection.protocol == cloud::XUNLEI_PROTOCOL
+    {
+        return cloud::list_remote_dir(request).await;
+    }
     if request.connection.protocol == "sftp" {
         return sftp::list_remote_dir(request).await;
     }
@@ -84,6 +90,14 @@ async fn remote_transfer(
     request: network::RemoteTransferRequest,
 ) -> Result<network::RemoteTransferResult, String> {
     use tauri::Emitter;
+    if request.connection.protocol == cloud::BAIDU_PROTOCOL
+        || request.connection.protocol == cloud::XUNLEI_PROTOCOL
+    {
+        let mut emit = |progress| {
+            let _ = app.emit(app_core::events::REMOTE_TRANSFER, progress);
+        };
+        return Ok(cloud::transfer_remote(request, &mut emit).await);
+    }
     if request.connection.protocol == "sftp" {
         let mut emit = |progress| {
             let _ = app.emit(app_core::events::REMOTE_TRANSFER, progress);
@@ -166,6 +180,38 @@ async fn delete_remote_key_passphrase(host_id: String) -> Result<(), String> {
     })
     .await
     .map_err(|error| format!("私钥口令删除任务失败: {error}"))?
+}
+
+// ---------------------------------------------------------------- 云存储
+
+/// 百度网盘 OAuth 登录：打开系统浏览器，等待本机回调并保存令牌。
+#[tauri::command]
+async fn cloud_baidu_login(
+    app: tauri::AppHandle,
+    request: cloud::BaiduLoginRequest,
+) -> Result<cloud::CloudAccountInfo, String> {
+    cloud::baidu::login(&app, request).await
+}
+
+#[tauri::command]
+async fn cloud_xunlei_login(
+    request: cloud::XunleiLoginRequest,
+) -> Result<cloud::CloudAccountInfo, String> {
+    cloud::xunlei::login(request).await
+}
+
+#[tauri::command]
+async fn cloud_xunlei_token_login(
+    request: cloud::XunleiTokenLoginRequest,
+) -> Result<cloud::CloudAccountInfo, String> {
+    cloud::xunlei::token_login(request).await
+}
+
+#[tauri::command]
+async fn cloud_logout(account_id: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || cloud::logout(&account_id))
+        .await
+        .map_err(|error| format!("云存储退出任务失败: {error}"))?
 }
 
 // ---------------------------------------------------------------- SSH 终端
@@ -1019,6 +1065,10 @@ pub fn run() {
             save_remote_key_passphrase,
             get_remote_key_passphrase,
             delete_remote_key_passphrase,
+            cloud_baidu_login,
+            cloud_xunlei_login,
+            cloud_xunlei_token_login,
+            cloud_logout,
             ssh_connect,
             ssh_write,
             ssh_resize,

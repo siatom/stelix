@@ -277,11 +277,16 @@ export interface AiProvider {
 /** FTP / SFTP 的认证方式：密码 / SSH 私钥。 */
 export type RemoteAuthMethod = 'password' | 'key'
 
-/** 一个 FTP / SFTP 连接的连接信息（密码不在此结构中，见 `src/shell/remote.ts`）。 */
+/** 云存储服务商（账号令牌保存在系统凭据库，前端只存账号列表）。 */
+export type CloudProvider = 'baidu' | 'xunlei'
+
+export type RemoteProtocol = 'ftp' | 'sftp' | CloudProvider
+
+/** 一个 FTP / SFTP / 云存储连接的连接信息（密码不在此结构中，见 `src/shell/remote.ts`）。 */
 export interface RemoteLocation {
   /** 侧栏主机的稳定 id（也用于系统凭据库的 service 名） */
   id: string
-  protocol: 'ftp' | 'sftp'
+  protocol: RemoteProtocol
   host: string
   port: number
   username: string
@@ -291,6 +296,23 @@ export interface RemoteLocation {
   authMethod?: RemoteAuthMethod
   /** 私钥文件路径（`authMethod === 'key'` 时有效） */
   privateKey?: string
+  /** 云存储账号 id（`protocol` 为 `baidu` / `xunlei` 时使用） */
+  accountId?: string
+}
+
+/** 云存储账号（仅展示信息；令牌在系统凭据库）。 */
+export interface CloudAccount {
+  id: string
+  provider: CloudProvider
+  label: string
+  username: string
+}
+
+export interface CloudAccountInfo {
+  accountId: string
+  provider: CloudProvider
+  label: string
+  username: string
 }
 
 /** 一个待传输条目：下载时 path 为远端 POSIX 路径，上传时为本地路径。 */
@@ -300,7 +322,7 @@ export interface RemoteTransferItem {
 }
 
 export interface RemoteTransferRequest {
-  protocol: 'ftp' | 'sftp'
+  protocol: RemoteProtocol
   host: string
   port: number
   username: string
@@ -309,6 +331,8 @@ export interface RemoteTransferRequest {
   authMethod?: RemoteAuthMethod
   privateKey?: string
   keyPassphrase?: string
+  /** 云存储账号 id */
+  accountId?: string
   direction: 'download' | 'upload'
   /** 下载目标本地目录 / 上传目标远端目录 */
   target: string

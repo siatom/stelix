@@ -37,8 +37,8 @@ once_cell = "1"
 # 文件系统遍历
 walkdir = "2"
 
-# AI 接入（Windows 走 SChannel，无需额外 C 依赖）
-reqwest = { version = "0.12", features = ["json", "stream"] }
+# AI 接入（Windows 走 SChannel，无需额外 C 依赖）；multipart 供网盘分片上传
+reqwest = { version = "0.12", features = ["json", "stream", "multipart"] }
 
 # 工具
 thiserror = "2"
@@ -55,6 +55,11 @@ russh-sftp = "3"
 # 系统图标：HICON -> 像素 -> PNG 编码 / base64（见 shell_icon.rs）
 png = "0.17"
 base64 = "0.22"
+
+# 云存储：百度网盘分片 MD5、迅雷登录设备签名
+md5 = "0.8"
+sha1 = "0.11"
+hex = "0.4"
 
 # Windows 原生能力（驱动器信息 / MFT 预留 / 系统图标）
 windows-sys = { version = "0.59", features = [

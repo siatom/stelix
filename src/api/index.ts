@@ -11,6 +11,7 @@ import type {
   AiProvider,
   AiReply,
   AiToolCall,
+  CloudAccountInfo,
   ConflictItem,
   DirListing,
   DriveInfo,
@@ -21,6 +22,7 @@ import type {
   FeedbackCreated,
   FeedbackRequest,
   IndexStatus,
+  RemoteProtocol,
   RemoteTransferProgress,
   RemoteTransferRequest,
   RemoteTransferResult,
@@ -45,7 +47,7 @@ export const api = {
   getRoots: () => invoke<DriveInfo[]>('get_roots'),
   /** 列出 FTP / SFTP 目录，条目带类型 / 大小 / 修改时间。 */
   listRemoteDir: (request: {
-    protocol: 'ftp' | 'sftp'
+    protocol: RemoteProtocol
     host: string
     port: number
     username: string
@@ -53,6 +55,7 @@ export const api = {
     authMethod?: 'password' | 'key'
     privateKey?: string
     keyPassphrase?: string
+    accountId?: string
     path: string
   }) => invoke<DirListing>('list_remote_dir', { request }),
   /** 在本地与 FTP / SFTP 之间上传或下载（目录递归）；进度见 `events.onRemoteTransfer`。 */
@@ -70,6 +73,26 @@ export const api = {
     invoke<string | null>('get_remote_key_passphrase', { hostId }),
   deleteRemoteKeyPassphrase: (hostId: string) =>
     invoke<void>('delete_remote_key_passphrase', { hostId }),
+
+  /** 云存储登录：百度走浏览器 OAuth，迅雷用账号密码或 refresh token；令牌存入系统凭据库。 */
+  cloudBaiduLogin: (request: {
+    accountId: string
+    clientId: string
+    clientSecret: string
+    label?: string
+  }) => invoke<CloudAccountInfo>('cloud_baidu_login', { request }),
+  cloudXunleiLogin: (request: {
+    accountId: string
+    username: string
+    password: string
+    label?: string
+  }) => invoke<CloudAccountInfo>('cloud_xunlei_login', { request }),
+  cloudXunleiTokenLogin: (request: {
+    accountId: string
+    refreshToken: string
+    label?: string
+  }) => invoke<CloudAccountInfo>('cloud_xunlei_token_login', { request }),
+  cloudLogout: (accountId: string) => invoke<void>('cloud_logout', { accountId }),
 
   /** 建立 SSH 终端会话（密码 / 私钥认证）；输出经 `ssh:data`、结束经 `ssh:exit` 事件回传。 */
   sshConnect: (request: SshConnectRequest) =>

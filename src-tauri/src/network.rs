@@ -50,6 +50,9 @@ pub struct RemoteConnection {
     /// 私钥密码短语（没有密码短语时为空）。
     #[serde(default)]
     pub key_passphrase: String,
+    /// 云存储账号 id（`protocol = "baidu" | "xunlei"` 时使用，令牌存放在系统凭据库）。
+    #[serde(default)]
+    pub account_id: String,
 }
 
 #[derive(Deserialize)]
@@ -1268,6 +1271,7 @@ mod tests {
             auth_method: RemoteAuth::Password,
             private_key: String::new(),
             key_passphrase: String::new(),
+            account_id: String::new(),
         };
         assert!(build_remote_url(&connection, "/", true).is_err());
 
@@ -1280,6 +1284,7 @@ mod tests {
             auth_method: RemoteAuth::Password,
             private_key: String::new(),
             key_passphrase: String::new(),
+            account_id: String::new(),
         };
         assert!(build_remote_url(&connection, "/../etc", true).is_err());
     }
@@ -1295,6 +1300,7 @@ mod tests {
             auth_method: RemoteAuth::Password,
             private_key: String::new(),
             key_passphrase: String::new(),
+            account_id: String::new(),
         };
 
         let dir = build_remote_url(&connection, "/var/www", true).unwrap();
@@ -1353,6 +1359,7 @@ mod tests {
                 auth_method: RemoteAuth::Password,
                 private_key: String::new(),
                 key_passphrase: String::new(),
+                account_id: String::new(),
             },
             direction: TransferDirection::Download,
             target: "C:\\Temp".into(),
@@ -1375,6 +1382,7 @@ mod tests {
             auth_method: RemoteAuth::Password,
             private_key: String::new(),
             key_passphrase: String::new(),
+            account_id: String::new(),
         };
         // 凭据只进 stdin 配置，且带引号以支持特殊字符。
         assert_eq!(

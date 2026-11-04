@@ -1,6 +1,15 @@
 // 远程（FTP / SFTP / SSH 终端）连接的前端辅助：凭据内存缓存 + POSIX 路径工具。
 import { api } from '../api'
-import type { RemoteLocation } from '../types'
+import type { CloudProvider, RemoteLocation } from '../types'
+
+/** 云存储协议：令牌由后端按 `accountId` 从系统凭据库读取，前端不持有密码。 */
+export function isCloudProtocol(protocol: string): protocol is CloudProvider {
+  return protocol === 'baidu' || protocol === 'xunlei'
+}
+
+export function cloudProviderName(provider: CloudProvider): string {
+  return provider === 'baidu' ? '百度网盘' : '迅雷云盘'
+}
 
 /**
  * 连接密码 / 私钥口令的内存缓存。
@@ -58,6 +67,10 @@ export interface ResolvedRemoteAuth {
 
 /** 依据主机配置解析出密码或私钥 + 口令（需要读系统凭据库）。 */
 export async function resolveRemoteAuth(location: RemoteLocation): Promise<ResolvedRemoteAuth> {
+  if (isCloudProtocol(location.protocol)) {
+    // 云存储不传密码：后端按 accountId 读取系统凭据库中的令牌。
+    return { password: '', authMethod: 'password', privateKey: '', keyPassphrase: '' }
+  }
   if (location.authMethod === 'key') {
     return {
       password: '',
@@ -88,8 +101,11 @@ export function remoteDirname(path: string): string {
   return index <= 0 ? '/' : normalized.slice(0, index)
 }
 
-/** 展示用地址：`sftp://host:22/var/www`。 */
+/** 展示用地址：`sftp://host:22/var/www`；云存储显示为 `百度网盘 /path`。 */
 export function formatRemoteUrl(location: RemoteLocation, path: string): string {
+  if (isCloudProtocol(location.protocol)) {
+    return `${cloudProviderName(location.protocol)} ${normalizeRemotePath(path)}`
+  }
   const protocol = location.protocol === 'sftp' ? 'sftp' : 'ftp'
   return `${protocol}://${location.host}:${location.port}${normalizeRemotePath(path)}`
 }

@@ -8,7 +8,7 @@ import Icon from '../icons/Icon.vue'
 import { addFavorite, FAVORITES_CHANGED_EVENT, loadFavorites } from '../Sidebar/shared'
 import { useUiStore } from '../../stores/ui'
 import { api } from '../../api'
-import { normalizeRemotePath } from '../../shell/remote'
+import { isCloudProtocol, normalizeRemotePath } from '../../shell/remote'
 
 const props = defineProps<{ paneId: string; tab: TabState }>()
 const paneStore = usePaneStore()
@@ -35,9 +35,10 @@ const hiddenMenuEl = ref<HTMLElement | null>(null)
 const segments = computed(() => {
   const location = props.tab.remote
   if (props.tab.kind === 'remote' && location) {
-    const parts: { label: string; path: string }[] = [
-      { label: `${location.protocol}://${location.host}:${location.port}`, path: '/' },
-    ]
+    const root = isCloudProtocol(location.protocol)
+      ? location.label
+      : `${location.protocol}://${location.host}:${location.port}`
+    const parts: { label: string; path: string }[] = [{ label: root, path: '/' }]
     let acc = ''
     for (const seg of normalizeRemotePath(props.tab.path).split('/').filter(Boolean)) {
       acc = `${acc}/${seg}`
