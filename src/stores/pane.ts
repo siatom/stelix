@@ -1431,13 +1431,13 @@ export const usePaneStore = defineStore('pane', () => {
 
   /** 由被拒绝的路径重建一个「只针对这些路径」的重试操作。 */
   function buildRetryOp(op: FsOp, denied: string[]): FsOp {
-    if (op.op === 'mkdir' && op.sources?.length) {
-      // 批量新建：sources 里每一项都是目标路径，只重试被拒绝的目标。
-      return { op: op.op, sources: denied }
+    if (op.op === 'mkdir') {
+      // 批量新建：targets 里每一项都是目标路径，只重试被拒绝的目标。
+      return { op: 'mkdir', targets: denied }
     }
-    if (op.op === 'mkdir' || op.op === 'createFile') {
-      // 单目标新建没有 sources，失败路径就是 target。
-      return { op: op.op, target: denied[0] }
+    if (op.op === 'createFile') {
+      // 单目标新建，失败路径就是 target。
+      return { op: 'createFile', target: denied[0] }
     }
     // 删除 / 重命名 / 移动 / 复制：沿用原 target，只把 sources 收窄为被拒绝项，
     // 避免对已成功的项重复执行（那会误报「路径不存在」）。permanent 必须保留，
@@ -1450,13 +1450,13 @@ export const usePaneStore = defineStore('pane', () => {
    * 没有任何来源执行成功时返回 null。
    */
   function appliedSources(op: FsOp, denied: string[]): FsOp | null {
-    if (op.op === 'mkdir' && op.sources?.length) {
-      // 批量新建：sources 里每一项都是目标路径，剔除被拒绝的那部分。
+    if (op.op === 'mkdir') {
+      // 批量新建：targets 里每一项都是目标路径，剔除被拒绝的那部分。
       const deniedSet = new Set(denied.map(normalizePath))
-      const sources = op.sources.filter((path) => !deniedSet.has(normalizePath(path)))
-      return sources.length ? { op: op.op, sources } : null
+      const targets = (op.targets ?? []).filter((path) => !deniedSet.has(normalizePath(path)))
+      return targets.length ? { op: 'mkdir', targets } : null
     }
-    if (op.op === 'mkdir' || op.op === 'createFile') {
+    if (op.op === 'createFile') {
       // 单目标新建：目标被拒绝就说明什么都没做。
       return denied.length ? null : op
     }
@@ -1735,7 +1735,7 @@ export const usePaneStore = defineStore('pane', () => {
     const denied: { name: string; path: string }[] = []
     for (const item of targets) {
       try {
-        const result = await api.fsOperation({ op: 'mkdir', target: item.path })
+        const result = await api.fsOperation({ op: 'mkdir', targets: [item.path] })
         if (result.ok) {
           created.push(item.name)
         } else if (result.denied?.length) {
@@ -1757,7 +1757,7 @@ export const usePaneStore = defineStore('pane', () => {
         // 合并为一次提权：所有被拒绝的目标放在 sources 里，只弹一次 UAC。
         const result = await api.fsOperationElevated({
           op: 'mkdir',
-          sources: denied.map((item) => item.path),
+          targets: denied.map((item) => item.path),
         })
         if (result.ok) {
           for (const item of denied) created.push(item.name)
@@ -1842,7 +1842,7 @@ export const usePaneStore = defineStore('pane', () => {
       currentTab.selected = paths.filter((path) => alive.has(path))
     }
 
-    const create = await runFs(paneId, { op: 'mkdir', target })
+    const create = await runFs(paneId, { op: 'mkdir', targets: [target] })
     if (!create.ok) {
       restoreSelection(sources)
       // 提权取消时 runFs 已在状态栏说明，这里只补充名称与具体原因。

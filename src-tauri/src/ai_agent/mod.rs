@@ -71,7 +71,7 @@ use crate::persistence;
 use crate::state::AppState;
 use crate::types::{
     AiConfig, AiContext, AiMessage, AiModel, AiProvider, AiReply, AiToolCall, AiUsage, FileEntry,
-    FsOp, FsOpKind, SearchHit, SearchQuery, TaskAction, TaskDraft, TaskFilters, TaskPlanReply,
+    ConflictPolicy, FsOp, SearchHit, SearchQuery, TaskAction, TaskDraft, TaskFilters, TaskPlanReply,
     TaskSchedule, ToolOutcome,
 };
 
@@ -593,7 +593,10 @@ pub fn execute_tool(
                 return Err("需要用户确认".into());
             }
             let (op, _desc) = build_fs_op(call)?;
-            Ok(ToolOutcome::Fs(fs_core::execute(&op)))
+            Ok(ToolOutcome::Fs(fs_core::execute(
+                &op,
+                &fs_core::OpContext::noop(),
+            )))
         }
         other => Err(format!("未知工具：{other}")),
     }
@@ -615,11 +618,10 @@ fn build_fs_op(call: &AiToolCall) -> Result<(FsOp, String), String> {
             }
             let desc = format!("移动 {} 项到 {target}", sources.len());
             Ok((
-                FsOp {
-                    op: FsOpKind::Move,
+                FsOp::Move {
                     sources,
-                    target: Some(target),
-                    permanent: false,
+                    target,
+                    conflict: ConflictPolicy::KeepBoth,
                 },
                 desc,
             ))
@@ -631,12 +633,7 @@ fn build_fs_op(call: &AiToolCall) -> Result<(FsOp, String), String> {
             }
             let desc = format!("移到回收站 {} 项：{}", paths.len(), paths.join("、"));
             Ok((
-                FsOp {
-                    op: FsOpKind::Delete,
-                    sources: paths,
-                    target: None,
-                    permanent: false,
-                },
+                FsOp::Delete { sources: paths, permanent: false },
                 desc,
             ))
         }
@@ -661,12 +658,7 @@ fn build_fs_op(call: &AiToolCall) -> Result<(FsOp, String), String> {
             };
             let desc = format!("把 {path} 重命名为 {new_name}");
             Ok((
-                FsOp {
-                    op: FsOpKind::Rename,
-                    sources: vec![path],
-                    target: Some(target),
-                    permanent: false,
-                },
+                FsOp::Rename { sources: vec![path], target: target, overwrite: false },
                 desc,
             ))
         }
@@ -681,12 +673,7 @@ fn build_fs_op(call: &AiToolCall) -> Result<(FsOp, String), String> {
             }
             let desc = format!("新建目录 {path}");
             Ok((
-                FsOp {
-                    op: FsOpKind::Mkdir,
-                    sources: vec![],
-                    target: Some(path),
-                    permanent: false,
-                },
+                FsOp::Mkdir { targets: vec![path] },
                 desc,
             ))
         }
@@ -831,12 +818,7 @@ fn try_write_ops(
                 let path = resolve_path(&name, context);
                 return Some(confirm_reply(
                     format!("将新建目录：{path}"),
-                    FsOp {
-                        op: FsOpKind::Mkdir,
-                        sources: vec![],
-                        target: Some(path),
-                        permanent: false,
-                    },
+                    FsOp::Mkdir { targets: vec![path] },
                 ));
             }
         }
@@ -892,11 +874,10 @@ fn try_write_ops(
             let desc = format!("移动 {} 项到 {target}", sources.len());
             return Some(confirm_reply(
                 desc,
-                FsOp {
-                    op: FsOpKind::Move,
+                FsOp::Move {
                     sources,
-                    target: Some(target),
-                    permanent: false,
+                    target,
+                    conflict: ConflictPolicy::KeepBoth,
                 },
             ));
         }
@@ -914,11 +895,10 @@ fn try_write_ops(
             let desc = format!("复制 {} 项到 {target}", sources.len());
             return Some(confirm_reply(
                 desc,
-                FsOp {
-                    op: FsOpKind::Copy,
+                FsOp::Copy {
                     sources,
-                    target: Some(target),
-                    permanent: false,
+                    target,
+                    conflict: ConflictPolicy::KeepBoth,
                 },
             ));
         }
@@ -968,12 +948,7 @@ fn try_write_ops(
             );
             return Some(confirm_reply(
                 desc,
-                FsOp {
-                    op: FsOpKind::Delete,
-                    sources: paths,
-                    target: None,
-                    permanent: false,
-                },
+                FsOp::Delete { sources: paths, permanent: false },
             ));
         }
         let sources = split_sources(&target)
@@ -983,10 +958,8 @@ fn try_write_ops(
         let desc = format!("移到回收站 {} 项：\n{}", sources.len(), sources.join("\n"));
         return Some(confirm_reply(
             desc,
-            FsOp {
-                op: FsOpKind::Delete,
+            FsOp::Delete {
                 sources,
-                target: None,
                 permanent: false,
             },
         ));
@@ -1002,12 +975,7 @@ fn rename_op(full_path: &str, new_name: &str) -> Option<FsOp> {
         Some(dir) => dir.join(new_name).to_string_lossy().to_string(),
         None => new_name.to_string(),
     };
-    Some(FsOp {
-        op: FsOpKind::Rename,
-        sources: vec![full_path.to_string()],
-        target: Some(target),
-        permanent: false,
-    })
+    Some(FsOp::Rename { sources: vec![full_path.to_string()], target: target, overwrite: false })
 }
 
 fn confirm_reply(text: String, op: FsOp) -> AiReply {
@@ -2109,8 +2077,8 @@ mod tests {
         let index = IndexStore::new();
         let reply = offline_reply(&user("删除 a.txt"), &ctx("C:\\tmp"), &index);
         let op = reply.pending_confirm.expect("应生成待确认操作");
-        assert_eq!(op.op, FsOpKind::Delete);
-        assert!(op.sources.iter().any(|s| s.ends_with("a.txt")));
+        assert!(matches!(&op, FsOp::Delete { .. }));
+        assert!(op.sources().iter().any(|s| s.ends_with("a.txt")));
     }
 
     #[test]
@@ -2118,8 +2086,8 @@ mod tests {
         let index = IndexStore::new();
         let reply = offline_reply(&user("把 a.txt 移动到 D:\\归档"), &ctx("C:\\tmp"), &index);
         let op = reply.pending_confirm.expect("应生成待确认操作");
-        assert_eq!(op.op, FsOpKind::Move);
-        assert_eq!(op.target.as_deref(), Some("D:\\归档"));
+        assert!(matches!(&op, FsOp::Move { .. }));
+        assert_eq!(op.target(), Some("D:\\归档"));
     }
 
     #[test]
@@ -2127,8 +2095,10 @@ mod tests {
         let index = IndexStore::new();
         let reply = offline_reply(&user("新建文件夹 报告"), &ctx("C:\\tmp"), &index);
         let op = reply.pending_confirm.expect("应生成待确认操作");
-        assert_eq!(op.op, FsOpKind::Mkdir);
-        assert!(op.target.unwrap().ends_with("报告"));
+        let FsOp::Mkdir { targets } = &op else {
+            panic!("应生成 Mkdir 操作");
+        };
+        assert!(targets[0].ends_with("报告"));
     }
 
     #[test]
@@ -2136,8 +2106,8 @@ mod tests {
         let index = IndexStore::new();
         let reply = offline_reply(&user("把 a.txt 重命名为 b.txt"), &ctx("C:\\tmp"), &index);
         let op = reply.pending_confirm.expect("应生成待确认操作");
-        assert_eq!(op.op, FsOpKind::Rename);
-        assert!(op.target.unwrap().ends_with("b.txt"));
+        assert!(matches!(&op, FsOp::Rename { .. }));
+        assert!(op.target().unwrap().ends_with("b.txt"));
     }
 
     #[test]
@@ -2274,7 +2244,7 @@ mod tests {
         }
 
         let p = pending.expect("第一个写操作应作为待确认项");
-        assert_eq!(p.op.op, FsOpKind::Delete);
+        assert!(matches!(&p.op, FsOp::Delete { .. }));
         assert_eq!(p.call.id, "c1", "待确认项应是最先出现的写工具");
 
         assert_eq!(messages.len(), 2, "其余写工具都要有对应的 tool 响应");

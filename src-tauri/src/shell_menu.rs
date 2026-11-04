@@ -19,9 +19,10 @@ use windows::Win32::UI::Shell::{
     CMF_NORMAL, CMIC_MASK_PTINVOKE, CMINVOKECOMMANDINFO, CMINVOKECOMMANDINFOEX,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreatePopupMenu, DestroyMenu, GetCursorPos, GetMenuItemCount, PostMessageW,
-    SetForegroundWindow, TrackPopupMenuEx, HMENU, SW_SHOWNORMAL, TPM_RETURNCMD, TPM_RIGHTBUTTON,
-    WM_DRAWITEM, WM_INITMENUPOPUP, WM_MEASUREITEM, WM_MENUCHAR, WM_NULL,
+    AppendMenuW, CreatePopupMenu, DestroyMenu, GetCursorPos, GetMenuItemCount, PostMessageW,
+    SetForegroundWindow, TrackPopupMenuEx, HMENU, MF_SEPARATOR, MF_STRING, SW_SHOWNORMAL,
+    TPM_RETURNCMD, TPM_RIGHTBUTTON, WM_DRAWITEM, WM_INITMENUPOPUP, WM_MEASUREITEM, WM_MENUCHAR,
+    WM_NULL,
 };
 
 /// Shell 为 `QueryContextMenu` 分配的命令 ID 范围。
@@ -42,8 +43,28 @@ pub struct Anchor {
     pub scale: f64,
 }
 
+/// 应用自定义菜单项（追加在系统菜单末尾的分隔线之后）。
+#[derive(Debug, Clone)]
+pub struct MenuItem {
+    /// 返回给前端的标识（如 `duplicate` / `copy-to`）。
+    pub id: String,
+    /// 菜单显示文字。
+    pub label: String,
+}
+
+/// 应用自定义命令 ID 的起始值：与 Shell 的 [ID_CMD_FIRST, ID_CMD_LAST] 不重叠。
+const APP_CMD_FIRST: u32 = 0x8000;
+
 /// 在 `hwnd` 中显示 Windows Shell 为指定路径提供的完整原生菜单。
-pub fn show_native(hwnd: HWND, path: &str, anchor: Option<Anchor>) -> Result<bool, String> {
+///
+/// `items` 会作为「应用扩展段」追加在系统菜单末尾；用户选中其中一项时返回它的 id，
+/// 选中系统菜单项或取消时返回 `None`（系统项由 Shell 自己执行）。
+pub fn show_native(
+    hwnd: HWND,
+    path: &str,
+    anchor: Option<Anchor>,
+    items: &[MenuItem],
+) -> Result<Option<String>, String> {
     if hwnd.is_invalid() {
         return Err("窗口句柄无效".to_string());
     }
@@ -63,8 +84,30 @@ pub fn show_native(hwnd: HWND, path: &str, anchor: Option<Anchor>) -> Result<boo
     if hr.is_err() {
         return Err(format!("构建系统菜单失败（HRESULT 0x{:08X}）", hr.0 as u32));
     }
-    if unsafe { GetMenuItemCount(Some(menu.0)) } <= 0 {
-        return Ok(false);
+    if unsafe { GetMenuItemCount(Some(menu.0)) } <= 0 && items.is_empty() {
+        return Ok(None);
+    }
+    // 追加应用扩展段：系统菜单 + 一条分隔线 + 应用自己的操作。
+    if !items.is_empty() {
+        unsafe {
+            let _ = AppendMenuW(menu.0, MF_SEPARATOR, 0, PCWSTR::null());
+        }
+        for (index, item) in items.iter().enumerate() {
+            let label: Vec<u16> = item
+                .label
+                .encode_utf16()
+                .chain(std::iter::once(0))
+                .collect();
+            unsafe {
+                AppendMenuW(
+                    menu.0,
+                    MF_STRING,
+                    (APP_CMD_FIRST + index as u32) as usize,
+                    PCWSTR(label.as_ptr()),
+                )
+                .map_err(|error| format!("追加应用菜单项失败: {error}"))?;
+            }
+        }
     }
     ACTIVE_MENU.with(|slot| {
         *slot.borrow_mut() = Some(ActiveMenu {
@@ -92,7 +135,12 @@ pub fn show_native(hwnd: HWND, path: &str, anchor: Option<Anchor>) -> Result<boo
     ACTIVE_MENU.with(|slot| *slot.borrow_mut() = None);
     let command_id = command.0 as u32;
     if command_id == 0 {
-        return Ok(true);
+        return Ok(None);
+    }
+    // 应用扩展段：不交给 Shell，直接把 id 返回前端执行。
+    if command_id >= APP_CMD_FIRST {
+        let index = (command_id - APP_CMD_FIRST) as usize;
+        return Ok(items.get(index).map(|item| item.id.clone()));
     }
     if !(ID_CMD_FIRST..=ID_CMD_LAST).contains(&command_id) {
         return Err(format!("系统菜单返回了无效命令 ID: {command_id}"));
@@ -114,12 +162,12 @@ pub fn show_native(hwnd: HWND, path: &str, anchor: Option<Anchor>) -> Result<boo
             const CANCELLED: i32 = 0x8007_04C7u32 as i32;
             let code = error.code().0;
             if code == E_ABORT || code == CANCELLED {
-                return Ok(true);
+                return Ok(None);
             }
             return Err(format!("执行系统菜单命令失败: {error}"));
         }
     }
-    Ok(true)
+    Ok(None)
 }
 
 /// 把 WebView 的 CSS 坐标换算成屏幕物理坐标；失败时回退到光标位置。

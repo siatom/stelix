@@ -61,12 +61,22 @@ export interface IndexProgress {
 
 export type FsOpKind = 'copy' | 'move' | 'delete' | 'rename' | 'mkdir' | 'createFile' | 'duplicate'
 
+/** 同名冲突的处理策略（仅 copy / move 使用）。 */
+export type ConflictPolicy = 'keepBoth' | 'replace' | 'skip'
+
 export interface FsOp {
   op: FsOpKind
   sources?: string[]
+  /** copy / move 的目标目录；rename 的新路径；createFile 的完整路径。 */
   target?: string | null
+  /** mkdir 的目标目录列表（支持一次新建多个）。 */
+  targets?: string[]
   /** delete 时是否跳过回收站直接永久删除；默认 false（移到回收站）。 */
   permanent?: boolean
+  /** copy / move 遇到同名项时的处理策略；默认 keepBoth（自动改名）。 */
+  conflict?: ConflictPolicy
+  /** rename 时是否覆盖已存在的目标。 */
+  overwrite?: boolean
 }
 
 export interface FsOpResult {
@@ -76,6 +86,30 @@ export interface FsOpResult {
   denied?: string[]
   /** 已成功执行条目的逆向操作（按执行顺序），用于「撤销上一步」。 */
   undo?: FsOp[]
+  /** 主动跳过的路径（符号链接 / 冲突跳过）。 */
+  skipped?: string[]
+  /** 是否被用户取消（已完成的条目仍然生效）。 */
+  cancelled?: boolean
+}
+
+/** 文件操作进度（fs:progress 事件，按 opId 归属）。 */
+export interface FsProgress {
+  opId: string
+  kind: FsOpKind | ''
+  /** scan（统计总量）/ run（执行中）/ done（结束） */
+  phase: 'scan' | 'run' | 'done' | string
+  filesDone: number
+  filesTotal: number
+  bytesDone: number
+  bytesTotal: number
+  current: string
+}
+
+/** 一处同名冲突（预检结果）。 */
+export interface ConflictItem {
+  path: string
+  source: string
+  isDir: boolean
 }
 
 /** 回收站中的一个条目。 */

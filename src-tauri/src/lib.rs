@@ -30,10 +30,15 @@ mod types;
 mod watcher;
 mod wsl;
 
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+
+use once_cell::sync::Lazy;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Manager, State, WindowEvent,
+    Emitter, Manager, State, WindowEvent,
 };
 
 use state::AppState;
@@ -192,16 +197,70 @@ fn ssh_close(state: State<'_, AppState>, session_id: String) {
 /// 执行一次文件操作（复制 / 移动 / 删除 / 重命名 / 新建）。
 ///
 /// 递归复制、移动、删除都是重负载阻塞操作，走后台线程执行，避免卡死 UI。
+/// 正在执行的文件操作：opId -> 取消标记。
+///
+/// 复制 / 移动 / 删除可能跑很久，前端点「取消」时按 opId 找到标记置位，
+/// 执行循环在下一个检查点退出（已完成的条目仍然生效，并照常回传 undo）。
+static FS_CANCELS: Lazy<Mutex<HashMap<String, Arc<AtomicBool>>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
+
+/// 执行一次文件操作（复制 / 移动 / 删除 / 重命名 / 新建）。
+///
+/// 递归复制、移动、删除都是重负载阻塞操作，走后台线程执行，避免卡死 UI。
+/// 进度经 fs:progress 事件推送（按 opId 归属），可用 fs_cancel 中途取消。
 #[tauri::command]
-async fn fs_operation(op: FsOp) -> FsOpResult {
-    tauri::async_runtime::spawn_blocking(move || fs_core::execute(&op))
+async fn fs_operation(
+    app: tauri::AppHandle,
+    op: FsOp,
+    op_id: Option<String>,
+) -> FsOpResult {
+    let op_id = op_id.unwrap_or_default();
+    let cancel = Arc::new(AtomicBool::new(false));
+    if !op_id.is_empty() {
+        if let Ok(mut map) = FS_CANCELS.lock() {
+            map.insert(op_id.clone(), cancel.clone());
+        }
+    }
+
+    let emit_app = app.clone();
+    let sink: fs_core::ProgressSink = Arc::new(move |progress: FsProgress| {
+        let _ = emit_app.emit("fs:progress", progress);
+    });
+    let ctx = fs_core::OpContext::new(op_id.clone(), op.kind(), cancel, Some(sink));
+
+    let result = tauri::async_runtime::spawn_blocking(move || fs_core::execute(&op, &ctx))
         .await
         .unwrap_or_else(|error| FsOpResult {
             ok: false,
             errors: vec![format!("文件操作任务失败: {error}")],
             denied: Vec::new(),
             ..Default::default()
-        })
+        });
+
+    if !op_id.is_empty() {
+        if let Ok(mut map) = FS_CANCELS.lock() {
+            map.remove(&op_id);
+        }
+    }
+    result
+}
+
+/// 取消一个正在执行的文件操作（按 opId 匹配）。未知 id 无副作用。
+#[tauri::command]
+fn fs_cancel(op_id: String) {
+    if let Ok(map) = FS_CANCELS.lock() {
+        if let Some(flag) = map.get(&op_id) {
+            flag.store(true, Ordering::Relaxed);
+        }
+    }
+}
+
+/// 预检同名冲突：返回目标位置已存在的条目，供前端选择「替换 / 跳过 / 保留两者」。
+#[tauri::command]
+async fn fs_check_conflicts(op: FsOp) -> Vec<ConflictItem> {
+    tauri::async_runtime::spawn_blocking(move || fs_core::check_conflicts(&op))
+        .await
+        .unwrap_or_default()
 }
 
 /// 提权执行一次因权限不足失败的文件操作（Windows UAC）。
@@ -452,18 +511,30 @@ fn show_open_with_windows(file: &std::path::Path) -> Result<(), String> {
     }
 }
 
-/// 弹出未筛选且不含 Stelix 专属项的完整 Windows Shell 菜单。
+/// 弹出 Windows Shell 菜单，并在末尾追加应用自定义操作。
+///
+/// 返回被选中的应用项 id（如 duplicate / copy-to）；选中系统项或取消时返回 null
+/// （系统项由 Shell 自己执行，应用不需要介入）。
 #[tauri::command]
 fn show_native_shell_menu(
     window: tauri::Window,
     path: String,
     anchor: Option<ShellMenuAnchor>,
-) -> Result<bool, String> {
+    items: Option<Vec<ShellMenuItemInput>>,
+) -> Result<Option<String>, String> {
     #[cfg(windows)]
     {
         let hwnd = window
             .hwnd()
             .map_err(|error| format!("无法获取窗口句柄: {error}"))?;
+        let extra: Vec<shell_menu::MenuItem> = items
+            .unwrap_or_default()
+            .into_iter()
+            .map(|item| shell_menu::MenuItem {
+                id: item.id,
+                label: item.label,
+            })
+            .collect();
         shell_menu::show_native(
             hwnd,
             &path,
@@ -472,14 +543,23 @@ fn show_native_shell_menu(
                 y: value.y,
                 scale: value.scale,
             }),
+            &extra,
         )
     }
 
     #[cfg(not(windows))]
     {
-        let _ = (window, path, anchor);
+        let _ = (window, path, anchor, items);
         Err("当前平台暂不支持系统右键菜单".to_string())
     }
+}
+
+/// 追加在系统右键菜单末尾的应用自定义项。
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ShellMenuItemInput {
+    id: String,
+    label: String,
 }
 
 /// “更多”按钮在 WebView 客户端坐标系中的锚点（CSS 像素 + DPI 缩放）。
@@ -919,6 +999,8 @@ pub fn run() {
             ssh_close,
             fs_operation,
             fs_operation_elevated,
+            fs_cancel,
+            fs_check_conflicts,
             trash_list,
             trash_restore,
             trash_purge,

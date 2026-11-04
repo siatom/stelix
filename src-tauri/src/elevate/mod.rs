@@ -57,7 +57,7 @@ fn run_helper(op_path: &Path, result_path: &Path) -> bool {
     let result = std::fs::read_to_string(op_path)
         .ok()
         .and_then(|text| serde_json::from_str::<FsOp>(&text).ok())
-        .map(|op| crate::fs_core::execute(&op))
+        .map(|op| crate::fs_core::execute(&op, &crate::fs_core::OpContext::noop()))
         .unwrap_or_else(|| FsOpResult {
             ok: false,
             errors: vec!["提权子进程无法读取操作参数".to_string()],
@@ -207,7 +207,7 @@ pub fn sweep_stale_temp() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::FsOpKind;
+    use crate::types::FsOp;
 
     fn temp_dir(tag: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("stelix-elevate-test-{tag}-{}", std::process::id()));
@@ -241,11 +241,8 @@ mod tests {
         let target = dir.join("made");
         let op_path = dir.join("op.json");
         let result_path = dir.join("result.json");
-        let op = FsOp {
-            op: FsOpKind::Mkdir,
-            sources: Vec::new(),
-            target: Some(target.to_string_lossy().to_string()),
-            permanent: false,
+        let op = FsOp::Mkdir {
+            targets: vec![target.to_string_lossy().to_string()],
         };
         std::fs::write(&op_path, serde_json::to_vec(&op).unwrap()).unwrap();
 

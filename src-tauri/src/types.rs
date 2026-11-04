@@ -113,36 +113,116 @@ pub struct IndexProgress {
     pub done: bool,
 }
 
-/// 文件操作类型
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+/// 同名冲突的处理策略。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub enum FsOpKind {
-    Copy,
-    Move,
-    Delete,
-    Rename,
-    Mkdir,
-    /// 新建空文件
-    CreateFile,
-    /// 在原目录生成「xxx - 副本」副本
-    Duplicate,
+pub enum ConflictPolicy {
+    /// 自动改名保留两者（`name (1).ext`）——默认行为，绝不覆盖用户数据。
+    #[default]
+    KeepBoth,
+    /// 覆盖已存在的同名项（目录与目录合并）。
+    Replace,
+    /// 跳过已存在的同名项。
+    Skip,
 }
 
-/// 一次文件操作请求
+/// 一次文件操作请求。
+///
+/// 用 tagged enum 而不是「一个结构体 + 语义随 op 漂移的 sources/target」：
+/// 每个变体只带自己真正需要的字段，编译期就能阻止「Mkdir 用 sources 存目标」
+/// 这类隐式约定。序列化形状是 `{"op":"copy","sources":[...],"target":"..."}`，
+/// 与前端约定的 JSON 一致（tag = `op`）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct FsOp {
-    pub op: FsOpKind,
-    /// 源路径；CreateFile 时为空。Mkdir 时作为额外的目录目标（批量创建 / 批量提权重试）。
-    #[serde(default)]
-    pub sources: Vec<String>,
-    /// 目标路径：Move/Copy 为目标目录，Rename 为新名（含路径），
-    /// Mkdir 为新目录路径（批量创建时也可只填 sources），CreateFile 为新文件的完整路径
-    #[serde(default)]
-    pub target: Option<String>,
-    /// Delete 时是否跳过回收站直接物理删除（永久删除，不可恢复）。默认 false。
-    #[serde(default)]
-    pub permanent: bool,
+#[serde(tag = "op", rename_all = "camelCase")]
+pub enum FsOp {
+    /// 复制到目标目录
+    Copy {
+        sources: Vec<String>,
+        target: String,
+        #[serde(default)]
+        conflict: ConflictPolicy,
+    },
+    /// 移动到目标目录
+    Move {
+        sources: Vec<String>,
+        target: String,
+        #[serde(default)]
+        conflict: ConflictPolicy,
+    },
+    /// 删除（默认移到回收站）
+    Delete {
+        sources: Vec<String>,
+        /// true = 跳过回收站直接物理删除（不可恢复）
+        #[serde(default)]
+        permanent: bool,
+    },
+    /// 重命名 / 移动到指定新路径
+    Rename {
+        sources: Vec<String>,
+        target: String,
+        /// true = 允许覆盖已存在的目标
+        #[serde(default)]
+        overwrite: bool,
+    },
+    /// 新建目录（支持一次建多个）
+    Mkdir { targets: Vec<String> },
+    /// 新建空文件
+    CreateFile { target: String },
+    /// 在原目录生成「xxx - 副本」
+    Duplicate { sources: Vec<String> },
+}
+
+#[allow(dead_code)] // 访问器给执行层 / 测试共用，部分尚未被生产路径调用
+impl FsOp {
+    /// 操作类型名（与前端 `FsOpKind` 一致，也用于进度事件）。
+    pub fn kind(&self) -> &'static str {
+        match self {
+            FsOp::Copy { .. } => "copy",
+            FsOp::Move { .. } => "move",
+            FsOp::Delete { .. } => "delete",
+            FsOp::Rename { .. } => "rename",
+            FsOp::Mkdir { .. } => "mkdir",
+            FsOp::CreateFile { .. } => "createFile",
+            FsOp::Duplicate { .. } => "duplicate",
+        }
+    }
+
+    /// 参与操作的源路径（Mkdir 的 `targets` 也视作源，便于统一统计）。
+    pub fn sources(&self) -> &[String] {
+        match self {
+            FsOp::Copy { sources, .. }
+            | FsOp::Move { sources, .. }
+            | FsOp::Delete { sources, .. }
+            | FsOp::Rename { sources, .. }
+            | FsOp::Duplicate { sources } => sources,
+            FsOp::Mkdir { targets } => targets,
+            FsOp::CreateFile { .. } => &[],
+        }
+    }
+
+    /// 目标路径（Copy/Move 为目标目录，Rename/CreateFile 为完整新路径）。
+    pub fn target(&self) -> Option<&str> {
+        match self {
+            FsOp::Copy { target, .. }
+            | FsOp::Move { target, .. }
+            | FsOp::Rename { target, .. }
+            | FsOp::CreateFile { target } => Some(target),
+            _ => None,
+        }
+    }
+
+    /// 冲突策略（仅 Copy/Move 有）。
+    pub fn conflict(&self) -> ConflictPolicy {
+        match self {
+            FsOp::Copy { conflict, .. } | FsOp::Move { conflict, .. } => *conflict,
+            _ => ConflictPolicy::KeepBoth,
+        }
+    }
+
+    /// 是否永久删除。
+    pub fn is_permanent(&self) -> bool {
+        matches!(self, FsOp::Delete { permanent: true, .. })
+    }
 }
 
 /// 文件操作结果
@@ -152,6 +232,12 @@ pub struct FsOpResult {
     pub ok: bool,
     #[serde(default)]
     pub errors: Vec<String>,
+    /// 被跳过的路径（符号链接 / 冲突跳过 / 取消时尚未处理）。不计入 `ok` 的判定。
+    #[serde(default)]
+    pub skipped: Vec<String>,
+    /// 是否被用户取消（取消时已完成的条目仍然生效，并照常回传 undo）。
+    #[serde(default)]
+    pub cancelled: bool,
     /// 因「拒绝访问」（Windows `ERROR_ACCESS_DENIED` = `os error 5`）失败的路径。
     ///
     /// 前端据此发起 UAC 提权，并且**只重试这些路径**（已成功的项不重复执行）。
@@ -167,6 +253,34 @@ pub struct FsOpResult {
     /// - Delete 无法逆向（普通删除可去回收站还原），不记录
     #[serde(default)]
     pub undo: Vec<FsOp>,
+}
+
+/// 文件操作进度（经 `fs:progress` 事件推送，按 opId 归属到具体任务）。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FsProgress {
+    pub op_id: String,
+    /// copy / move / delete / rename / mkdir / createFile / duplicate
+    pub kind: String,
+    /// scan（统计总量）/ run（执行中）
+    pub phase: String,
+    pub files_done: u64,
+    pub files_total: u64,
+    pub bytes_done: u64,
+    pub bytes_total: u64,
+    /// 当前正在处理的路径
+    pub current: String,
+}
+
+/// 一处同名冲突（预检结果）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConflictItem {
+    /// 目标位置已存在的路径
+    pub path: String,
+    /// 来源路径
+    pub source: String,
+    pub is_dir: bool,
 }
 
 /// 回收站中的一个条目。

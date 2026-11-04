@@ -9,10 +9,12 @@ import type {
   AiProvider,
   AiReply,
   AiToolCall,
+  ConflictItem,
   DirListing,
   DriveInfo,
   FsOp,
   FsOpResult,
+  FsProgress,
   FeedbackAuth,
   FeedbackCreated,
   FeedbackRequest,
@@ -75,7 +77,13 @@ export const api = {
   sshResize: (sessionId: string, cols: number, rows: number) =>
     invoke<void>('ssh_resize', { sessionId, cols, rows }),
   sshClose: (sessionId: string) => invoke<void>('ssh_close', { sessionId }),
-  fsOperation: (op: FsOp) => invoke<FsOpResult>('fs_operation', { op }),
+  /** 执行文件操作；传 opId 时可通过 fsCancel 中途取消，进度经 fs:progress 回传。 */
+  fsOperation: (op: FsOp, opId?: string) =>
+    invoke<FsOpResult>('fs_operation', { op, opId: opId ?? null }),
+  /** 取消一个正在执行的文件操作（按 opId 匹配）。 */
+  fsCancel: (opId: string) => invoke<void>('fs_cancel', { opId }),
+  /** 预检同名冲突：返回目标位置已存在的条目，供 UI 选择替换 / 跳过 / 保留两者。 */
+  fsCheckConflicts: (op: FsOp) => invoke<ConflictItem[]>('fs_check_conflicts', { op }),
   /** 提权执行一次因权限不足失败的文件操作（Windows UAC）。 */
   fsOperationElevated: (op: FsOp) => invoke<FsOpResult>('fs_operation_elevated', { op }),
   /** 列出系统回收站条目（按删除时间从新到旧）。 */
@@ -107,9 +115,20 @@ export const api = {
   showItemProperties: (path: string) => invoke<void>('show_item_properties', { path }),
   /** 弹出系统原生「打开方式」窗口（仅本地文件）。 */
   showOpenWith: (path: string) => invoke<void>('show_open_with', { path }),
-  /** 弹出未筛选、未附加 Stelix 操作的完整 Windows Shell 菜单。 */
-  showNativeShellMenu: (path: string, anchor?: { x: number; y: number; scale: number } | null) =>
-    invoke<boolean>('show_native_shell_menu', { path, anchor: anchor ?? null }),
+  /**
+   * 弹出 Windows Shell 菜单，并在末尾追加应用自定义操作。
+   * 返回被选中的应用项 id（如 duplicate / copy-to）；选中系统项或取消时返回 null。
+   */
+  showNativeShellMenu: (
+    path: string,
+    anchor?: { x: number; y: number; scale: number } | null,
+    items?: { id: string; label: string }[] | null,
+  ) =>
+    invoke<string | null>('show_native_shell_menu', {
+      path,
+      anchor: anchor ?? null,
+      items: items ?? null,
+    }),
 
   startIndex: (roots: string[]) => invoke<void>('start_index', { roots }),
   setIndexRoots: (roots: string[]) => invoke<void>('set_index_roots', { roots }),
@@ -166,7 +185,9 @@ export const events = {
   onIndexProgress: (cb: (p: unknown) => void) => listen('index:progress', (e) => cb(e.payload)),
   onIndexDone: (cb: (p: unknown) => void) => listen('index:done', (e) => cb(e.payload)),
   onSearchResult: (cb: (p: unknown) => void) => listen('search:result', (e) => cb(e.payload)),
-  onFsProgress: (cb: (p: string) => void) => listen('fs:progress', (e) => cb(e.payload as string)),
+  /** 文件操作进度（复制 / 移动 / 删除的扫描与执行进度，按 opId 归属）。 */
+  onFsProgress: (cb: (p: FsProgress) => void) =>
+    listen('fs:progress', (e) => cb(e.payload as FsProgress)),
   /** 定时任务状态变化（新增 / 运行 / 启用状态改变）。 */
   onTaskUpdated: (cb: (id: string) => void) => listen('task:updated', (e) => cb(e.payload as string)),
   /** 目录内容变更（后端 250ms 防抖后上报受影响的目录列表）。 */
