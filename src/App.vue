@@ -16,7 +16,8 @@ import CommandPalette from './components/CommandPalette.vue'
 import SettingsDialog from './components/SettingsDialog.vue'
 import FeedbackDialog from './components/FeedbackDialog.vue'
 import ConflictDialog from './components/ConflictDialog.vue'
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import SyncDialog from './components/Pane/SyncDialog.vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { LogicalSize, PhysicalPosition, PhysicalSize } from '@tauri-apps/api/dpi'
 
@@ -184,11 +185,14 @@ async function onTitlebarActionKeydown(event: KeyboardEvent) {
 
 onMounted(async () => {
   await syncMaximizedState()
+  // 挂载时窗口可能仍在完成最大化，重新取一次宽度，保证 AI 分屏按真实宽度均分。
+  onWindowResize()
   unlistenResize = await appWindow.onResized(syncMaximizedState)
   window.addEventListener('mousedown', dismissTitlebarMenu)
   window.addEventListener('keydown', onTitlebarActionKeydown)
   window.addEventListener('keydown', onAltF4, true)
   window.addEventListener('keydown', onSearchShortcut)
+  window.addEventListener('resize', onWindowResize)
   void ui.startIndexStatusWatch()
   // 目录变更：刷新所有打开该目录的标签（跨窗格 / 后台标签），并广播给左侧目录树。
   unlistenFsChanged = await events.onFsChanged(({ dirs }) => {
@@ -226,6 +230,13 @@ const SIDEBAR_WIDTH_KEY = 'stelix.sidebarWidth'
 const SIDEBAR_WIDTH_MIN = 180
 const SIDEBAR_WIDTH_MAX = 480
 
+// AI 助手打开时：左屏为对话栏，右屏为当前活动窗格，拖动分隔线调整比例。
+const AI_SPLIT_KEY = 'stelix.aiSplitRatio'
+const AI_SPLIT_DEF = 0.5
+const AI_PANEL_MIN = 300
+const AI_MAIN_MIN = 340
+const ACTIVITY_BAR_W = 52
+
 function savedWidth(key: string, fallback: number, min: number, max: number): number {
   try {
     const value = localStorage.getItem(key)
@@ -236,27 +247,78 @@ function savedWidth(key: string, fallback: number, min: number, max: number): nu
   }
 }
 
+function readAiSplitRatio(): number {
+  try {
+    const saved = Number(localStorage.getItem(AI_SPLIT_KEY))
+    return Number.isFinite(saved) && saved > 0 ? Math.min(1, saved) : AI_SPLIT_DEF
+  } catch {
+    return AI_SPLIT_DEF
+  }
+}
+
 const sidebarWidth = ref(savedWidth(SIDEBAR_WIDTH_KEY, 264, SIDEBAR_WIDTH_MIN, SIDEBAR_WIDTH_MAX))
 const resizing = ref<'sidebar' | null>(null)
+const aiSplitRatio = ref(readAiSplitRatio())
+const viewportWidth = ref(window.innerWidth)
+const aiSplit = computed(() => !ui.sidebarCollapsed && ui.activePanel === 'ai')
+const availableWidth = computed(() => Math.max(240, viewportWidth.value - ACTIVITY_BAR_W))
+
+/** AI 模式下侧栏（左屏）宽度 = 可用宽度 × 比例，并保证两侧都有可用最小宽度。 */
+const effectiveSidebarWidth = computed(() => {
+  if (!aiSplit.value) return sidebarWidth.value
+  const available = availableWidth.value
+  const minSide = Math.min(AI_PANEL_MIN, Math.round(available * 0.5))
+  const maxSide = Math.max(minSide, available - AI_MAIN_MIN)
+  return Math.min(maxSide, Math.max(minSide, Math.round(available * aiSplitRatio.value)))
+})
+
+function persistAiSplit() {
+  try {
+    localStorage.setItem(AI_SPLIT_KEY, String(aiSplitRatio.value))
+  } catch {
+    /* 忽略持久化失败 */
+  }
+}
+
+function onWindowResize() {
+  viewportWidth.value = window.innerWidth
+}
 
 function onResizeMove(ev: MouseEvent) {
-  if (resizing.value === 'sidebar') {
-    sidebarWidth.value = Math.min(
-      SIDEBAR_WIDTH_MAX,
-      Math.max(SIDEBAR_WIDTH_MIN, ev.clientX - 52),
-    )
+  if (resizing.value !== 'sidebar') return
+  if (aiSplit.value) {
+    const available = availableWidth.value
+    const minSide = Math.min(AI_PANEL_MIN, Math.round(available * 0.5))
+    const maxSide = Math.max(minSide, available - AI_MAIN_MIN)
+    const side = Math.min(maxSide, Math.max(minSide, ev.clientX - ACTIVITY_BAR_W))
+    aiSplitRatio.value = side / available
+    return
   }
+  sidebarWidth.value = Math.min(
+    SIDEBAR_WIDTH_MAX,
+    Math.max(SIDEBAR_WIDTH_MIN, ev.clientX - ACTIVITY_BAR_W),
+  )
 }
 
 function stopResize() {
   try {
-    if (resizing.value === 'sidebar') localStorage.setItem(SIDEBAR_WIDTH_KEY, String(sidebarWidth.value))
+    if (resizing.value === 'sidebar') {
+      if (aiSplit.value) persistAiSplit()
+      else localStorage.setItem(SIDEBAR_WIDTH_KEY, String(sidebarWidth.value))
+    }
   } catch {
     /* 忽略持久化失败 */
   }
   resizing.value = null
   window.removeEventListener('mousemove', onResizeMove)
   window.removeEventListener('mouseup', stopResize)
+}
+
+/** 双击分隔线：AI 分屏恢复均分 */
+function resetSplit() {
+  if (!aiSplit.value) return
+  aiSplitRatio.value = AI_SPLIT_DEF
+  persistAiSplit()
 }
 
 function startResize(ev: MouseEvent, target: 'sidebar') {
@@ -279,6 +341,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('keydown', onTitlebarActionKeydown)
   window.removeEventListener('keydown', onAltF4, true)
   window.removeEventListener('keydown', onSearchShortcut)
+  window.removeEventListener('resize', onWindowResize)
   window.removeEventListener('mousemove', onResizeMove)
   window.removeEventListener('mouseup', stopResize)
 })
@@ -287,8 +350,8 @@ onBeforeUnmount(() => {
 <template>
   <div
     class="app-root"
-    :class="{ resizing: resizing !== null }"
-    :style="{ '--sidebar-w': `${sidebarWidth}px` }"
+    :class="{ resizing: resizing !== null, 'ai-split': aiSplit }"
+    :style="{ '--sidebar-w': `${effectiveSidebarWidth}px` }"
   >
     <img
       v-if="ui.settingsBackgroundImage"
@@ -349,10 +412,11 @@ onBeforeUnmount(() => {
       class="resize-handle sidebar-resize"
       role="separator"
       aria-orientation="vertical"
-      :aria-valuenow="sidebarWidth"
-      aria-label="调整左侧展开栏宽度"
-      title="拖动调整侧栏宽度"
+      :aria-valuenow="effectiveSidebarWidth"
+      :aria-label="aiSplit ? '调整 AI 助手与文件窗格的宽度' : '调整左侧展开栏宽度'"
+      :title="aiSplit ? '拖动调整宽度，双击均分' : '拖动调整侧栏宽度'"
       @mousedown="startResize($event, 'sidebar')"
+      @dblclick="resetSplit"
     />
 
     <div class="area-main">
@@ -369,6 +433,7 @@ onBeforeUnmount(() => {
       :kind="paneStore.conflictPrompt.kind"
       @resolve="paneStore.resolveConflict"
     />
+    <SyncDialog v-if="ui.syncOpen" />
   </div>
 </template>
 
@@ -519,6 +584,10 @@ onBeforeUnmount(() => {
   left: 3px;
   width: 2px;
   background: transparent;
+}
+/* AI 分屏：常态显示细分割线，与左右文件窗格观感一致 */
+.ai-split .resize-handle::after {
+  background: var(--border);
 }
 .resize-handle:hover::after,
 .resizing .resize-handle::after {

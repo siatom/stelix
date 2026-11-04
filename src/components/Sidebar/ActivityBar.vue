@@ -12,7 +12,7 @@ const isDev = import.meta.env.DEV
 const items: { key: PanelKey; icon: IconName; title: string }[] = [
   { key: 'files', icon: 'folder', title: '文件导航' },
   { key: 'search', icon: 'search', title: '搜索' },
-  { key: 'tasks', icon: 'clock', title: '定时任务' },
+  { key: 'tasks', icon: 'clock-check', title: '定时任务' },
   { key: 'ai', icon: 'sparkles', title: 'AI 助手' },
 ]
 

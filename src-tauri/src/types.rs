@@ -773,3 +773,166 @@ pub struct FeedbackAuth {
     /// 面向用户的中文提示（含安装 / 登录指引）
     pub message: String,
 }
+
+
+// ---------------------------------------------------------------- 文件夹同步
+
+/// 同步模式。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SyncMode {
+    /// 单向：只补齐 / 更新目标，不删除目标多余项
+    #[default]
+    OneWay,
+    /// 双向：两侧合并，较新版本覆盖较旧版本，不删除任何一边
+    TwoWay,
+    /// 镜像：以源为准，目标侧多余的项会被删除
+    Mirror,
+}
+
+/// 同步方向（双向模式时忽略）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SyncDirection {
+    #[default]
+    LeftToRight,
+    RightToLeft,
+}
+
+/// 「文件是否相同」的判定方式。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SyncCompare {
+    /// 大小 + 修改时间（毫秒级，不读文件内容）
+    #[default]
+    Meta,
+    /// 大小相同但时间不同时，再读内容确认（不会整盘读）
+    Hash,
+}
+
+/// 一次同步扫描请求。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncRequest {
+    pub left: String,
+    pub right: String,
+    #[serde(default)]
+    pub mode: SyncMode,
+    #[serde(default)]
+    pub direction: SyncDirection,
+    #[serde(default)]
+    pub compare: SyncCompare,
+}
+
+/// 单条差异要执行的动作。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SyncAction {
+    /// 左侧 → 右侧（新增或覆盖）
+    CopyToRight,
+    /// 右侧 → 左侧（新增或覆盖）
+    CopyToLeft,
+    /// 删除右侧多余项（镜像）
+    DeleteRight,
+    /// 删除左侧多余项（镜像）
+    DeleteLeft,
+    /// 两侧相同，无需处理
+    Equal,
+    /// 双向模式下两侧时间相同但内容不同，需要用户决定方向
+    Conflict,
+}
+
+impl SyncAction {
+    /// 是否为复制类动作。
+    pub fn is_copy(self) -> bool {
+        matches!(self, SyncAction::CopyToRight | SyncAction::CopyToLeft)
+    }
+
+    /// 是否为删除类动作。
+    pub fn is_delete(self) -> bool {
+        matches!(self, SyncAction::DeleteRight | SyncAction::DeleteLeft)
+    }
+}
+
+/// 一条差异项。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncEntry {
+    /// 相对根目录的路径（Windows 分隔符）
+    pub path: String,
+    pub is_dir: bool,
+    pub size: u64,
+    /// Unix 毫秒时间戳（目录为 0）
+    pub mtime: i64,
+    pub action: SyncAction,
+}
+
+/// 扫描统计。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncStats {
+    /// 需要复制 / 更新 / 新建目录的项数
+    pub copy: usize,
+    /// 需要删除的项数
+    pub delete: usize,
+    /// 两侧完全相同的项数
+    pub equal: usize,
+    /// 需要用户决定方向的冲突项数
+    pub conflict: usize,
+    /// 需要传输的字节数（只统计文件）
+    pub bytes: u64,
+}
+
+/// 同步扫描结果。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncPlan {
+    pub entries: Vec<SyncEntry>,
+    pub stats: SyncStats,
+}
+
+/// 执行时的一条勾选项（由前端把扫描结果连同动作发回）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncExecItem {
+    pub path: String,
+    #[serde(default)]
+    pub is_dir: bool,
+    #[serde(default)]
+    pub size: u64,
+    pub action: SyncAction,
+}
+
+/// 执行同步请求。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncExecuteRequest {
+    pub left: String,
+    pub right: String,
+    /// 删除是否跳过回收站（默认 false：移到回收站）
+    #[serde(default)]
+    pub permanent: bool,
+    pub items: Vec<SyncExecItem>,
+}
+
+/// 同步执行结果。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncResult {
+    pub ok: bool,
+    /// 已复制 / 已建目录的项数
+    pub copied: usize,
+    /// 已删除的项数
+    pub deleted: usize,
+    /// 跳过的项数（源不存在 / 符号链接）
+    pub skipped: usize,
+    /// 实际传输的字节数
+    pub bytes: u64,
+    #[serde(default)]
+    pub errors: Vec<String>,
+    /// 因权限不足（Windows ERROR_ACCESS_DENIED）失败的路径
+    #[serde(default)]
+    pub denied: Vec<String>,
+    #[serde(default)]
+    pub cancelled: bool,
+}

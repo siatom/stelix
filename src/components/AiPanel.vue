@@ -124,7 +124,7 @@ function submitPath() {
         <button class="head-btn" title="新建对话" aria-label="新建对话" :disabled="ai.executing || ai.historyLoading || ai.historyMutating" @click="newChat"><Icon name="plus" :size="15" /></button>
         <button class="head-btn" :class="{ selected: showHistory }" title="历史对话" aria-label="历史对话" :aria-pressed="showHistory" @click="showHistory = !showHistory"><Icon name="clock" :size="14" /></button>
         <button class="head-btn" title="AI 大模型设置" aria-label="AI 大模型设置" @click="ui.openSettings('ai')"><Icon name="settings" :size="14" /></button>
-        <button class="head-btn" title="收起侧边栏" aria-label="收起侧边栏" @click="ui.toggleSidebar()"><Icon name="panel-left-close" :size="14" /></button>
+        <button class="head-btn" title="关闭 AI 助手" aria-label="关闭 AI 助手" @click="ui.toggleSidebar()"><Icon name="panel-left-close" :size="14" /></button>
       </div>
     </header>
     <div class="conversation-bar"><span :title="showHistory ? '历史对话' : ai.current?.title">{{ showHistory ? '历史对话' : ai.current?.title ?? '新对话' }}</span><button v-if="showHistory" title="返回当前对话" aria-label="返回当前对话" @click="showHistory = false"><Icon name="chevron-left" :size="13" />返回</button></div>

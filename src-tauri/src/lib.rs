@@ -14,6 +14,7 @@ mod drive_monitor;
 mod elevate;
 mod feedback;
 mod file_locks;
+mod folder_sync;
 mod fs_core;
 mod index_engine;
 mod network;
@@ -320,6 +321,53 @@ async fn fs_operation_elevated(op: FsOp) -> Result<FsOpResult, String> {
     tauri::async_runtime::spawn_blocking(move || elevate::run_elevated_fs_op(&op))
         .await
         .map_err(|error| format!("提权任务失败: {error}"))?
+}
+
+// ---------------------------------------------------------------- 文件夹同步
+
+/// 扫描左右两个文件夹的差异（只读，不修改任何文件）。
+#[tauri::command]
+async fn sync_scan(request: SyncRequest) -> Result<SyncPlan, String> {
+    tauri::async_runtime::spawn_blocking(move || folder_sync::scan(&request))
+        .await
+        .map_err(|error| format!("同步扫描任务失败: {error}"))?
+}
+
+/// 执行同步：复制 / 更新 / 删除，进度经 `fs:progress` 推送，可用 `fs_cancel` 取消。
+#[tauri::command]
+async fn sync_execute(
+    app: tauri::AppHandle,
+    request: SyncExecuteRequest,
+    op_id: Option<String>,
+) -> SyncResult {
+    let op_id = op_id.unwrap_or_default();
+    let cancel = Arc::new(AtomicBool::new(false));
+    if !op_id.is_empty() {
+        if let Ok(mut map) = FS_CANCELS.lock() {
+            map.insert(op_id.clone(), cancel.clone());
+        }
+    }
+
+    let emit_app = app.clone();
+    let sink: fs_core::ProgressSink = Arc::new(move |progress: FsProgress| {
+        let _ = emit_app.emit("fs:progress", progress);
+    });
+    let ctx = fs_core::OpContext::new(op_id.clone(), "sync", cancel, Some(sink));
+
+    let result = tauri::async_runtime::spawn_blocking(move || folder_sync::execute(&request, &ctx))
+        .await
+        .unwrap_or_else(|error| SyncResult {
+            ok: false,
+            errors: vec![format!("同步任务失败: {error}")],
+            ..Default::default()
+        });
+
+    if !op_id.is_empty() {
+        if let Ok(mut map) = FS_CANCELS.lock() {
+            map.remove(&op_id);
+        }
+    }
+    result
 }
 
 /// 列出系统回收站中的条目。
@@ -1077,6 +1125,8 @@ pub fn run() {
             fs_operation_elevated,
             fs_cancel,
             fs_check_conflicts,
+            sync_scan,
+            sync_execute,
             trash_list,
             trash_restore,
             trash_purge,

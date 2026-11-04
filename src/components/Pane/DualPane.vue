@@ -5,8 +5,10 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import Pane from './Pane.vue'
 import { usePaneStore } from '../../stores/pane'
+import { useUiStore } from '../../stores/ui'
 
 const paneStore = usePaneStore()
+const ui = useUiStore()
 const rootRef = ref<HTMLElement | null>(null)
 const dragging = ref(false)
 const dropTargetPaneId = ref<string | null>(null)
@@ -23,8 +25,12 @@ function onFileDragEnd() {
   internalDragOperation = null
 }
 
+/** AI 助手分屏时，右侧只保留当前活动窗格（与 AI 对话栏左右均分）。 */
+const aiSplit = computed(() => !ui.sidebarCollapsed && ui.activePanel === 'ai')
+const singleView = computed(() => paneStore.singlePane || aiSplit.value)
+
 const columns = computed(() => {
-  if (paneStore.singlePane) return '1fr'
+  if (paneStore.singlePane || aiSplit.value) return '1fr'
   const r = paneStore.splitRatio
   return `${r}fr 1px ${1 - r}fr`
 })
@@ -134,14 +140,17 @@ onBeforeUnmount(() => {
 
 <template>
   <div ref="rootRef" class="dual-pane" :class="{ dragging }" :style="{ gridTemplateColumns: columns }">
+    <!-- AI 分屏时用 v-show 隐藏非活动窗格，保留窗格内部状态（滚动位置、终端缓冲等） -->
     <Pane
       v-if="!paneStore.singlePane || paneStore.activePaneId === 'left'"
+      v-show="!aiSplit || paneStore.activePaneId === 'left'"
       pane-id="left"
       :drop-active="dropTargetPaneId === 'left'"
     />
-    <div v-if="!paneStore.singlePane" class="divider" title="拖拽调整宽度，双击均分" @mousedown="startDrag" @dblclick="resetRatio" />
+    <div v-if="!singleView" class="divider" title="拖拽调整宽度，双击均分" @mousedown="startDrag" @dblclick="resetRatio" />
     <Pane
       v-if="!paneStore.singlePane || paneStore.activePaneId === 'right'"
+      v-show="!aiSplit || paneStore.activePaneId === 'right'"
       pane-id="right"
       :drop-active="dropTargetPaneId === 'right'"
     />

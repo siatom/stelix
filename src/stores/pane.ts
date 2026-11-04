@@ -320,6 +320,25 @@ export const usePaneStore = defineStore('pane', () => {
   })
 
   /**
+   * 同步左右文件夹的默认目录：两侧都必须是普通本地目录。
+   * 返回 reason 表示当前布局/标签不满足条件（标题栏按钮据此禁用）。
+   */
+  const syncDirs = computed<{ left?: string; right?: string; reason?: string }>(() => {
+    if (singlePane.value) return { reason: '需要双窗格布局' }
+    const leftPane = panes.value.find((pane) => pane.id === 'left')
+    const rightPane = panes.value.find((pane) => pane.id === 'right')
+    const leftTab = leftPane ? activeTabOf(leftPane) : undefined
+    const rightTab = rightPane ? activeTabOf(rightPane) : undefined
+    if (!leftTab || (leftTab.kind ?? 'files') !== 'files') {
+      return { reason: '左侧窗格不是本地文件夹' }
+    }
+    if (!rightTab || (rightTab.kind ?? 'files') !== 'files') {
+      return { reason: '右侧窗格不是本地文件夹' }
+    }
+    return { left: leftTab.path, right: rightTab.path }
+  })
+
+  /**
    * 顶部标题栏（App.vue）发起、目标窗格尚未消费的一次性操作。
    * 标题栏是全局唯一入口，目标固定为**当前活动窗格**，由窗格在 watcher 里消费后置空。
    */
@@ -827,6 +846,11 @@ export const usePaneStore = defineStore('pane', () => {
     const parent = dirname(tab.path)
     if (!parent || parent === tab.path) return
     await navigateTo(paneId, parent)
+  }
+
+  /** 刷新左右两个窗格（同步完成后调用）。 */
+  async function refreshBoth() {
+    await Promise.all([refresh('left'), refresh('right')])
   }
 
   async function refresh(paneId: string) {
@@ -2482,6 +2506,8 @@ export const usePaneStore = defineStore('pane', () => {
     setClipboard,
     otherPaneLocalDir,
     otherPaneRemote,
+    syncDirs,
+    refreshBoth,
     downloadFromRemote,
     uploadToRemote,
     refreshRemoteTabs,

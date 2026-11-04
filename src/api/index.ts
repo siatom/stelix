@@ -32,6 +32,10 @@ import type {
   SshConnectRequest,
   SshSessionInfo,
   SshDataEvent,
+  SyncExecuteRequest,
+  SyncPlan,
+  SyncRequest,
+  SyncResult,
   SshExitEvent,
   TaskAction,
   TaskPlanReply,
@@ -111,6 +115,11 @@ export const api = {
   fsCheckConflicts: (op: FsOp) => invoke<ConflictItem[]>('fs_check_conflicts', { op }),
   /** 提权执行一次因权限不足失败的文件操作（Windows UAC）。 */
   fsOperationElevated: (op: FsOp) => invoke<FsOpResult>('fs_operation_elevated', { op }),
+  /** 扫描左右两个文件夹的差异（只读，不修改文件）。 */
+  syncScan: (request: SyncRequest) => invoke<SyncPlan>('sync_scan', { request }),
+  /** 执行同步；传 opId 时可用 fsCancel 取消，进度经 fs:progress 回传。 */
+  syncExecute: (request: SyncExecuteRequest, opId?: string) =>
+    invoke<SyncResult>('sync_execute', { request, opId: opId ?? null }),
   /** 列出系统回收站条目（按删除时间从新到旧）。 */
   trashList: () => invoke<TrashEntry[]>('trash_list'),
   /** 把回收站条目还原到原位置；同名冲突时逐项返回错误。 */

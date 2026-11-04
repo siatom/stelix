@@ -515,3 +515,76 @@ export interface FeedbackAuth {
   user?: string | null
   message: string
 }
+
+// ---------------------------------------------------------------- 文件夹同步
+
+/** 同步模式：单向 / 双向 / 镜像。 */
+export type SyncMode = 'oneWay' | 'twoWay' | 'mirror'
+/** 同步方向（双向模式忽略）。 */
+export type SyncDirection = 'leftToRight' | 'rightToLeft'
+/** 「是否相同」的判定方式：元数据 / 内容校验。 */
+export type SyncCompare = 'meta' | 'hash'
+/** 单条差异要执行的动作。 */
+export type SyncAction =
+  | 'copyToRight'
+  | 'copyToLeft'
+  | 'deleteRight'
+  | 'deleteLeft'
+  | 'equal'
+  | 'conflict'
+
+export interface SyncRequest {
+  left: string
+  right: string
+  mode: SyncMode
+  direction: SyncDirection
+  compare: SyncCompare
+}
+
+/** 一条差异项（相对路径 + 动作）。 */
+export interface SyncEntry {
+  path: string
+  isDir: boolean
+  size: number
+  mtime: number
+  action: SyncAction
+}
+
+export interface SyncStats {
+  copy: number
+  delete: number
+  equal: number
+  conflict: number
+  bytes: number
+}
+
+export interface SyncPlan {
+  entries: SyncEntry[]
+  stats: SyncStats
+}
+
+/** 执行时提交的勾选项。 */
+export interface SyncExecItem {
+  path: string
+  isDir: boolean
+  size: number
+  action: SyncAction
+}
+
+export interface SyncExecuteRequest {
+  left: string
+  right: string
+  permanent: boolean
+  items: SyncExecItem[]
+}
+
+export interface SyncResult {
+  ok: boolean
+  copied: number
+  deleted: number
+  skipped: number
+  bytes: number
+  errors: string[]
+  denied: string[]
+  cancelled: boolean
+}

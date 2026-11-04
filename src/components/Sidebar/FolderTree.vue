@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 文件导航面板：此电脑（驱动器 + 文件夹懒加载树） + 常用位置 + 收藏
+// 文件导航面板：本机（驱动器 + 文件夹懒加载树） + 常用位置 + 收藏
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { api } from '../../api'
 import { listen } from '@tauri-apps/api/event'
@@ -440,11 +440,11 @@ onBeforeUnmount(() => {
       </ul>
     </section>
 
-    <!-- 此电脑 -->
+    <!-- 本机 -->
     <section class="nav-section">
       <div class="nav-head">
         <button class="nav-toggle" :aria-expanded="sections.computer" @click="sections.computer = !sections.computer">
-          <Icon name="chevron-right" :size="11" :class="{ open: sections.computer }" /><Icon name="monitor" class="section-icon computer" :size="18" /><span class="nav-title">此电脑</span>
+          <Icon name="chevron-right" :size="11" :class="{ open: sections.computer }" /><Icon name="laptop-minimal" class="section-icon computer" :size="18" /><span class="nav-title">本机</span>
         </button>
         <button class="mini" title="刷新驱动器和 WSL 实例" :disabled="loading || wslLoading" @click="refreshComputer">
           <Icon name="refresh" :size="13" />
@@ -465,18 +465,7 @@ onBeforeUnmount(() => {
           <button class="wsl-row" :title="`Linux（${wslDistros.length} 个 WSL 实例）`" @click="wslExpanded = !wslExpanded">
             <span class="wsl-twist" :class="{ open: wslExpanded }"><Icon name="chevron-right" :size="11" /></span>
             <span class="wsl-icon" aria-hidden="true">
-              <svg class="wsl-penguin" viewBox="0 0 24 24" aria-hidden="true">
-                <ellipse class="penguin-body" cx="12" cy="13.2" rx="7" ry="8" />
-                <ellipse class="penguin-belly" cx="12" cy="14.2" rx="4.4" ry="5.4" />
-                <path class="penguin-scarf" d="M5.8 10.5h12.4v2.1H5.8z" />
-                <circle class="penguin-eye" cx="9.8" cy="8.7" r="1.15" />
-                <circle class="penguin-eye" cx="14.2" cy="8.7" r="1.15" />
-                <circle class="penguin-pupil" cx="10" cy="8.9" r=".45" />
-                <circle class="penguin-pupil" cx="14" cy="8.9" r=".45" />
-                <path class="penguin-beak" d="m12 10.1 1.8 1.6-1.8 1.2-1.8-1.2z" />
-                <ellipse class="penguin-foot" cx="8.8" cy="21" rx="3" ry="1" />
-                <ellipse class="penguin-foot" cx="15.2" cy="21" rx="3" ry="1" />
-              </svg>
+              <img class="wsl-logo" src="/wsl-tux.svg" alt="" aria-hidden="true" />
             </span>
             <span class="wsl-name">Linux（WSL）</span>
           </button>
@@ -513,7 +502,7 @@ onBeforeUnmount(() => {
     <section class="nav-section">
       <div class="nav-head">
         <button class="nav-toggle" :aria-expanded="sections.network" @click="sections.network = !sections.network">
-          <Icon name="chevron-right" :size="11" :class="{ open: sections.network }" /><Icon name="globe" class="section-icon network" :size="18" /><span class="nav-title">网络</span>
+          <Icon name="chevron-right" :size="11" :class="{ open: sections.network }" /><Icon name="network" class="section-icon network" :size="18" /><span class="nav-title">网络</span>
         </button>
       </div>
       <NetworkPanel v-show="sections.network" />
@@ -648,14 +637,7 @@ onBeforeUnmount(() => {
 }
 .wsl-twist.open { transform: rotate(90deg); }
 .wsl-icon { display: flex; flex: none; }
-.wsl-penguin { display: block; width: 18px; height: 18px; }
-.penguin-body { fill: #30343b; }
-.penguin-belly { fill: #f2f3f5; }
-.penguin-eye { fill: #ffffff; }
-.penguin-pupil { fill: #30343b; }
-.penguin-scarf { fill: #4f83e8; }
-.penguin-beak,
-.penguin-foot { fill: #e08a2e; }
+.wsl-logo { display: block; width: 18px; height: 18px; object-fit: contain; }
 .wsl-name { color: var(--fg-folder); font-size: 1em; }
 .nav-list {
   list-style: none;

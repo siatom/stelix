@@ -1,9 +1,9 @@
 <script setup lang="ts">
 // 左侧标签设置页：常规、文件索引、AI 大模型和关于。
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { api } from '../../api'
 import { usePaneStore } from '../../stores/pane'
-import { useUiStore } from '../../stores/ui'
+import { DEFAULT_FONT_STACK, UI_FONT_PRESETS, useUiStore } from '../../stores/ui'
 import Icon from '../icons/Icon.vue'
 import AiSettings from './AiSettings.vue'
 import ShortcutsSettings from './ShortcutsSettings.vue'
@@ -22,6 +22,7 @@ const accentColors = [
   { name: '玫瑰粉', value: '#d66caf' },
   { name: '石墨灰', value: '#737b89' },
 ]
+const fontSizes = [11, 12, 13, 14, 15, 16]
 const tabs = [
   { id: 'general', label: '常规', icon: 'settings' },
   { id: 'appearance', label: '外观', icon: 'image' },
@@ -72,6 +73,29 @@ const busy = ref(false)
 const error = ref<string | null>(null)
 const autostart = ref(false)
 const autostartBusy = ref(false)
+
+// 界面字体：支持 VS Code fontFamily 形式的字体列表，输入时预览、确认后应用
+const fontDraft = ref(ui.uiFont)
+const fontInvalid = computed(() => {
+  const value = fontDraft.value.trim()
+  return Boolean(value) && typeof CSS !== 'undefined' && !CSS.supports('font-family', value)
+})
+
+function commitFont() {
+  if (fontInvalid.value) return
+  const value = fontDraft.value.trim()
+  if (!ui.setUiFont(value)) return
+  fontDraft.value = value
+}
+
+function resetFont() {
+  fontDraft.value = ''
+  ui.setUiFont('')
+}
+
+watch(() => ui.uiFont, (value) => {
+  fontDraft.value = value
+})
 
 // 「添加当前目录」按钮上只展示末级目录名，完整路径放到 title
 const currentDirPath = computed(() => pane.activeTab?.path ?? '')
@@ -252,18 +276,43 @@ onMounted(() => {
         </section>
 
         <section class="appearance-section">
-          <div class="section-heading"><div><h3>字体与行高</h3><p>调整列表的阅读舒适度和信息密度</p></div></div>
+          <div class="section-heading"><div><h3>字体与行高</h3><p>调整界面字体、列表字号与信息密度</p></div></div>
           <div class="font-grid">
+            <div class="font-row font-row-wide font-row-family">
+              <div class="font-family-head">
+                <span><strong>界面字体</strong><small>支持 VS Code 形式的字体列表，留空使用系统默认；右侧为实时预览</small></span>
+                <span class="font-preview" :style="{ fontFamily: fontDraft.trim() || DEFAULT_FONT_STACK }" aria-hidden="true">Aa 星索</span>
+              </div>
+              <div class="font-family-input">
+                <input
+                  v-model="fontDraft"
+                  class="font-input"
+                  :class="{ invalid: fontInvalid }"
+                  list="ui-font-presets"
+                  spellcheck="false"
+                  autocomplete="off"
+                  placeholder="'Segoe UI Variable', 'Segoe UI', 'Microsoft YaHei', sans-serif"
+                  aria-label="界面字体"
+                  @change="commitFont"
+                  @keydown.enter="commitFont"
+                />
+                <button v-if="fontDraft" class="font-reset" type="button" title="恢复系统默认字体" @click="resetFont">默认</button>
+              </div>
+              <p v-if="fontInvalid" class="font-error">字体列表写法无效，参考：'Segoe UI', 'Microsoft YaHei', sans-serif</p>
+              <datalist id="ui-font-presets">
+                <option v-for="font in UI_FONT_PRESETS" :key="font.id" :value="font.stack">{{ font.name }}</option>
+              </datalist>
+            </div>
             <label class="font-row">
               <span><strong>侧边栏字体</strong><small>目录树与导航面板</small></span>
-              <select class="setting-select" :value="String(ui.sidebarFontSize || 12)" @change="ui.setSidebarFontSize(Number(($event.target as HTMLSelectElement).value))">
-                <option v-for="size in [11, 12, 13, 14, 15, 16]" :key="size" :value="String(size)">{{ size }}px</option>
+              <select class="setting-select" :value="String(ui.sidebarFontSize)" @change="ui.setSidebarFontSize(Number(($event.target as HTMLSelectElement).value))">
+                <option v-for="size in fontSizes" :key="size" :value="String(size)">{{ size }}px</option>
               </select>
             </label>
             <label class="font-row">
               <span><strong>文件列表字体</strong><small>文件与文件夹名称</small></span>
-              <select class="setting-select" :value="String(ui.fileFontSize || 12)" @change="ui.setFileFontSize(Number(($event.target as HTMLSelectElement).value))">
-                <option v-for="size in [11, 12, 13, 14, 15, 16]" :key="size" :value="String(size)">{{ size }}px</option>
+              <select class="setting-select" :value="String(ui.fileFontSize)" @change="ui.setFileFontSize(Number(($event.target as HTMLSelectElement).value))">
+                <option v-for="size in fontSizes" :key="size" :value="String(size)">{{ size }}px</option>
               </select>
             </label>
             <label class="font-row">
@@ -404,9 +453,22 @@ onMounted(() => {
 .custom-swatch input { position: absolute; inset: 0; width: 100%; height: 100%; padding: 0; opacity: 0; cursor: pointer; }
 .font-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 24px; padding-top: 8px; }
 .font-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 48px; padding: 5px 2px; border-bottom: 1px solid var(--border); }
-.font-row span { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.font-row-wide { grid-column: 1 / -1; }
+.font-row > span { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .font-row strong { font-weight: 550; }
 .font-row small { color: var(--fg-dim); font-size: 0.8333rem; }
+.font-row-family { flex-direction: column; align-items: stretch; gap: 9px; }
+.font-family-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.font-family-head > span { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.font-family-input { display: flex; align-items: center; gap: 8px; }
+.font-input { flex: 1; min-width: 0; height: 32px; padding: 4px 9px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--bg-input); color: var(--fg); font-family: var(--mono); font-size: 0.9167rem; }
+.font-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.font-input.invalid { border-color: var(--danger); }
+.font-input.invalid:focus { box-shadow: 0 0 0 3px var(--danger-soft); }
+.font-reset { flex: none; height: 32px; padding: 0 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--fg-muted); font-size: 0.9167rem; }
+.font-reset:hover { background: var(--bg-hover); color: var(--fg); border-color: var(--border-strong); }
+.font-error { margin: 0; color: var(--danger); font-size: 0.8333rem; }
+.font-preview { display: inline-flex; align-items: center; justify-content: flex-end; min-width: 64px; color: var(--fg-muted); white-space: nowrap; }
 .opacity-value { color: var(--accent); font-size: 1.15rem; font-weight: 650; }
 .opacity-control { display: flex; align-items: center; gap: 12px; padding-top: 10px; color: var(--fg-dim); font-size: 0.8333rem; }
 .opacity-range { flex: 1; height: 18px; margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; accent-color: var(--accent); box-shadow: none; }

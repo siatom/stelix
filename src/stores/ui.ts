@@ -13,6 +13,30 @@ export type SettingsTab = 'general' | 'appearance' | 'index' | 'shortcuts' | 'ai
 /** 主题模式 */
 export type ThemeMode = 'dark' | 'light'
 
+/** 系统默认字体栈，与 tokens.css 的 --font 保持一致；设置为空时回落到这里 */
+export const DEFAULT_FONT_STACK = "'Segoe UI Variable', 'Segoe UI', 'Microsoft YaHei', -apple-system, sans-serif"
+
+/** 字体候选，仅用于设置面板的输入补全；实际保存的是用户输入的字体列表 */
+export interface UiFontPreset {
+  id: string
+  name: string
+  stack: string
+}
+
+export const UI_FONT_PRESETS: readonly UiFontPreset[] = [
+  { id: 'system', name: '系统默认', stack: DEFAULT_FONT_STACK },
+  { id: 'yahei', name: '微软雅黑', stack: "'Microsoft YaHei UI', 'Microsoft YaHei', 'Segoe UI', sans-serif" },
+  { id: 'pingfang', name: '苹方', stack: "'PingFang SC', 'Microsoft YaHei', sans-serif" },
+  { id: 'source-han', name: '思源黑体', stack: "'Source Han Sans SC', 'Noto Sans SC', 'Microsoft YaHei', sans-serif" },
+  { id: 'dengxian', name: '等线', stack: "'DengXian', 'Microsoft YaHei', sans-serif" },
+  { id: 'simhei', name: '黑体', stack: "'SimHei', 'Microsoft YaHei', sans-serif" },
+  { id: 'simsun', name: '宋体', stack: "'SimSun', 'Songti SC', serif" },
+  { id: 'kaiti', name: '楷体', stack: "'KaiTi', 'STKaiti', serif" },
+  { id: 'fangsong', name: '仿宋', stack: "'FangSong', 'STFangsong', serif" },
+  { id: 'segoe', name: 'Segoe UI', stack: "'Segoe UI Variable', 'Segoe UI', 'Microsoft YaHei', sans-serif" },
+  { id: 'inter', name: 'Inter', stack: "'Inter', 'Segoe UI', 'Microsoft YaHei', sans-serif" },
+]
+
 /** 详细视图的列（表头可拖动调整宽度） */
 export type DetailColumnKey = 'name' | 'path' | 'size' | 'time' | 'type'
 
@@ -49,6 +73,7 @@ const LS_SHOW_HIDDEN = 'stelix.showHidden'
 const LS_HIDE_FILE_EXTENSIONS = 'stelix.hideFileExtensions'
 const LS_SIDEBAR_COLLAPSED = 'stelix.sidebarCollapsed'
 const LS_FONT_SIZE = 'stelix.fontSize'
+const LS_UI_FONT = 'stelix.uiFont'
 const LS_SIDEBAR_FONT_SIZE = 'stelix.sidebarFontSize'
 const LS_FILE_FONT_SIZE = 'stelix.fileFontSize'
 const LS_SIDEBAR_ROW_H = 'stelix.sidebarRowHeight'
@@ -146,6 +171,25 @@ function readFontSize(key = LS_FONT_SIZE, fallback = FONT_SIZE_DEF): number {
     return Number.isInteger(saved) && saved >= FONT_SIZE_MIN && saved <= FONT_SIZE_MAX ? saved : fallback
   } catch {
     return fallback
+  }
+}
+
+function sanitizeFontStack(value: string): string {
+  return value
+    .replace(/[;{}<>\\]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 200)
+}
+
+function readUiFont(): string {
+  try {
+    const saved = localStorage.getItem(LS_UI_FONT) ?? ''
+    // 兼容早期按预设 id 保存的值
+    const preset = UI_FONT_PRESETS.find((font) => font.id === saved)
+    return preset ? preset.stack : sanitizeFontStack(saved)
+  } catch {
+    return ''
   }
 }
 
@@ -273,6 +317,11 @@ function applyFontSize(size: number) {
   document.documentElement.style.setProperty('--ui-font-size', `${size}px`)
 }
 
+function applyUiFont(value: string) {
+  const stack = value.trim() || DEFAULT_FONT_STACK
+  document.documentElement.style.setProperty('--font', stack)
+}
+
 function applySidebarFontSize(size: number) {
   document.documentElement.style.setProperty('--sidebar-font-size', `${size}px`)
 }
@@ -306,6 +355,7 @@ export const useUiStore = defineStore('ui', () => {
     }
   })
   const fontSize = ref(readFontSize())
+  const uiFont = ref(readUiFont())
   const sidebarFontSize = ref(readFontSize(LS_SIDEBAR_FONT_SIZE, SIDEBAR_FONT_SIZE_DEF))
   const fileFontSize = ref(readFontSize(LS_FILE_FONT_SIZE, FILE_FONT_SIZE_DEF))
   const sidebarRowHeight = ref(readRowHeight(LS_SIDEBAR_ROW_H, SIDEBAR_ROW_MIN, SIDEBAR_ROW_MAX, SIDEBAR_ROW_DEF))
@@ -330,6 +380,8 @@ export const useUiStore = defineStore('ui', () => {
   const settingsOpen = ref(false)
   const settingsTab = ref<SettingsTab>('general')
   const feedbackOpen = ref(false)
+  /** 文件夹同步对话框是否打开 */
+  const syncOpen = ref(false)
   const statusText = ref('就绪')
   const indexTotal = ref(0)
 
@@ -344,6 +396,7 @@ export const useUiStore = defineStore('ui', () => {
   applyAccentColor(accentColor.value)
   applySurfaceOpacity()
   applyFontSize(fontSize.value)
+  applyUiFont(uiFont.value)
   applySidebarFontSize(sidebarFontSize.value)
   applyFileFontSize(fileFontSize.value)
   applyRowHeights(sidebarRowHeight.value, fileRowHeight.value)
@@ -418,6 +471,14 @@ export const useUiStore = defineStore('ui', () => {
     feedbackOpen.value = false
   }
 
+  function openSync() {
+    syncOpen.value = true
+  }
+
+  function closeSync() {
+    syncOpen.value = false
+  }
+
   function setTheme(mode: ThemeMode) {
     theme.value = mode
     applyTheme(mode)
@@ -470,6 +531,21 @@ export const useUiStore = defineStore('ui', () => {
     } catch {
       /* ignore */
     }
+  }
+
+  /** 保存用户输入的字体列表（如 VS Code 的 fontFamily），空字符串表示系统默认 */
+  function setUiFont(value: string) {
+    const stack = sanitizeFontStack(value)
+    if (stack && typeof CSS !== 'undefined' && !CSS.supports('font-family', stack)) return false
+    uiFont.value = stack
+    applyUiFont(stack)
+    try {
+      if (stack) localStorage.setItem(LS_UI_FONT, stack)
+      else localStorage.removeItem(LS_UI_FONT)
+    } catch {
+      /* ignore */
+    }
+    return true
   }
 
   function setSidebarFontSize(size: number) {
@@ -616,6 +692,7 @@ export const useUiStore = defineStore('ui', () => {
   function resetViewDefaults() {
     try {
       localStorage.removeItem(LS_FONT_SIZE)
+      localStorage.removeItem(LS_UI_FONT)
       localStorage.removeItem(LS_SIDEBAR_FONT_SIZE)
       localStorage.removeItem(LS_FILE_FONT_SIZE)
       localStorage.removeItem(LS_SIDEBAR_ROW_H)
@@ -629,6 +706,7 @@ export const useUiStore = defineStore('ui', () => {
       /* ignore */
     }
     fontSize.value = FONT_SIZE_DEF
+    uiFont.value = ''
     sidebarFontSize.value = SIDEBAR_FONT_SIZE_DEF
     fileFontSize.value = FILE_FONT_SIZE_DEF
     sidebarRowHeight.value = SIDEBAR_ROW_DEF
@@ -639,6 +717,7 @@ export const useUiStore = defineStore('ui', () => {
     detailColumnWidths.value = { ...DETAIL_COL_DEF }
     trashColumnWidths.value = { ...TRASH_COL_DEF }
     applyFontSize(fontSize.value)
+    applyUiFont(uiFont.value)
     applySidebarFontSize(sidebarFontSize.value)
     applyFileFontSize(fileFontSize.value)
     applyRowHeights(sidebarRowHeight.value, fileRowHeight.value)
@@ -706,6 +785,7 @@ export const useUiStore = defineStore('ui', () => {
     settingsBackgroundImage,
     setSettingsBackgroundImage,
     fontSize,
+    uiFont,
     sidebarFontSize,
     fileFontSize,
     sidebarRowHeight,
@@ -724,6 +804,7 @@ export const useUiStore = defineStore('ui', () => {
     settingsOpen,
     settingsTab,
     feedbackOpen,
+    syncOpen,
     statusText,
     indexTotal,
     indexRoots,
@@ -739,9 +820,12 @@ export const useUiStore = defineStore('ui', () => {
     closeSettings,
     openFeedback,
     closeFeedback,
+    openSync,
+    closeSync,
     setTheme,
     toggleTheme,
     setFontSize,
+    setUiFont,
     setSidebarFontSize,
     setFileFontSize,
     setSidebarRowHeight,

@@ -499,7 +499,7 @@ function toggleHost(item: RemoteHost) {
       <div class="tree-row category">
         <button class="row-main" @click="toggleSmb">
           <span class="twist" :class="{ open: sections.smb }"><Icon name="chevron-right" :size="11" /></span>
-          <Icon class="category-icon category-smb" name="network" :size="18" /><span>局域网 · SMB</span>
+          <Icon class="category-icon category-smb" name="share-2" :size="18" /><span>局域网</span>
         </button>
         <button class="action" title="刷新网上邻居" aria-label="刷新网上邻居" :disabled="scanLoading" @click="refreshSmb"><Icon name="refresh" :size="13" /></button>
         <button class="action" title="添加共享" aria-label="添加 SMB 共享" @click="openSmbForm"><Icon name="plus" :size="13" /></button>
@@ -536,7 +536,7 @@ function toggleHost(item: RemoteHost) {
       <div class="tree-row category">
         <button class="row-main" @click="sections.remote = !sections.remote">
           <span class="twist" :class="{ open: sections.remote }"><Icon name="chevron-right" :size="11" /></span>
-          <Icon class="category-icon category-remote" name="swap" :size="18" /><span>远程服务器</span>
+          <Icon class="category-icon category-remote" name="server-nas" :size="18" /><span>远程服务器</span>
         </button>
         <button class="action" title="添加主机" aria-label="添加 SSH、FTP 或 SFTP 主机" @click="openHostForm"><Icon name="plus" :size="13" /></button>
       </div>

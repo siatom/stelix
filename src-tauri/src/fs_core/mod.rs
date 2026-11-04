@@ -337,13 +337,13 @@ impl OpContext {
     }
 
     /// 记一个已完成的条目（文件或顶层删除项）。
-    fn add_file(&self, bytes: u64) {
+    pub(crate) fn add_file(&self, bytes: u64) {
         self.files_done.fetch_add(1, Ordering::Relaxed);
         self.bytes_done.fetch_add(bytes, Ordering::Relaxed);
     }
 
     /// 节流上报执行进度。
-    fn tick(&self, current: &str) {
+    pub(crate) fn tick(&self, current: &str) {
         self.report("run", current, false);
     }
 

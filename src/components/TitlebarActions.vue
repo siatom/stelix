@@ -26,6 +26,9 @@ const canOpenTerminal = computed(() => {
   const tab = paneStore.activeTab
   return !!tab && (!tab.kind || tab.kind === 'files')
 })
+/** 同步入口只在双窗格、且两侧都是本地目录时可用。 */
+const syncDisabledReason = computed(() => paneStore.syncDirs.reason ?? '')
+const canSync = computed(() => !syncDisabledReason.value)
 /** 双窗格下在 tooltip 里点明作用对象，避免误以为按钮属于某一侧。 */
 const scopeHint = computed(() => {
   if (paneStore.singlePane) return ''
@@ -83,6 +86,20 @@ async function openTerminalHere() {
         @click="paneStore.requestAction('delete', $event.shiftKey)"
       >
         <Icon name="trash" :size="15" />
+      </button>
+    </div>
+
+    <span class="divider" aria-hidden="true" />
+
+    <div class="group">
+      <button
+        type="button"
+        :title="canSync ? '同步左右两个文件夹' : `无法同步：${syncDisabledReason}`"
+        aria-label="同步左右两个文件夹"
+        :disabled="!canSync"
+        @click="ui.openSync()"
+      >
+        <Icon name="sync" :size="15" />
       </button>
     </div>
 
