@@ -194,9 +194,15 @@ fn menu_position(hwnd: HWND, fallback: POINT, anchor: Option<Anchor>) -> POINT {
     }
 }
 
+/// SHParseDisplayName 只接受反斜杠分隔符：把应用内部的正斜杠路径统一成原生形式。
+fn to_native_path(path: &str) -> String {
+    path.replace('/', "\\")
+}
+
 /// 通过 `SHParseDisplayName` + `IShellFolder::GetUIObjectOf` 取文件的 `IContextMenu`。
 unsafe fn create_context_menu(hwnd: HWND, path: &str) -> Result<IContextMenu, String> {
-    let path_wide: Vec<u16> = path.encode_utf16().chain(std::iter::once(0)).collect();
+    let native = to_native_path(path);
+    let path_wide: Vec<u16> = native.encode_utf16().chain(std::iter::once(0)).collect();
     let mut pidl: *mut ITEMIDLIST = std::ptr::null_mut();
     SHParseDisplayName(PCWSTR(path_wide.as_ptr()), None, &mut pidl, 0, None)
         .map_err(|error| format!("无法解析文件路径: {error}"))?;
@@ -341,5 +347,16 @@ impl Drop for ComInit {
         if self.0 {
             unsafe { CoUninitialize() };
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::to_native_path;
+
+    #[test]
+    fn normalizes_forward_slashes_for_shell_parsing() {
+        assert_eq!(to_native_path("D:/a/b.txt"), "D:\\a\\b.txt");
+        assert_eq!(to_native_path("D:\\a\\b.txt"), "D:\\a\\b.txt");
     }
 }
