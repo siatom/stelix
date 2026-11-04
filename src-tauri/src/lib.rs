@@ -12,6 +12,7 @@ mod dir_size;
 mod drive_monitor;
 mod elevate;
 mod feedback;
+mod file_locks;
 mod fs_core;
 mod index_engine;
 mod network;
