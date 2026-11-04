@@ -15,6 +15,7 @@ import TitlebarActions from './components/TitlebarActions.vue'
 import CommandPalette from './components/CommandPalette.vue'
 import SettingsDialog from './components/SettingsDialog.vue'
 import FeedbackDialog from './components/FeedbackDialog.vue'
+import ConflictDialog from './components/ConflictDialog.vue'
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { LogicalSize, PhysicalPosition, PhysicalSize } from '@tauri-apps/api/dpi'
@@ -362,6 +363,12 @@ onBeforeUnmount(() => {
     <CommandPalette />
     <SettingsDialog />
     <FeedbackDialog />
+    <ConflictDialog
+      v-if="paneStore.conflictPrompt"
+      :items="paneStore.conflictPrompt.items"
+      :kind="paneStore.conflictPrompt.kind"
+      @resolve="paneStore.resolveConflict"
+    />
   </div>
 </template>
 

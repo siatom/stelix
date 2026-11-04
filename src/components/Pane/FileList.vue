@@ -1108,7 +1108,11 @@ function onBlankContextMenu(ev: MouseEvent) {
 function contextMenuItems(): { id: string; label: string }[] {
   if (props.tab.kind === 'trash') return []
   const selected = props.tab.selected.length
-  const items: { id: string; label: string }[] = [{ id: 'undo', label: '撤销上一步' }]
+  const items: { id: string; label: string }[] = [
+    { id: 'undo', label: paneStore.canUndo ? `撤销${paneStore.undoLabel}` : '撤销上一步' },
+  ]
+  // 重做只在撤销栈里确实有可重做项时出现（系统菜单不支持禁用项）。
+  if (paneStore.canRedo) items.push({ id: 'redo', label: `重做${paneStore.redoLabel}` })
   if (selected) {
     items.push({ id: 'duplicate', label: '复制副本' })
     items.push({ id: 'copy-to', label: '复制到…' })
@@ -1125,6 +1129,9 @@ function handleCtxAction(id: string, entry: FileEntry) {
     case 'undo':
       void paneStore.undoLast()
       return
+    case 'redo':
+      void paneStore.redoLast()
+      return
     case 'duplicate': {
       const sources = [...props.tab.selected]
       if (!sources.length) return
@@ -1140,9 +1147,15 @@ function handleCtxAction(id: string, entry: FileEntry) {
     case 'batch-rename':
       batchRenameOpen.value = true
       return
-    case 'open-containing':
-      void paneStore.reveal(entry.path)
+    case 'open-containing': {
+      // 按「本窗格 + 本标签」导航：非活动窗格右键时不能把活动窗格带走。
+      const dir = dirname(entry.path)
+      void paneStore.navigateTo(props.paneId, dir, props.tab.id).then(() => {
+        props.tab.selected = [entry.path]
+        paneStore.revealTarget = { tabId: props.tab.id, path: entry.path }
+      })
       return
+    }
   }
 }
 
@@ -1265,8 +1278,7 @@ function onGlobalKey(ev: KeyboardEvent) {
       return
     case 'redo':
       ev.preventDefault()
-      // 重做能力由文件操作栈并行提供，这里用可选调用保证不依赖其存在。
-      void (paneStore as unknown as { redoLast?: () => void }).redoLast?.()
+      void paneStore.redoLast()
       return
     case 'duplicate':
       if (!canFileOp.value || !props.tab.selected.length) return

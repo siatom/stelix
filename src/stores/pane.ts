@@ -3,7 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { homeDir } from '@tauri-apps/api/path'
 import { open as openDialog } from '@tauri-apps/plugin-dialog'
 import { api } from '../api'
-import type { DirListing, FileEntry, FsOp, FsOpResult, FsProgress, PaneState, RemoteLocation, RemoteTransferItem, RemoteTransferResult, SearchHit, TabState, TrashEntry, ViewMode } from '../types'
+import type { ConflictItem, ConflictPolicy, DirListing, FileEntry, FsOp, FsOpResult, FsProgress, PaneState, RemoteLocation, RemoteTransferItem, RemoteTransferResult, SearchHit, TabState, TrashEntry, ViewMode } from '../types'
 import { useUiStore } from './ui'
 import { basename, dirname, joinPath } from '../components/Pane/utils'
 import { matchesTypeFilter } from '../searchFilters'
@@ -1689,22 +1689,69 @@ export const usePaneStore = defineStore('pane', () => {
     }
   }
 
+  /** 同名冲突询问：非 null 时由 ConflictDialog 渲染，用户选择后回填到 runFs。 */
+  const conflictPrompt = ref<{ kind: 'copy' | 'move'; items: ConflictItem[] } | null>(null)
+  /** 等待用户选择的 resolver（放在闭包里，不进入响应式状态）。 */
+  let conflictResolve: ((policy: ConflictPolicy | 'cancel') => void) | null = null
+
+  /** 让用户选择冲突处理策略；'cancel' 表示放弃整个操作。 */
+  function askConflict(items: ConflictItem[], kind: 'copy' | 'move'): Promise<ConflictPolicy | 'cancel'> {
+    return new Promise((resolve) => {
+      conflictResolve = resolve
+      conflictPrompt.value = { kind, items }
+    })
+  }
+
+  /** 由冲突对话框回填用户选择（取消也走这里）。 */
+  function resolveConflict(policy: ConflictPolicy | 'cancel') {
+    const resolve = conflictResolve
+    conflictResolve = null
+    conflictPrompt.value = null
+    resolve?.(policy)
+  }
+
+  /**
+   * 复制 / 移动前预检同名冲突：有冲突且调用方未指定策略时先让用户选。
+   * 返回 null 表示用户取消了整个操作。
+   */
+  async function prepareConflictPolicy(op: FsOp): Promise<FsOp | null> {
+    if (op.op !== 'copy' && op.op !== 'move') return op
+    if (op.conflict) return op
+    let items: ConflictItem[]
+    try {
+      items = await api.fsCheckConflicts(op)
+    } catch {
+      // 预检失败不阻断操作：退化为后端的默认策略（自动改名）。
+      return op
+    }
+    if (!items.length) return op
+    const policy = await askConflict(items, op.op)
+    if (policy === 'cancel') {
+      setStatus('已取消：目标位置存在同名项')
+      return null
+    }
+    return { ...op, conflict: policy }
+  }
+
   /**
    * 文件操作的唯一入口：入队后串行执行（同一时刻只跑一个，其余 FIFO 等待）。
    * 返回的 Promise 在该任务结束时 resolve 为执行结果，语义与原先直接执行一致。
    */
-  function runFs(
+  async function runFs(
     paneId: string,
     op: FsOp,
     recordUndo = true,
     refreshList = true,
   ): Promise<FsOpResult> {
+    // 同名冲突必须先问用户，再入队（策略确定后执行期不再询问）。
+    const prepared = await prepareConflictPolicy(op)
+    if (!prepared) return { ok: false, errors: [] }
     const opId = crypto.randomUUID()
     fsQueue.value.push({
       opId,
       paneId,
-      op,
-      label: describeFsOp(op),
+      op: prepared,
+      label: describeFsOp(prepared),
       state: 'waiting',
       progress: null,
     })
@@ -2387,6 +2434,8 @@ export const usePaneStore = defineStore('pane', () => {
     pendingFsCount,
     applyFsProgress,
     cancelActiveFsOp,
+    conflictPrompt,
+    resolveConflict,
     copySelectedTo,
     revealTarget,
     editingTabId,

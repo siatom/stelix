@@ -585,11 +585,10 @@ pub fn execute(op: &FsOp, ctx: &OpContext) -> FsOpResult {
                     if is_trash_access_denied(&e) {
                         denied.push(src.clone());
                     }
-                    let hint = if is_trash_sharing_violation(&e) {
-                        locked_hint(p)
-                    } else {
-                        String::new()
-                    };
+                    // trash crate 在文件被占用时只报 "Some operations were aborted"，
+                    // 拿不到 ERROR_SHARING_VIOLATION，因此这里无条件查一次占用进程
+                    // （查不到占用者时 locked_hint 返回空串，等于无操作）。
+                    let hint = locked_hint(p);
                     errors.push(format!("移到回收站失败 {src}: {e}{hint}"));
                 }
                 ctx.add_file(0);
@@ -1201,14 +1200,6 @@ fn is_trash_access_denied(e: &trash::Error) -> bool {
     match e {
         trash::Error::Os { code, .. } => *code as u32 == 0x8007_0005,
         trash::Error::CouldNotAccess { .. } => true,
-        _ => false,
-    }
-}
-
-/// 回收站操作是否因「文件被占用」失败（HRESULT_FROM_WIN32(ERROR_SHARING_VIOLATION)）。
-fn is_trash_sharing_violation(e: &trash::Error) -> bool {
-    match e {
-        trash::Error::Os { code, .. } => *code as u32 == 0x8007_0020,
         _ => false,
     }
 }
