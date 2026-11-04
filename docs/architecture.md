@@ -34,7 +34,7 @@ flowchart TB
 
     AI --> CHAT[对话与流式回复]
     AI --> CONTEXT[当前路径 / 选中文件上下文]
-    AI --> TOOLS[工具调用\n读操作直接执行 / 写操作二次确认]
+    AI --> TOOLS[工具调用\n读操作直接执行 / 写操作批量审批]
     AI --> PLAN[自然语言生成任务草稿]
 
     TASKS --> CRUD[任务增删改 / 启停]
@@ -120,4 +120,4 @@ flowchart TB
 - 前端只通过 `src/api/index.ts` 调用后端，不直接执行文件系统操作。
 - Rust 通过 `AppState` 持有索引、AI、任务、监听和目录大小等长生命周期服务。
 - 文件系统变更、索引进度、AI 流式输出和远程传输进度采用 Tauri 事件回传前端。
-- AI 写操作经过前端确认后才进入 `fs_core`；配置、历史和索引缓存由 `persistence` 负责落盘。
+- AI 写操作会先经过只读预检，再由前端逐项确认后才进入 `fs_core`；待审批的 Agent run 保存在后端内存中，执行结果继续回灌模型。配置、历史和索引缓存由 `persistence` 负责落盘，AI 写操作审计追加到 `ai-audit.jsonl`。

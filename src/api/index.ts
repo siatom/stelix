@@ -1,6 +1,8 @@
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import type {
+  AiApprovalDecision,
+  AiAuditEntry,
   AiConfig,
   AiConversation,
   AiContext,
@@ -140,6 +142,13 @@ export const api = {
     invoke<AiReply>('ai_chat', { messages, context, requestId }),
   /** 请求停止某个正在流式生成的回复（按 requestId 匹配）。 */
   aiChatCancel: (id: string) => invoke<void>('ai_chat_cancel', { id }),
+  /** 用户逐项确认后继续一个挂起的 Agent run。 */
+  aiAgentResume: (runId: string, requestId: string, decisions: AiApprovalDecision[]) =>
+    invoke<AiReply>('ai_agent_resume', { runId, requestId, decisions }),
+  /** 放弃一个等待审批的 run。 */
+  aiAgentCancel: (runId: string) => invoke<void>('ai_agent_cancel', { runId }),
+  /** 读取最近的写操作审计记录。 */
+  aiAgentAudit: (limit: number) => invoke<AiAuditEntry[]>('ai_agent_audit', { limit }),
   /** 拉取某个 Provider 可用的模型列表。 */
   aiListModels: (provider: AiProvider) => invoke<AiModel[]>('ai_list_models', { provider }),
   aiExecuteTool: (call: AiToolCall, approved: boolean) =>

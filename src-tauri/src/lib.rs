@@ -669,6 +669,31 @@ fn ai_chat_cancel(state: State<'_, AppState>, id: String) {
     state.ai.cancel(&id);
 }
 
+/// 用户确认写操作后继续一个挂起的 Agent run。
+#[tauri::command]
+async fn ai_agent_resume(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    run_id: String,
+    request_id: String,
+    decisions: Vec<AiApprovalDecision>,
+) -> Result<AiReply, String> {
+    let ai = state.ai.clone();
+    ai.resume(app, request_id, run_id, decisions).await
+}
+
+/// 放弃一个等待审批的 run（切换会话 / 新建对话 / 关闭面板时调用）。
+#[tauri::command]
+fn ai_agent_cancel(state: State<'_, AppState>, run_id: String) {
+    state.ai.cancel_run(&run_id);
+}
+
+/// 读取最近的 AI 写操作审计记录。
+#[tauri::command]
+fn ai_agent_audit(state: State<'_, AppState>, limit: usize) -> Vec<AiAuditEntry> {
+    state.ai.audit_log(limit)
+}
+
 #[tauri::command]
 async fn ai_list_models(provider: AiProvider) -> Result<Vec<AiModel>, String> {
     ai_agent::list_models(provider).await
@@ -1022,6 +1047,9 @@ pub fn run() {
             search_files,
             ai_chat,
             ai_chat_cancel,
+            ai_agent_resume,
+            ai_agent_cancel,
+            ai_agent_audit,
             ai_list_models,
             ai_execute_tool,
             ai_config_get,

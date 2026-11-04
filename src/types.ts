@@ -152,6 +152,8 @@ export interface AiChatMessage extends AiMessage {
   usage?: AiUsage | null
   /** 该轮回复耗时（毫秒，旧记录无此字段） */
   durationMs?: number | null
+  /** 该轮实际执行的工具步骤（旧记录无此字段） */
+  steps?: AiStep[]
 }
 
 export interface AiConversation {
@@ -176,10 +178,61 @@ export interface AiContext {
 export interface AiReply {
   text: string
   toolCalls: AiToolCall[]
+  /** 兼容旧流程：本轮第一个待确认写操作 */
   pendingConfirm?: FsOp | null
   /** 用户中途停止了生成，text 为已收到的部分 */
   interrupted: boolean
   usage?: AiUsage | null
+  /** 挂起的 Agent run；为空表示本轮已结束 */
+  runId: string
+  /** 本轮需要逐项确认的写操作 */
+  approvals: AiApproval[]
+  /** 本轮实际执行的工具步骤 */
+  steps: AiStep[]
+}
+
+/** 一次工具执行步骤。 */
+export interface AiStep {
+  tool: string
+  summary: string
+  ok: boolean
+  durationMs: number
+}
+
+/** 写操作 dry-run 预览。 */
+export interface AiApprovalPreview {
+  items: number
+  targetExists: boolean
+  crossDrive: boolean
+  locked: string[]
+  warnings: string[]
+}
+
+/** 一个待确认的写操作。 */
+export interface AiApproval {
+  id: string
+  call: AiToolCall
+  op: FsOp
+  description: string
+  preview: AiApprovalPreview
+}
+
+/** 用户对单个审批项的决定。 */
+export interface AiApprovalDecision {
+  id: string
+  approved: boolean
+}
+
+/** 一条 AI 写操作审计记录。 */
+export interface AiAuditEntry {
+  timestamp: number
+  runId: string
+  tool: string
+  description: string
+  decision: 'approve' | 'reject' | 'execute' | 'error'
+  ok: boolean
+  error: string
+  durationMs: number
 }
 
 /** 一次回复的 token 用量。 */

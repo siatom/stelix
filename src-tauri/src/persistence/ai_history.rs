@@ -150,6 +150,7 @@ mod tests {
                 operation: Some("pending".into()),
                 usage: None,
                 duration_ms: None,
+                steps: Vec::new(),
             }],
         };
         save_at(&root, &conversation).unwrap();

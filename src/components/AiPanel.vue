@@ -6,6 +6,7 @@ import { usePaneStore } from '../stores/pane'
 import ChatMessage from './ai/ChatMessage.vue'
 import ChatHistory from './ai/ChatHistory.vue'
 import Icon from './icons/Icon.vue'
+import type { AiApproval } from '../types'
 
 const ai = useAiStore()
 const ui = useUiStore()
@@ -22,11 +23,14 @@ const streamingActive = computed(() => ai.responding && ai.busyConversationId ==
 const activeDir = computed(() => pane.activeTab?.path ?? '')
 const selectionCount = computed(() => pane.activeTab?.selected.length ?? 0)
 const examples = ['找出这个目录下最大的 5 个文件', '把所有 png 图片列出来', '按扩展名统计当前目录']
-const opLabels: Record<string, string> = { copy: '复制', move: '移动', delete: '移到回收站', rename: '重命名', mkdir: '新建文件夹' }
-const confirmSummary = computed(() => {
-  const op = ai.pendingConfirm
-  return op ? { op: opLabels[op.op] ?? op.op, sources: op.sources ?? [], target: op.target ?? '' } : null
-})
+const selectedApprovalCount = computed(() => ai.pendingApprovals.filter(item => ai.approvalSelection[item.id] !== false).length)
+
+function approvalPaths(approval: AiApproval): string[] {
+  const op = approval.op
+  if (op.targets?.length) return op.targets
+  if (op.sources?.length) return op.sources
+  return op.target ? [op.target] : []
+}
 
 onMounted(() => { void ai.loadConfig(); void ai.loadHistory() })
 
@@ -62,6 +66,12 @@ watch(() => ai.messages.map(m => `${m.id}:${m.status}:${m.content.length}:${m.op
   else hasNewMessage.value = true
 })
 watch(draft, async () => { await nextTick(); resizeInput() })
+watch(() => ai.pendingApprovals.length, async count => {
+  if (!count) return
+  await nextTick()
+  atBottom.value = true
+  scrollToLatest()
+})
 
 async function send() {
   const text = draft.value
@@ -136,12 +146,28 @@ function submitPath() {
             <div v-if="startsDay(index)" class="day-divider">{{ dayLabel(message.createdAt) }}</div>
             <ChatMessage :message="message" :busy="ai.busy" :step="streamingActive ? ai.pendingStep : ''" :can-retry="index === ai.messages.length - 1 && message.kind === 'message' && (message.status === 'error' || message.status === 'interrupted')" @retry="ai.retry" />
           </template>
-          <div v-if="confirmSummary" class="confirm">
-            <p class="confirm-title"><Icon name="alert-triangle" :size="13" />确认文件操作</p>
-            <dl><dt>操作</dt><dd>{{ confirmSummary.op }}</dd><template v-if="confirmSummary.sources.length"><dt>文件</dt><dd>{{ confirmSummary.sources.slice(0, 4).join('、') }}<span v-if="confirmSummary.sources.length > 4">…共 {{ confirmSummary.sources.length }} 项</span></dd></template><template v-if="confirmSummary.target"><dt>目标</dt><dd>{{ confirmSummary.target }}</dd></template></dl>
-            <div class="confirm-actions"><button :disabled="ai.busy" class="allow" @click="ai.confirmPending(true)">确认执行</button><button :disabled="ai.busy" @click="ai.confirmPending(false)">取消</button></div>
+          <div v-if="ai.pendingApprovals.length" class="confirm">
+            <p class="confirm-title"><Icon name="alert-triangle" :size="13" />确认文件操作（已选 {{ selectedApprovalCount }}/{{ ai.pendingApprovals.length }}）</p>
+            <ul class="approval-list">
+              <li v-for="approval in ai.pendingApprovals" :key="approval.id" class="approval-item">
+                <label class="approval-head">
+                  <input type="checkbox" :checked="ai.approvalSelection[approval.id] !== false" :disabled="ai.busy" @change="ai.toggleApproval(approval.id)" />
+                  <span>{{ approval.description }}</span>
+                </label>
+                <p class="approval-meta">
+                  <span>{{ approval.preview.items }} 项</span>
+                  <span v-if="approval.preview.crossDrive" class="warn">跨盘</span>
+                  <span v-if="approval.preview.targetExists" class="warn">目标已存在</span>
+                </p>
+                <p v-if="approvalPaths(approval).length" class="approval-paths">{{ approvalPaths(approval).slice(0, 3).join('、') }}<span v-if="approvalPaths(approval).length > 3"> …共 {{ approvalPaths(approval).length }} 项</span></p>
+                <ul v-if="approval.preview.warnings.length" class="approval-warnings">
+                  <li v-for="warning in approval.preview.warnings" :key="warning">{{ warning }}</li>
+                </ul>
+              </li>
+            </ul>
+            <div class="confirm-actions"><button :disabled="ai.busy || !selectedApprovalCount" class="allow" @click="ai.submitApprovals()">执行选中</button><button :disabled="ai.busy" @click="ai.rejectAllApprovals()">全部取消</button></div>
           </div>
-          <div v-if="ai.executing" class="loading" role="status">正在执行文件操作…</div>
+          <div v-if="ai.executing && ai.busyConversationId === ai.activeId" class="loading" role="status">正在执行文件操作…</div>
         </div>
         <button v-if="!atBottom && ai.messages.length" class="jump-latest" @click="scrollToLatest"><Icon name="arrow-down" :size="12" />{{ hasNewMessage ? '查看新回复' : '回到最新' }}</button>
       </div>
@@ -202,6 +228,14 @@ function submitPath() {
 .confirm dl { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 6px; margin: 0; font-size: 0.8333em; line-height: 1.6; }
 .confirm dt { color: var(--fg-dim); }
 .confirm dd { margin: 0; overflow-wrap: anywhere; color: var(--fg-muted); }
+.approval-list { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.approval-item { padding: 8px 9px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-panel); }
+.approval-head { display: flex; align-items: flex-start; gap: 7px; font-size: 0.875em; line-height: 1.5; cursor: pointer; }
+.approval-head input { flex: none; margin-top: 2px; accent-color: var(--accent); }
+.approval-meta { display: flex; flex-wrap: wrap; gap: 8px; margin: 5px 0 0 21px; color: var(--fg-dim); font-size: 0.75em; }
+.approval-meta .warn { color: var(--warn); }
+.approval-paths { margin: 4px 0 0 21px; color: var(--fg-muted); font-size: 0.75em; line-height: 1.5; overflow-wrap: anywhere; }
+.approval-warnings { margin: 5px 0 0 21px; padding-left: 14px; color: var(--warn); font-size: 0.75em; line-height: 1.55; overflow-wrap: anywhere; }
 .confirm-actions { display: flex; gap: 8px; margin-top: 12px; }
 .confirm-actions button { flex: 1; min-height: 29px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); font-size: 0.875em; }
 .confirm-actions .allow { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }

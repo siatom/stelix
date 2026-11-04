@@ -44,6 +44,13 @@ async function onLink(event: MouseEvent) {
     <div v-if="message.status === 'pending'" class="pending" role="status"><span class="thinking-dots"><i /><i /><i /></span>{{ stepText }}</div>
     <div v-else-if="message.role === 'user'" class="message-content user-content">{{ message.content }}</div>
     <div v-else class="message-content markdown" data-native-context-menu @click="onLink" v-html="markdown" />
+    <ul v-if="message.steps?.length" class="tool-steps" aria-label="工具步骤">
+      <li v-for="(item, index) in message.steps" :key="index" :class="{ failed: !item.ok }">
+        <Icon :name="item.ok ? 'check' : 'x'" :size="10" />
+        <span>{{ item.summary }}</span>
+        <span v-if="item.durationMs" class="step-duration">{{ (item.durationMs / 1000).toFixed(1) }}s</span>
+      </li>
+    </ul>
     <div v-if="message.model && message.role === 'assistant' && message.kind !== 'operation'" class="message-model" :title="message.model">{{ message.model }}<template v-if="stats"> · {{ stats }}</template></div>
     <div v-if="message.operation" class="operation-status" :class="message.operation">{{ operationText }}</div>
     <div v-if="message.status !== 'pending'" class="message-actions">
@@ -62,6 +69,11 @@ async function onLink(event: MouseEvent) {
 .message-content { font-size: 1.0417em; line-height: 1.7; overflow-wrap: anywhere; user-select: text; }
 .user-content { padding: 9px 11px; border-radius: var(--radius); background: var(--bg-hover); white-space: pre-wrap; }
 .message-model { margin-top: 7px; font-size: 0.75em; color: var(--fg-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tool-steps { display: flex; flex-direction: column; gap: 4px; margin: 8px 0 0; padding: 0; list-style: none; }
+.tool-steps li { display: flex; align-items: center; gap: 5px; min-width: 0; color: var(--fg-dim); font-size: 0.75em; line-height: 1.5; }
+.tool-steps li > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tool-steps li > .step-duration { flex: none; color: var(--fg-dim); opacity: 0.8; }
+.tool-steps li.failed { color: var(--danger); }
 .message-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 7px; }
 .message-actions button { display: flex; align-items: center; gap: 4px; padding: 3px 5px; border-radius: 5px; font-size: 0.8333em; color: var(--fg-dim); }
 .message-actions button:hover { background: var(--bg-hover); color: var(--fg); }

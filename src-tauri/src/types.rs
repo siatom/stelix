@@ -340,6 +340,9 @@ pub struct AiChatMessage {
     /// 该轮回复耗时（毫秒，由前端测量；旧历史文件无此字段）
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub duration_ms: Option<i64>,
+    /// 该轮实际执行的工具步骤（旧历史文件无此字段）
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub steps: Vec<AiStep>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -380,7 +383,7 @@ pub struct AiReply {
     pub text: String,
     #[serde(default)]
     pub tool_calls: Vec<AiToolCall>,
-    /// 需要用户二次确认的写操作（前端弹确认框，确认后调 ai_execute_tool）
+    /// 兼容旧前端：本轮第一个待确认写操作。
     #[serde(default)]
     pub pending_confirm: Option<FsOp>,
     /// 用户中途停止了生成：`text` 为已收到的部分文本
@@ -389,6 +392,86 @@ pub struct AiReply {
     /// 本轮（含工具多轮）累计的 token 用量；模型未返回时为 None
     #[serde(default)]
     pub usage: Option<AiUsage>,
+    /// 挂起的 Agent run 标识；为空表示本轮已结束。
+    #[serde(default)]
+    pub run_id: String,
+    /// 本轮需要用户确认的写操作（可一次多个）。
+    #[serde(default)]
+    pub approvals: Vec<AiApproval>,
+    /// 本轮实际执行过的工具步骤。
+    #[serde(default)]
+    pub steps: Vec<AiStep>,
+}
+
+/// 一次工具执行步骤，用于前端展示与审计。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiStep {
+    pub tool: String,
+    pub summary: String,
+    #[serde(default)]
+    pub ok: bool,
+    #[serde(default)]
+    pub duration_ms: i64,
+}
+
+/// 写操作审批预览：由后端做只读检查生成，不执行任何写操作。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiApprovalPreview {
+    /// 涉及的文件/目录数量。
+    #[serde(default)]
+    pub items: usize,
+    /// 目标是否已存在（Rename/Mkdir/CreateFile）。
+    #[serde(default)]
+    pub target_exists: bool,
+    /// 跨盘移动/复制（可能退化为「复制 + 删除」）。
+    #[serde(default)]
+    pub cross_drive: bool,
+    /// 当前被其他进程占用的源路径。
+    #[serde(default)]
+    pub locked: Vec<String>,
+    /// 面向用户的提示（冲突、占用、不可逆等）。
+    #[serde(default)]
+    pub warnings: Vec<String>,
+}
+
+/// 一个待确认的写操作。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiApproval {
+    pub id: String,
+    pub call: AiToolCall,
+    pub op: FsOp,
+    pub description: String,
+    #[serde(default)]
+    pub preview: AiApprovalPreview,
+}
+
+/// 用户对单个审批项的决定。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiApprovalDecision {
+    pub id: String,
+    pub approved: bool,
+}
+
+/// 一条 AI 写操作审计记录。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiAuditEntry {
+    pub timestamp: i64,
+    pub run_id: String,
+    pub tool: String,
+    pub description: String,
+    /// approve / reject
+    pub decision: String,
+    #[serde(default)]
+    pub ok: bool,
+    #[serde(default)]
+    pub error: String,
+    #[serde(default)]
+    pub duration_ms: i64,
 }
 
 /// 一次回复的 token 用量。

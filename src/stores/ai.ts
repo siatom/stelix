@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { api } from '../api'
-import type { AiChatMessage, AiConfig, AiConversation, AiMessage, AiToolCall, FsOp, ToolOutcome } from '../types'
+import type { AiApproval, AiApprovalDecision, AiChatMessage, AiConfig, AiConversation, AiMessage } from '../types'
 import { usePaneStore } from './pane'
 import { useUiStore } from './ui'
 
@@ -28,8 +28,10 @@ export const useAiStore = defineStore('ai', () => {
   const responding = ref(false)
   const executing = ref(false)
   const busyConversationId = ref('')
-  const pendingConfirm = ref<FsOp | null>(null)
-  const pendingCall = ref<AiToolCall | null>(null)
+  const pendingApprovals = ref<AiApproval[]>([])
+  const approvalSelection = ref<Record<string, boolean>>({})
+  /** 当前挂起的 Agent run；审批提交后清空。 */
+  const activeRunId = ref('')
   const config = ref<AiConfig>({ providers: [], activeProviderId: '', activeModelId: '', enabled: false })
   const error = ref<string | null>(null)
   const historyError = ref<string | null>(null)
@@ -101,8 +103,10 @@ export const useAiStore = defineStore('ai', () => {
       message.operation = 'expired'
       if (current.value) void persist(current.value)
     }
-    pendingConfirm.value = null
-    pendingCall.value = null
+    if (activeRunId.value) void api.aiAgentCancel(activeRunId.value).catch(() => { /* 已过期 */ })
+    pendingApprovals.value = []
+    approvalSelection.value = {}
+    activeRunId.value = ''
     pendingMessageId = ''
   }
 
@@ -141,6 +145,10 @@ export const useAiStore = defineStore('ai', () => {
         }
         historyLoaded = true
         historyError.value = null
+        pendingApprovals.value = []
+        approvalSelection.value = {}
+        activeRunId.value = ''
+        pendingMessageId = ''
         // 每次打开 AI 助手都从「新对话」开始；历史对话仍可在「历史对话」列表里选择。
         newConversation()
       } catch (e) { historyError.value = `读取历史对话失败：${String(e)}` }
@@ -249,6 +257,7 @@ export const useAiStore = defineStore('ai', () => {
     assistant.createdAt = Date.now()
     assistant.usage = null
     assistant.durationMs = null
+    assistant.steps = []
     conversation.updatedAt = Date.now()
     const payload: AiMessage[] = conversation.messages.filter(m => m.id !== assistant.id && m.status === 'complete').map(m => ({
       role: m.role,
@@ -267,13 +276,18 @@ export const useAiStore = defineStore('ai', () => {
       assistant.status = reply.interrupted ? 'interrupted' : (reply.text ? 'complete' : 'error')
       assistant.usage = reply.usage ?? null
       assistant.durationMs = Date.now() - startedAt
-      if (reply.pendingConfirm) {
+      assistant.steps = reply.steps ?? []
+      if (reply.approvals?.length && reply.runId) {
         if (activeId.value === conversation.id) {
-          pendingConfirm.value = reply.pendingConfirm
-          pendingCall.value = reply.toolCalls[0] ?? null
+          activeRunId.value = reply.runId
+          pendingApprovals.value = reply.approvals
+          approvalSelection.value = Object.fromEntries(reply.approvals.map(item => [item.id, true]))
           pendingMessageId = assistant.id
           assistant.operation = 'pending'
-        } else { assistant.operation = 'expired' }
+        } else {
+          assistant.operation = 'expired'
+          void api.aiAgentCancel(reply.runId).catch(() => { /* 已过期 */ })
+        }
       }
     } catch (e) {
       assistant.status = 'error'
@@ -314,60 +328,89 @@ export const useAiStore = defineStore('ai', () => {
     await requestReply(conversation, assistant)
   }
 
-  function describeOutcome(outcome: ToolOutcome): string {
-    switch (outcome.kind) {
-      case 'text': return outcome.payload
-      case 'fs': return outcome.payload.ok ? '操作已完成。' : `操作失败：${outcome.payload.errors.join('; ')}`
-      case 'search': return `找到 ${outcome.payload.length} 个结果。`
-      case 'listing': return `目录 ${outcome.payload.path} 共 ${outcome.payload.entries.length} 项。`
-    }
+  function toggleApproval(id: string) {
+    approvalSelection.value = { ...approvalSelection.value, [id]: !approvalSelection.value[id] }
   }
 
-  async function confirmPending(approved: boolean) {
+  function setAllApprovals(approved: boolean) {
+    approvalSelection.value = Object.fromEntries(pendingApprovals.value.map(item => [item.id, approved]))
+  }
+
+  /** 提交当前这批审批；后端会逐项执行/拒绝并继续 Agent run。 */
+  async function submitApprovals() {
     const conversation = current.value
     const message = messages.value.find(m => m.id === pendingMessageId)
-    if (busy.value || !conversation || !message || !pendingConfirm.value) return
-    const op = pendingConfirm.value
-    const call = pendingCall.value
-    pendingConfirm.value = null
-    pendingCall.value = null
+    const runId = activeRunId.value
+    if (busy.value || historyMutating.value || !conversation || !message || !runId || !pendingApprovals.value.length) return
+    const decisions: AiApprovalDecision[] = pendingApprovals.value.map(item => ({
+      id: item.id,
+      approved: approvalSelection.value[item.id] !== false,
+    }))
+    pendingApprovals.value = []
+    approvalSelection.value = {}
+    activeRunId.value = ''
     pendingMessageId = ''
+    responding.value = true
     executing.value = true
     busyConversationId.value = conversation.id
+    const requestId = crypto.randomUUID()
+    activeRequestId.value = requestId
+    pendingStep.value = ''
+    stopping.value = false
+    const startedAt = Date.now()
+    // 先插入占位消息，流式增量与最终结果都回写到这条消息。
+    const continuation = makeMessage('assistant', '')
+    continuation.status = 'pending'
+    conversation.messages.push(continuation)
+    await persist(conversation)
     try {
-      let text = '已取消该操作，文件未作更改。'
-      let failed = false
-      if (approved) {
-        if (call) {
-          const outcome = await api.aiExecuteTool(call, true)
-          text = describeOutcome(outcome)
-          failed = outcome.kind === 'fs' && !outcome.payload.ok
+      const reply = await api.aiAgentResume(runId, requestId, decisions)
+      const anyApproved = decisions.some(item => item.approved)
+      const anyRejected = decisions.some(item => !item.approved)
+      const failed = (reply.steps ?? []).some(step => !step.ok)
+      message.operation = anyApproved ? (failed ? 'error' : 'completed') : 'cancelled'
+      continuation.content = reply.text || (anyApproved ? '操作已完成。' : '已取消该操作，文件未作更改。')
+      continuation.status = reply.interrupted ? 'interrupted' : (reply.text ? 'complete' : 'error')
+      continuation.usage = reply.usage ?? null
+      continuation.durationMs = Date.now() - startedAt
+      continuation.steps = reply.steps ?? []
+      if (reply.approvals?.length && reply.runId) {
+        if (activeId.value === conversation.id) {
+          activeRunId.value = reply.runId
+          pendingApprovals.value = reply.approvals
+          approvalSelection.value = Object.fromEntries(reply.approvals.map(item => [item.id, true]))
+          pendingMessageId = continuation.id
+          continuation.operation = 'pending'
         } else {
-          const result = await api.fsOperation(op)
-          text = result.ok ? '操作已完成。' : `操作失败：${result.errors.join('; ')}`
-          failed = !result.ok
+          continuation.operation = 'expired'
+          void api.aiAgentCancel(reply.runId).catch(() => { /* 已过期 */ })
         }
       }
-      message.operation = approved ? (failed ? 'error' : 'completed') : 'cancelled'
-      const resultMessage = makeMessage('assistant', text, 'operation')
-      if (failed) resultMessage.status = 'error'
-      conversation.messages.push(resultMessage)
-      if (approved) {
+      if (anyApproved) {
         const pane = usePaneStore()
         try { await pane.refresh(pane.activePaneId) }
         catch (e) { useUiStore().setStatusText(`文件操作已结束，刷新窗格失败：${String(e)}`) }
       }
+      if (anyApproved && anyRejected) useUiStore().statusText = '部分写操作已取消'
     } catch (e) {
       message.operation = 'error'
-      const result = makeMessage('assistant', `操作失败：${String(e)}`, 'operation')
-      result.status = 'error'
-      conversation.messages.push(result)
+      continuation.status = 'error'
+      continuation.content = `操作失败：${String(e)}`
     } finally {
       conversation.updatedAt = Date.now()
+      responding.value = false
       executing.value = false
+      stopping.value = false
+      activeRequestId.value = ''
+      pendingStep.value = ''
       busyConversationId.value = ''
       await persist(conversation)
     }
+  }
+
+  async function rejectAllApprovals() {
+    setAllApprovals(false)
+    await submitApprovals()
   }
 
   function toggleContext(key: keyof ContextToggles) {
@@ -385,5 +428,5 @@ export const useAiStore = defineStore('ai', () => {
     manualPaths.value = manualPaths.value.filter(p => p !== path)
   }
 
-  return { conversations, activeId, drafts, current, messages, history, responding, executing, busy, busyConversationId, pendingConfirm, pendingCall, config, modelLabel, error, historyError, historyLoading, historyMutating, activeRequestId, pendingStep, stopping, contextToggles, manualPaths, loadConfig, saveConfig, loadHistory, retryHistory, newConversation, selectConversation, renameConversation, deleteConversation, send, retry, confirmPending, applyToken, applyStep, stop, toggleContext, addContextPath, removeContextPath, buildContext }
+  return { conversations, activeId, drafts, current, messages, history, responding, executing, busy, busyConversationId, pendingApprovals, approvalSelection, activeRunId, config, modelLabel, error, historyError, historyLoading, historyMutating, activeRequestId, pendingStep, stopping, contextToggles, manualPaths, loadConfig, saveConfig, loadHistory, retryHistory, newConversation, selectConversation, renameConversation, deleteConversation, send, retry, toggleApproval, setAllApprovals, submitApprovals, rejectAllApprovals, applyToken, applyStep, stop, toggleContext, addContextPath, removeContextPath, buildContext }
 })

@@ -52,7 +52,7 @@ fn fallback_config_dir() -> PathBuf {
         .join("stelix")
 }
 
-fn config_dir() -> PathBuf {
+pub(crate) fn config_dir() -> PathBuf {
     CONFIG_DIR
         .get()
         .cloned()
