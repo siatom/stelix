@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 左侧图标导航栏：文件导航 / 定时任务 / 搜索 / AI 助手，底部为意见反馈 / 设置 / 主题 / 收起侧边栏
+// 左侧图标导航栏：文件导航 / 搜索 / 定时任务 / AI 助手，底部为意见反馈 / 设置 / 主题 / 收起侧边栏
 import { useUiStore } from '../../stores/ui'
 import type { PanelKey } from '../../stores/ui'
 import { combos, formatCombo } from '../../stores/shortcuts'
@@ -11,8 +11,8 @@ const isDev = import.meta.env.DEV
 
 const items: { key: PanelKey; icon: IconName; title: string }[] = [
   { key: 'files', icon: 'folder', title: '文件导航' },
-  { key: 'tasks', icon: 'clock', title: '定时任务' },
   { key: 'search', icon: 'search', title: '搜索' },
+  { key: 'tasks', icon: 'clock', title: '定时任务' },
   { key: 'ai', icon: 'sparkles', title: 'AI 助手' },
 ]
 
