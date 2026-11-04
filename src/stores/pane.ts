@@ -3,7 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { homeDir } from '@tauri-apps/api/path'
 import { open as openDialog } from '@tauri-apps/plugin-dialog'
 import { api } from '../api'
-import type { DirListing, FileEntry, FsOp, FsOpResult, PaneState, RemoteLocation, RemoteTransferItem, RemoteTransferResult, SearchHit, TabState, ViewMode } from '../types'
+import type { DirListing, FileEntry, FsOp, FsOpResult, FsProgress, PaneState, RemoteLocation, RemoteTransferItem, RemoteTransferResult, SearchHit, TabState, TrashEntry, ViewMode } from '../types'
 import { useUiStore } from './ui'
 import { basename, dirname, joinPath } from '../components/Pane/utils'
 import { matchesTypeFilter } from '../searchFilters'
@@ -25,6 +25,10 @@ const PANE_PATHS_KEY = 'stelix.panePaths'
 const PANE_LAYOUT_KEY = 'stelix.paneLayout'
 /** 文件夹大小看门狗的重试间隔（毫秒）。 */
 const DIR_SIZE_RETRY_MS = 800
+/** 撤销 / 重做栈的深度上限。 */
+const HISTORY_LIMIT = 200
+/** 已结束的文件操作在队列里保留的时长（供进度面板提示「已完成 / 失败」）。 */
+const FS_QUEUE_LINGER_MS = 2000
 
 /** 目录在前、同类按名称自然排序（与文件列表保持一致）。 */
 function sortEntries(entries: FileEntry[]): FileEntry[] {
@@ -210,7 +214,42 @@ interface PaneClipboard {
 export interface UndoEntry {
   /** 展示用名称，如「重命名」「批量重命名」。 */
   label: string
+  /** 撤销时执行的逆向操作（按顺序执行；为空表示只能靠回收站还原）。 */
   ops: FsOp[]
+  /** 重做时执行的正向操作；缺省表示该条目不可重做。 */
+  redoOps?: FsOp[]
+  /** 普通删除（移到回收站）的撤销信息：撤销时按原路径从回收站还原。 */
+  trash?: { paths: string[]; at: number }
+}
+
+/** 重做栈条目：正向操作 + 重做成功后回填撤销栈的原始条目。 */
+interface RedoEntry {
+  label: string
+  ops: FsOp[]
+  undo: UndoEntry
+}
+
+/** 队列内部记录：完成回调与执行选项（不进入响应式状态）。 */
+interface FsJob {
+  resolve: (result: FsOpResult) => void
+  recordUndo: boolean
+  refreshList: boolean
+}
+
+/** 文件操作队列项的状态。 */
+export type FsQueueState = 'waiting' | 'running' | 'done' | 'failed' | 'cancelled'
+
+/** 一个排队中的文件操作（同一时刻只有一个处于 running）。 */
+export interface FsQueueItem {
+  /** 传给后端的 opId，用于进度事件与取消。 */
+  opId: string
+  paneId: string
+  op: FsOp
+  /** 展示用名称，如「复制 3 项」。 */
+  label: string
+  state: FsQueueState
+  /** 最近一次进度（fs:progress 回传，按 opId 匹配）。 */
+  progress: FsProgress | null
 }
 
 /** 顶部标题栏可派发给活动窗格的文件操作。 */
@@ -230,10 +269,22 @@ export const usePaneStore = defineStore('pane', () => {
   const lastLocalPaths = ref<Record<string, string>>({ left: fallbackHome, right: fallbackHome })
   /** 内部剪贴板（复制 / 剪切） */
   const clipboard = ref<PaneClipboard | null>(null)
-  /** 撤销栈（最近操作在末尾，最多保留 20 步）。 */
+  /** 撤销栈（最近操作在末尾，最多保留 200 步）。 */
   const undoStack = ref<UndoEntry[]>([])
   const canUndo = computed(() => undoStack.value.length > 0)
   const undoLabel = computed(() => undoStack.value[undoStack.value.length - 1]?.label ?? '')
+  /** 重做栈（撤销后可重做；执行新的文件操作时清空）。 */
+  const redoStack = ref<RedoEntry[]>([])
+  const canRedo = computed(() => redoStack.value.length > 0)
+  const redoLabel = computed(() => redoStack.value[redoStack.value.length - 1]?.label ?? '')
+  /** 文件操作队列（FIFO；同一时刻只执行一个，其余排队）。 */
+  const fsQueue = ref<FsQueueItem[]>([])
+  /** 当前正在执行的文件操作（含进度）；空闲时为 null。 */
+  const activeFsOp = computed<FsQueueItem | null>(
+    () => fsQueue.value.find((item) => item.state === 'running') ?? null,
+  )
+  /** 排队等待中的操作数量。 */
+  const pendingFsCount = computed(() => fsQueue.value.filter((item) => item.state === 'waiting').length)
   /** 每个标签的浏览历史（存于 store，避免改动冻结的 types.ts） */
   const histories = ref<Record<string, HistoryEntry>>({})
   /** 外部请求定位到某个条目（搜索结果 / AI 操作后） */
@@ -256,6 +307,10 @@ export const usePaneStore = defineStore('pane', () => {
 
   let initialized = false
   let pathsReady = false
+  /** 队列内部记录：opId → 完成回调与执行选项。 */
+  const fsJobs = new Map<string, FsJob>()
+  /** 是否已有调度循环在跑（保证同一时刻只执行一个操作）。 */
+  let fsDraining = false
 
   const activePane = computed(() => panes.value.find((p) => p.id === activePaneId.value) ?? panes.value[0])
   const activeTab = computed(() => {
@@ -1486,24 +1541,56 @@ export const usePaneStore = defineStore('pane', () => {
     }
   }
 
-  function pushUndo(label: string, ops: FsOp[]) {
-    undoStack.value.push({ label, ops })
-    if (undoStack.value.length > 20) undoStack.value.shift()
+  function pushUndo(
+    label: string,
+    ops: FsOp[],
+    redoOps?: FsOp[],
+    trash?: { paths: string[]; at: number },
+  ) {
+    undoStack.value.push({ label, ops, redoOps, trash })
+    if (undoStack.value.length > HISTORY_LIMIT) undoStack.value.shift()
+    // 新的操作产生后，原有的重做链失效（标准撤销 / 重做语义）。
+    redoStack.value = []
   }
 
-  async function runFs(
-    paneId: string,
-    op: FsOp,
-    recordUndo = true,
-    refreshList = true,
+  /** 队列 / 进度面板里的展示名称，如「复制 3 项」。 */
+  function describeFsOp(op: FsOp): string {
+    const count = op.op === 'mkdir' ? (op.targets?.length ?? 0) : (op.sources?.length ?? 0)
+    switch (op.op) {
+      case 'copy':
+        return count ? `复制 ${count} 项` : '复制'
+      case 'move':
+        return count ? `移动 ${count} 项` : '移动'
+      case 'delete':
+        return `${op.permanent ? '永久删除' : '删除'}${count ? ` ${count} 项` : ''}`
+      case 'duplicate':
+        return count ? `复制副本 ${count} 项` : '复制副本'
+      case 'mkdir':
+        return count > 1 ? `新建文件夹 ${count} 个` : '新建文件夹'
+      case 'createFile':
+        return '新建文件'
+      case 'rename':
+        return '重命名'
+    }
+  }
+
+  /**
+   * 执行单个队列项：调后端、按需发起 UAC 提权重试、记录撤销信息并刷新列表。
+   * 由 `drainFsQueue` 串行调用，保证同一时刻只有一个文件操作在跑。
+   */
+  async function executeFsItem(
+    item: FsQueueItem,
+    recordUndo: boolean,
+    refreshList: boolean,
   ): Promise<FsOpResult> {
+    const { paneId, op, opId } = item
     let result: FsOpResult
     /** 实际已执行的部分；null 表示没有任何来源被改动（搜索命中列表保持原样）。 */
     let applied: FsOp | null = null
     /** 首次尝试与提权重试中实际成功条目的逆向操作。 */
     let undo: FsOp[] = []
     try {
-      result = await api.fsOperation(op)
+      result = await api.fsOperation(op, opId)
       undo = [...(result.undo ?? [])]
       const denied = result.denied
       if (!result.ok && denied?.length) {
@@ -1551,10 +1638,18 @@ export const usePaneStore = defineStore('pane', () => {
     // 即使后续替换了 result（提权成功 / 失败），也保留首次尝试已成功条目的撤销信息。
     result.undo = undo
     if (recordUndo) {
+      // 重做时重放的正向操作：优先用「实际生效」的那部分（提权被取消时可能只是子集）。
+      const forward = applied ?? (result.ok ? op : null)
       // 删除没有逆向 FsOp（可去回收站还原），但成功时也要占一个栈位：
       // 否则 Ctrl+Z 会跳过删除、误撤销更早的其它操作。
-      if (op.op === 'delete' && (result.ok || applied)) pushUndo(opLabel(op), [])
-      else if (undo.length) pushUndo(opLabel(op), undo)
+      if (op.op === 'delete' && (result.ok || applied)) {
+        const deleted = forward?.sources ?? op.sources ?? []
+        const redoOps: FsOp[] = forward ? [forward] : []
+        if (op.permanent) pushUndo(opLabel(op), [], redoOps)
+        else pushUndo(opLabel(op), [], redoOps, { paths: [...deleted], at: Date.now() })
+      } else if (undo.length) {
+        pushUndo(opLabel(op), undo, forward ? [forward] : [])
+      }
     }
     if (refreshList) await refreshAfterOp(paneId, applied)
     // 普通删除会改变回收站内容；已打开的回收站标签据此自动刷新，侧边栏图标同步切换。
@@ -1563,6 +1658,78 @@ export const usePaneStore = defineStore('pane', () => {
       refreshTrashIcon()
     }
     return result
+  }
+
+  /** 队列调度：串行执行等待中的操作（同一时刻只有一个 running）。 */
+  async function drainFsQueue() {
+    if (fsDraining) return
+    fsDraining = true
+    try {
+      for (;;) {
+        const item = fsQueue.value.find((entry) => entry.state === 'waiting')
+        if (!item) break
+        item.state = 'running'
+        const job = fsJobs.get(item.opId)
+        let result: FsOpResult
+        try {
+          result = await executeFsItem(item, job?.recordUndo ?? true, job?.refreshList ?? true)
+        } catch (error) {
+          result = { ok: false, errors: [String(error)] }
+        }
+        item.state = result.cancelled ? 'cancelled' : result.ok ? 'done' : 'failed'
+        fsJobs.delete(item.opId)
+        job?.resolve(result)
+        // 结束后保留片刻，让进度面板能显示「已完成 / 已取消 / 失败」。
+        setTimeout(() => {
+          fsQueue.value = fsQueue.value.filter((entry) => entry.opId !== item.opId)
+        }, FS_QUEUE_LINGER_MS)
+      }
+    } finally {
+      fsDraining = false
+    }
+  }
+
+  /**
+   * 文件操作的唯一入口：入队后串行执行（同一时刻只跑一个，其余 FIFO 等待）。
+   * 返回的 Promise 在该任务结束时 resolve 为执行结果，语义与原先直接执行一致。
+   */
+  function runFs(
+    paneId: string,
+    op: FsOp,
+    recordUndo = true,
+    refreshList = true,
+  ): Promise<FsOpResult> {
+    const opId = crypto.randomUUID()
+    fsQueue.value.push({
+      opId,
+      paneId,
+      op,
+      label: describeFsOp(op),
+      state: 'waiting',
+      progress: null,
+    })
+    return new Promise<FsOpResult>((resolve) => {
+      fsJobs.set(opId, { resolve, recordUndo, refreshList })
+      void drainFsQueue()
+    })
+  }
+
+  /** `fs:progress` 事件回填：按 opId 匹配队列项（未命中说明任务已结束，忽略）。 */
+  function applyFsProgress(progress: FsProgress) {
+    const item = fsQueue.value.find((entry) => entry.opId === progress.opId)
+    if (!item) return
+    item.progress = progress
+  }
+
+  /** 取消当前正在执行的文件操作（已完成的条目仍然生效）。 */
+  async function cancelActiveFsOp() {
+    const item = fsQueue.value.find((entry) => entry.state === 'running')
+    if (!item) return
+    try {
+      await api.fsCancel(item.opId)
+    } catch (error) {
+      setStatus(`取消失败：${String(error)}`)
+    }
   }
 
   /** 一条逆向操作涉及的目录（用于撤销后刷新列表）。 */
@@ -1582,19 +1749,97 @@ export const usePaneStore = defineStore('pane', () => {
     return [...dirs]
   }
 
-  /** 撤销上一步文件操作（批量操作按记录顺序逆向执行）。 */
+  /**
+   * 从系统回收站还原一批路径：为每条路径挑选「原路径相同、删除时间最接近」的条目。
+   * 找不到任何匹配时不执行还原，由调用方提示用户。
+   */
+  async function restoreFromTrash(target: { paths: string[]; at: number }): Promise<{
+    ok: boolean
+    restored: number
+    missing: number
+  }> {
+    let entries: TrashEntry[]
+    try {
+      entries = await api.trashList()
+    } catch (error) {
+      setStatus(`无法读取回收站：${String(error)}`)
+      return { ok: false, restored: 0, missing: target.paths.length }
+    }
+    const used = new Set<string>()
+    const ids: string[] = []
+    const restoredPaths: string[] = []
+    for (const path of target.paths) {
+      const key = normalizePath(path)
+      let best: TrashEntry | null = null
+      for (const item of entries) {
+        if (used.has(item.id)) continue
+        if (normalizePath(item.originalPath) !== key) continue
+        if (!best || Math.abs(item.deletedAt - target.at) < Math.abs(best.deletedAt - target.at)) {
+          best = item
+        }
+      }
+      if (!best) continue
+      used.add(best.id)
+      ids.push(best.id)
+      restoredPaths.push(path)
+    }
+    const missing = target.paths.length - ids.length
+    if (!ids.length) {
+      setStatus('回收站中已找不到该项')
+      return { ok: false, restored: 0, missing }
+    }
+    try {
+      const result = await api.trashRestore(ids)
+      if (result.errors.length) setStatus(`部分还原失败：${result.errors.join('；')}`)
+    } catch (error) {
+      setStatus(`还原失败：${String(error)}`)
+      return { ok: false, restored: 0, missing }
+    }
+    // 回收站内容变化 → 打开中的回收站标签与侧边栏图标同步。
+    trashRefreshSeq.value += 1
+    refreshTrashIcon()
+    const dirs = new Set<string>()
+    for (const path of restoredPaths) {
+      const parent = dirname(path)
+      if (parent) dirs.add(parent)
+    }
+    await Promise.all([...dirs].map((dir) => reloadByPath(dir)))
+    return { ok: true, restored: ids.length, missing }
+  }
+
+  /** 撤销成功后把正向操作压入重做栈（没有正向操作时不入栈）。 */
+  function pushRedo(entry: UndoEntry, ops: FsOp[]) {
+    if (!ops.length) return
+    redoStack.value.push({ label: entry.label, ops, undo: entry })
+    if (redoStack.value.length > HISTORY_LIMIT) redoStack.value.shift()
+  }
+
+  /** 撤销上一步文件操作（批量操作按记录顺序逆向执行；删除走回收站还原）。 */
   async function undoLast() {
     const entry = undoStack.value.pop()
     if (!entry) {
       setStatus('没有可撤销的操作')
       return
     }
-    if (!entry.ops.length) {
+    // 普通删除没有逆向 FsOp：按删除前的路径从回收站还原。
+    if (entry.trash) {
+      setStatus(`正在撤销：${entry.label}`)
+      const outcome = await restoreFromTrash(entry.trash)
+      if (!outcome.ok) {
+        setStatus(`撤销未完成：${entry.label}`)
+        return
+      }
+      // 重做 = 再次删除同一批路径（仍走回收站）。
+      pushRedo(entry, [{ op: 'delete', sources: [...entry.trash.paths] }])
       setStatus(
-        entry.label === '删除'
-          ? '删除操作无法撤销，可到回收站还原'
-          : `${entry.label}操作无法撤销`,
+        outcome.missing
+          ? `已撤销：${entry.label}（${outcome.missing} 项在回收站中未找到）`
+          : `已撤销：${entry.label}`,
       )
+      return
+    }
+    if (!entry.ops.length) {
+      setStatus(`${entry.label}操作无法撤销`)
       return
     }
     setStatus(`正在撤销：${entry.label}`)
@@ -1607,7 +1852,39 @@ export const usePaneStore = defineStore('pane', () => {
     }
     // runFs 只刷新活动窗格；对侧窗格 / 多个目录也一并刷新。
     await Promise.all([...dirs].map((dir) => reloadByPath(dir)))
-    setStatus(ok ? `已撤销：${entry.label}` : `撤销未完成：${entry.label}`)
+    if (!ok) {
+      setStatus(`撤销未完成：${entry.label}`)
+      return
+    }
+    pushRedo(entry, entry.redoOps ?? [])
+    setStatus(`已撤销：${entry.label}`)
+  }
+
+  /** 重做上一次撤销的操作（按原顺序重放正向操作）。 */
+  async function redoLast() {
+    const entry = redoStack.value.pop()
+    if (!entry) {
+      setStatus('没有可重做的操作')
+      return
+    }
+    setStatus(`正在重做：${entry.label}`)
+    let ok = true
+    const dirs = new Set<string>()
+    for (const op of entry.ops) {
+      for (const dir of opAffectedDirs(op)) dirs.add(dir)
+      const result = await runFs(activePaneId.value, op, false, false)
+      if (!result.ok) ok = false
+    }
+    await Promise.all([...dirs].map((dir) => reloadByPath(dir)))
+    if (!ok) {
+      setStatus(`重做未完成：${entry.label}`)
+      return
+    }
+    // 重做成功后原始条目回到撤销栈（删除类需要刷新回收站时间戳，便于下次撤销匹配）。
+    if (entry.undo.trash) entry.undo.trash = { paths: entry.undo.trash.paths, at: Date.now() }
+    undoStack.value.push(entry.undo)
+    if (undoStack.value.length > HISTORY_LIMIT) undoStack.value.shift()
+    setStatus(`已重做：${entry.label}`)
   }
 
   /** 弹出目录选择器，把所选条目复制 / 移动到指定文件夹。 */
@@ -2101,6 +2378,15 @@ export const usePaneStore = defineStore('pane', () => {
     undoLabel,
     pushUndo,
     undoLast,
+    redoStack,
+    canRedo,
+    redoLabel,
+    redoLast,
+    fsQueue,
+    activeFsOp,
+    pendingFsCount,
+    applyFsProgress,
+    cancelActiveFsOp,
     copySelectedTo,
     revealTarget,
     editingTabId,

@@ -10,6 +10,7 @@ import { match, isCapturingShortcut } from './stores/shortcuts'
 import ActivityBar from './components/Sidebar/ActivityBar.vue'
 import SidebarPanel from './components/Sidebar/SidebarPanel.vue'
 import DualPane from './components/Pane/DualPane.vue'
+import TransferPanel from './components/Pane/TransferPanel.vue'
 import TitlebarActions from './components/TitlebarActions.vue'
 import CommandPalette from './components/CommandPalette.vue'
 import SettingsDialog from './components/SettingsDialog.vue'
@@ -32,6 +33,7 @@ let unlistenDirSize: (() => void) | undefined
 let unlistenAiToken: (() => void) | undefined
 let unlistenAiStep: (() => void) | undefined
 let unlistenRemoteTransfer: (() => void) | undefined
+let unlistenFsProgress: (() => void) | undefined
 let titlebarPointer: { x: number; y: number } | null = null
 let actionPosition: PhysicalPosition | null = null
 let actionSize: PhysicalSize | null = null
@@ -195,6 +197,10 @@ onMounted(async () => {
     // 目录内容变化 → 相关文件夹的大小缓存失效并重算。
     paneStore.invalidateDirSizes(dirs)
   })
+  // 文件操作进度（按 opId 归属到队列项，供右下角进度面板展示）。
+  unlistenFsProgress = await events.onFsProgress((progress) => {
+    paneStore.applyFsProgress(progress)
+  })
   // 文件夹大小统计结果（详情视图按需计算）回填。
   unlistenDirSize = await events.onDirSize(({ path, size }) => {
     paneStore.applyDirSize(path, size)
@@ -266,6 +272,7 @@ onBeforeUnmount(() => {
   unlistenAiToken?.()
   unlistenAiStep?.()
   unlistenRemoteTransfer?.()
+  unlistenFsProgress?.()
   stopTrackingTitlebarDrag()
   window.removeEventListener('mousedown', dismissTitlebarMenu)
   window.removeEventListener('keydown', onTitlebarActionKeydown)
@@ -349,6 +356,7 @@ onBeforeUnmount(() => {
 
     <div class="area-main">
       <DualPane />
+      <TransferPanel />
     </div>
 
     <CommandPalette />

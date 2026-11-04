@@ -54,6 +54,7 @@ export const SHORTCUT_DEFS: readonly ShortcutDef[] = [
   { id: 'copy-to', label: '复制到…', group: 'files', default: { ctrl: true, alt: true, key: 'c' } },
   { id: 'move-to', label: '移动到…', group: 'files', default: { ctrl: true, alt: true, key: 'm' } },
   { id: 'undo', label: '撤销上一步操作', group: 'files', default: { ctrl: true, key: 'z' } },
+  { id: 'redo', label: '重做', group: 'files', default: { ctrl: true, key: 'y' } },
   { id: 'duplicate', label: '复制副本', group: 'files', default: { ctrl: true, key: 'd' } },
   { id: 'rename', label: '重命名', group: 'files', default: { key: 'f2' } },
   { id: 'delete', label: '删除（移到回收站）', group: 'files', default: { key: 'delete' } },
