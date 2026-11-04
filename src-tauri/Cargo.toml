@@ -74,6 +74,8 @@ windows-sys = { version = "0.59", features = [
     # 提权子进程等待（WaitForSingleObject / GetExitCodeProcess）
     "Win32_System_Threading",
     "Win32_System_LibraryLoader",
+    # 文件被占用时查占用进程（Restart Manager，见 file_locks.rs）
+    "Win32_System_RestartManager",
 ] }
 rusqlite = { version = "0.40.2", features = ["bundled", "cache"], default-features = false }
 notify = "8.2.0"

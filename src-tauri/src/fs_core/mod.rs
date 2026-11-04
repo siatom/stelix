@@ -573,14 +573,24 @@ pub fn execute(op: &FsOp, ctx: &OpContext) -> FsOpResult {
                         if is_access_denied(&e) {
                             denied.push(src.clone());
                         }
-                        errors.push(format!("永久删除失败 {src}: {e}"));
+                        let hint = if is_sharing_violation(&e) {
+                            locked_hint(p)
+                        } else {
+                            String::new()
+                        };
+                        errors.push(format!("永久删除失败 {src}: {e}{hint}"));
                     }
                 } else if let Err(e) = trash_path(p) {
                     // 默认移到系统回收站：用户可在回收站中还原误删项。
                     if is_trash_access_denied(&e) {
                         denied.push(src.clone());
                     }
-                    errors.push(format!("移到回收站失败 {src}: {e}"));
+                    let hint = if is_trash_sharing_violation(&e) {
+                        locked_hint(p)
+                    } else {
+                        String::new()
+                    };
+                    errors.push(format!("移到回收站失败 {src}: {e}{hint}"));
                 }
                 ctx.add_file(0);
                 ctx.tick(src);
@@ -653,7 +663,12 @@ pub fn execute(op: &FsOp, ctx: &OpContext) -> FsOpResult {
                         if is_access_denied(&e) {
                             denied.push(src.clone());
                         }
-                        errors.push(format!("重命名失败 {src} -> {}: {e}", dest.display()));
+                        let hint = if is_sharing_violation(&e) {
+                            locked_hint(sp)
+                        } else {
+                            String::new()
+                        };
+                        errors.push(format!("重命名失败 {src} -> {}: {e}{hint}", dest.display()));
                     } else {
                         undo.push(rename_undo(&dest, src));
                     }
@@ -799,7 +814,12 @@ pub fn execute(op: &FsOp, ctx: &OpContext) -> FsOpResult {
                                 if is_access_denied(&e) {
                                     denied.push(src.clone());
                                 }
-                                errors.push(format!("操作失败 {src}: {e}"));
+                                let hint = if is_sharing_violation(&e) {
+                                    locked_hint(sp)
+                                } else {
+                                    String::new()
+                                };
+                                errors.push(format!("操作失败 {src}: {e}{hint}"));
                             }
                         }
                         ctx.add_file(0);
@@ -976,6 +996,25 @@ fn move_undo(dest: &Path, parent: &str) -> FsOp {
 /// 权限不足 ERROR_PRIVILEGE_NOT_HELD(1314)、网络拒绝 WSAEACCES(10013)。
 fn is_access_denied(e: &std::io::Error) -> bool {
     e.raw_os_error() == Some(5)
+}
+
+/// 「文件被占用」的提示后缀，形如 `（被 a.exe、b.exe 占用）`。
+///
+/// 调用方只在错误码是 ERROR_SHARING_VIOLATION（os error 32）时才调它；
+/// 查不到占用进程（非 Windows、Restart Manager 失败、无占用者）时返回空串，
+/// 拼到错误文案末尾即为无副作用的空操作。
+fn locked_hint(path: &Path) -> String {
+    let names = crate::file_locks::locking_processes(&path.to_string_lossy());
+    if names.is_empty() {
+        String::new()
+    } else {
+        format!("（被 {} 占用）", names.join("、"))
+    }
+}
+
+/// 是否值得去查占用进程：只有 ERROR_SHARING_VIOLATION 是「被别的程序占着」。
+fn is_sharing_violation(e: &std::io::Error) -> bool {
+    e.raw_os_error() == Some(32)
 }
 
 // ---------------------------------------------------------------- 内部工具
@@ -1162,6 +1201,14 @@ fn is_trash_access_denied(e: &trash::Error) -> bool {
     match e {
         trash::Error::Os { code, .. } => *code as u32 == 0x8007_0005,
         trash::Error::CouldNotAccess { .. } => true,
+        _ => false,
+    }
+}
+
+/// 回收站操作是否因「文件被占用」失败（HRESULT_FROM_WIN32(ERROR_SHARING_VIOLATION)）。
+fn is_trash_sharing_violation(e: &trash::Error) -> bool {
+    match e {
+        trash::Error::Os { code, .. } => *code as u32 == 0x8007_0020,
         _ => false,
     }
 }
