@@ -772,7 +772,17 @@ export const usePaneStore = defineStore('pane', () => {
       refreshTrashIcon()
       return
     }
-    await load(tab)
+    // 已有内容的目录走静默重列：`load` 会把 `loading` 置为 true，文件列表因此被
+    // 「正在读取…」状态页替换并卸载重建，滚动位置也随之回到顶部。用户删除 / 重命名
+    // 等操作后只是内容变化，没必要整页重来。首次加载、上次出错或正在加载时才走完整 load。
+    const canRefreshQuietly =
+      tab.kind !== 'search' && tab.entries.length > 0 && !tab.error && !tab.loading
+    if (canRefreshQuietly) {
+      const listed = await reloadQuiet(tab)
+      if (!listed && !tab.loading) await load(tab)
+    } else {
+      await load(tab)
+    }
     // 手动刷新是「深层变更」唯一确定的观测时机（notify 只监听被打开目录的直接子项，
     // 深层删除不会触发事件），因此在这里让该目录子树的大小缓存失效并重算；
     // 普通导航不做此失效，避免每次进目录都重走大目录。
@@ -785,34 +795,37 @@ export const usePaneStore = defineStore('pane', () => {
    *
    * 与 `load` 的区别：不显示 loading、不清空选中、失败时静默忽略（目录可能刚被删除），
    * 供「目录变更自动刷新」使用，避免应用内操作与 watcher 事件造成重复刷新与闪烁。
+   *
+   * @returns 是否成功读取目录；`false` 时调用方可退回 `load` 以展示错误状态。
    */
-  async function reloadQuiet(tab: TabState) {
+  async function reloadQuiet(tab: TabState): Promise<boolean> {
     if (
       tab.loading ||
       tab.kind === 'search' ||
       tab.kind === 'remote' ||
       tab.kind === 'trash'
     ) {
-      return
+      return false
     }
     let listing: DirListing
     try {
       listing = await api.listDir(tab.path)
     } catch {
-      return
+      return false
     }
-    if (sameEntries(tab.entries, listing.entries)) return
+    if (sameEntries(tab.entries, listing.entries)) return true
     tab.entries = listing.entries
     // 仅保留仍然存在的选中项，避免选中已删除的条目。
     const alive = new Set(listing.entries.map((entry) => entry.path))
     tab.selected = tab.selected.filter((path) => alive.has(path))
     tab.error = null
+    return true
   }
 
   /** 某目录内容变化时，刷新**所有**打开该目录的标签（跨窗格、含后台标签）。 */
   async function reloadByPath(dir: string) {
     const target = normalizePath(dir)
-    const jobs: Promise<void>[] = []
+    const jobs: Promise<unknown>[] = []
     for (const pane of panes.value) {
       for (const tab of pane.tabs) {
         if (tab.id === editingTabId.value) continue // 正在行内编辑，跳过以免打断输入
