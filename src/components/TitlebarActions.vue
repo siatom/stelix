@@ -82,7 +82,7 @@ async function openTerminalHere() {
         :disabled="!paneStore.canDeleteInActivePane"
         @click="paneStore.requestAction('delete', $event.shiftKey)"
       >
-        <Icon name="trash" :size="18" />
+        <Icon name="trash" :size="15" />
       </button>
     </div>
 
