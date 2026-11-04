@@ -62,6 +62,7 @@ fn run_helper(op_path: &Path, result_path: &Path) -> bool {
             ok: false,
             errors: vec!["提权子进程无法读取操作参数".to_string()],
             denied: Vec::new(),
+            ..Default::default()
         });
     match serde_json::to_string(&result) {
         Ok(text) => std::fs::write(result_path, text).is_ok(),

@@ -285,6 +285,8 @@ pub fn execute(op: &FsOp) -> FsOpResult {
     let mut errors: Vec<String> = Vec::new();
     // 因「拒绝访问」失败的路径：前端据此发起 UAC 提权重试。
     let mut denied: Vec<String> = Vec::new();
+    // 成功条目的逆向操作：前端据此提供「撤销上一步」。
+    let mut undo: Vec<FsOp> = Vec::new();
     match op.op {
         FsOpKind::Mkdir => {
             // target 为单目录创建；sources 承载「批量新建」的其余目标（也供提权子进程
@@ -313,6 +315,8 @@ pub fn execute(op: &FsOp) -> FsOpResult {
                         denied.push(t.to_string());
                     }
                     errors.push(format!("新建目录失败 {t}: {e}"));
+                } else {
+                    undo.push(delete_undo(t));
                 }
             }
         }
@@ -337,6 +341,7 @@ pub fn execute(op: &FsOp) -> FsOpResult {
                                     ok: false,
                                     errors,
                                     denied,
+                                    undo,
                                 };
                             }
                         }
@@ -347,6 +352,8 @@ pub fn execute(op: &FsOp) -> FsOpResult {
                             denied.push(t.to_string());
                         }
                         errors.push(format!("新建文件失败 {t}: {e}"));
+                    } else {
+                        undo.push(delete_undo(t));
                     }
                 }
             }
@@ -392,6 +399,7 @@ pub fn execute(op: &FsOp) -> FsOpResult {
                     ok: false,
                     errors: vec!["Rename 缺少 target".into()],
                     denied,
+                    undo,
                 };
             };
             if op.sources.is_empty() {
@@ -430,6 +438,8 @@ pub fn execute(op: &FsOp) -> FsOpResult {
                         denied.push(src.clone());
                     }
                     errors.push(format!("重命名失败 {src} -> {}: {e}", dest.display()));
+                } else {
+                    undo.push(rename_undo(&dest, src));
                 }
             }
         }
@@ -439,6 +449,7 @@ pub fn execute(op: &FsOp) -> FsOpResult {
                     ok: false,
                     errors: vec!["Copy/Move 缺少 target".into()],
                     denied,
+                    undo,
                 };
             };
             if op.sources.is_empty() {
@@ -484,6 +495,41 @@ pub fn execute(op: &FsOp) -> FsOpResult {
                         denied.push(src.clone());
                     }
                     errors.push(format!("操作失败 {src}: {e}"));
+                } else if op.op == FsOpKind::Copy {
+                    undo.push(delete_undo(&dest.to_string_lossy()));
+                } else if let Some(parent) = sp.parent() {
+                    if !parent.as_os_str().is_empty() {
+                        undo.push(move_undo(&dest, &parent.to_string_lossy()));
+                    }
+                }
+            }
+        }
+        FsOpKind::Duplicate => {
+            if op.sources.is_empty() {
+                errors.push("Duplicate 缺少 sources".into());
+            }
+            for src in &op.sources {
+                if src.trim().is_empty() {
+                    errors.push("复制副本源路径为空".into());
+                    continue;
+                }
+                let sp = Path::new(src);
+                if is_drive_root(sp) {
+                    errors.push(format!("已拒绝复制驱动器根目录：{src}"));
+                    continue;
+                }
+                if !sp.exists() {
+                    errors.push(format!("复制副本失败 {src}: 路径不存在"));
+                    continue;
+                }
+                let dest = unique_duplicate_dest(sp);
+                if let Err(e) = copy_recursive(sp, &dest) {
+                    if is_access_denied(&e) {
+                        denied.push(src.clone());
+                    }
+                    errors.push(format!("复制副本失败 {src}: {e}"));
+                } else {
+                    undo.push(delete_undo(&dest.to_string_lossy()));
                 }
             }
         }
@@ -492,6 +538,37 @@ pub fn execute(op: &FsOp) -> FsOpResult {
         ok: errors.is_empty(),
         errors,
         denied,
+        undo,
+    }
+}
+
+/// 删除某条路径（移到回收站）——用于撤销「新建」与「复制」。
+fn delete_undo(path: &str) -> FsOp {
+    FsOp {
+        op: FsOpKind::Delete,
+        sources: vec![path.to_string()],
+        target: None,
+        permanent: false,
+    }
+}
+
+/// 把 `dest` 改回 `src`——用于撤销「重命名」。
+fn rename_undo(dest: &Path, src: &str) -> FsOp {
+    FsOp {
+        op: FsOpKind::Rename,
+        sources: vec![dest.to_string_lossy().into_owned()],
+        target: Some(src.to_string()),
+        permanent: false,
+    }
+}
+
+/// 把 `dest` 移回 `parent`——用于撤销「移动」。
+fn move_undo(dest: &Path, parent: &str) -> FsOp {
+    FsOp {
+        op: FsOpKind::Move,
+        sources: vec![dest.to_string_lossy().into_owned()],
+        target: Some(parent.to_string()),
+        permanent: false,
     }
 }
 
@@ -603,6 +680,42 @@ fn unique_dest(dir: &Path, src: &Path) -> PathBuf {
         }
     }
     dest
+}
+
+/// 生成同目录副本的目标名：`原名 - 副本.ext`，重复时追加 ` (2)`、` (3)`…
+fn unique_duplicate_dest(src: &Path) -> PathBuf {
+    let dir = src.parent().unwrap_or_else(|| Path::new(""));
+    let name = src
+        .file_name()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let (stem, ext) = if src.is_dir() {
+        (name, None)
+    } else {
+        let p = Path::new(&name);
+        (
+            p.file_stem()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_else(|| name.clone()),
+            p.extension().map(|e| e.to_string_lossy().to_string()),
+        )
+    };
+    for i in 1..100_000u32 {
+        let suffix = if i == 1 {
+            " - 副本".to_string()
+        } else {
+            format!(" - 副本 ({i})")
+        };
+        let cand = match &ext {
+            Some(e) => format!("{stem}{suffix}.{e}"),
+            None => format!("{stem}{suffix}"),
+        };
+        let dest = dir.join(cand);
+        if !dest.exists() {
+            return dest;
+        }
+    }
+    dir.join(format!("{stem} - 副本"))
 }
 
 /// 移动：优先 `rename`；失败（常见于跨盘）时回退为「复制 + 删除」。
@@ -737,6 +850,75 @@ mod tests {
         let res = execute(&op(FsOpKind::CreateFile, &target));
         assert!(!res.ok);
         assert_eq!(fs::read(&target).unwrap(), b"keep");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn successful_ops_return_reverse_undo_entries() {
+        let dir = temp_dir("undo-ops");
+        let source = dir.join("a.txt");
+        fs::write(&source, b"a").unwrap();
+        let renamed = dir.join("b.txt");
+
+        let res = execute(&FsOp {
+            op: FsOpKind::Rename,
+            sources: vec![source.to_string_lossy().to_string()],
+            target: Some(renamed.to_string_lossy().to_string()),
+            permanent: false,
+        });
+        assert!(res.ok, "{:?}", res.errors);
+        assert_eq!(res.undo.len(), 1);
+        assert_eq!(res.undo[0].op, FsOpKind::Rename);
+        assert_eq!(
+            res.undo[0].sources,
+            vec![renamed.to_string_lossy().to_string()]
+        );
+        assert_eq!(
+            res.undo[0].target.as_deref(),
+            Some(source.to_string_lossy().as_ref())
+        );
+
+        let copies = dir.join("copies");
+        let res = execute(&FsOp {
+            op: FsOpKind::Copy,
+            sources: vec![renamed.to_string_lossy().to_string()],
+            target: Some(copies.to_string_lossy().to_string()),
+            permanent: false,
+        });
+        assert!(res.ok, "{:?}", res.errors);
+        assert_eq!(res.undo.len(), 1);
+        assert_eq!(res.undo[0].op, FsOpKind::Delete);
+        assert_eq!(
+            res.undo[0].sources,
+            vec![copies.join("b.txt").to_string_lossy().to_string()]
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn duplicate_creates_copy_with_chinese_suffix() {
+        let dir = temp_dir("duplicate");
+        let file = dir.join("report.txt");
+        fs::write(&file, b"data").unwrap();
+        let res = execute(&FsOp {
+            op: FsOpKind::Duplicate,
+            sources: vec![file.to_string_lossy().to_string()],
+            target: None,
+            permanent: false,
+        });
+        assert!(res.ok, "{:?}", res.errors);
+        assert_eq!(fs::read(dir.join("report - 副本.txt")).unwrap(), b"data");
+        // 再次副本：追加序号，且原文件保持不变。
+        assert!(
+            execute(&FsOp {
+                op: FsOpKind::Duplicate,
+                sources: vec![file.to_string_lossy().to_string()],
+                target: None,
+                permanent: false,
+            })
+            .ok
+        );
+        assert!(dir.join("report - 副本 (2).txt").is_file());
         let _ = fs::remove_dir_all(&dir);
     }
 

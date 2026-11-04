@@ -200,6 +200,7 @@ async fn fs_operation(op: FsOp) -> FsOpResult {
             ok: false,
             errors: vec![format!("文件操作任务失败: {error}")],
             denied: Vec::new(),
+            ..Default::default()
         })
 }
 

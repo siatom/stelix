@@ -4,7 +4,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useVirtualizer } from '@tanstack/vue-virtual'
 import { openPath } from '@tauri-apps/plugin-opener'
 import { startDrag } from '@crabnebula/tauri-plugin-drag'
-import type { FileEntry, RemoteLocation, RemoteTransferItem, TabState } from '../../types'
+import type { FileEntry, FsOp, RemoteLocation, RemoteTransferItem, TabState } from '../../types'
 import { usePaneStore } from '../../stores/pane'
 import { useUiStore, type DetailColumnKey } from '../../stores/ui'
 import { match, isCapturingShortcut } from '../../stores/shortcuts'
@@ -12,6 +12,7 @@ import { api } from '../../api'
 import { basename, dirname, fileIcon, fileKind, formatSize, formatTime, joinPath, typeLabel } from './utils'
 import Icon from '../icons/Icon.vue'
 import FileIcon from '../icons/FileIcon.vue'
+import BatchRenameDialog from './BatchRenameDialog.vue'
 import { recordOpenedFileDirectory } from '../Sidebar/shared'
 
 /** 由顶部标题栏发起的一次「新建」请求（FileList 处理后回发 create-handled）。 */
@@ -164,11 +165,15 @@ const canFileOp = computed(() => !isRemote.value)
 /** 远程与本地之间可以通过复制 / 剪切 / 拖拽传输（搜索结果命中项是本地文件，也可上传）。 */
 /** 搜索结果标签：命中项散落在各目录，需要「打开所在文件夹」这类定位操作。 */
 const isSearch = computed(() => props.tab.kind === 'search')
-// 先取 store 的过滤+排序结果，再按「隐藏受保护的操作系统文件」剔除（Explorer 语义：hidden && system）
+// 先取 store 的过滤+排序结果，再按「显示隐藏文件 / 隐藏受保护的系统文件」剔除。
 const allRows = computed(() => paneStore.entriesFor(props.tab))
-/** 「隐藏受保护的操作系统文件」开关：顶层与原地展开的子项都按同一规则过滤。 */
+/** 隐藏策略：关闭「显示隐藏文件」时隐藏全部隐藏项；开启时仍可单独隐藏系统文件。 */
 function filterProtected(entries: FileEntry[]): FileEntry[] {
-  return ui.hideProtected ? entries.filter((e) => !(e.hidden && e.system)) : entries
+  return entries.filter((entry) => {
+    if (entry.hidden && !ui.showHidden) return false
+    if (entry.hidden && entry.system && ui.hideProtected) return false
+    return true
+  })
 }
 const rows = computed(() => filterProtected(allRows.value))
 
@@ -202,6 +207,7 @@ const treeRows = computed<TreeRow[]>(() => {
 const iconRows = computed(() => rows.value.slice(0, ICON_CAP))
 
 const scrollRef = ref<HTMLElement | null>(null)
+const iconsScrollRef = ref<HTMLElement | null>(null)
 // 行高由设置面板控制（ui.fileRowHeight）：把它读进 computed 让虚拟滚动器在变更时重建。
 const virtualizer = useVirtualizer(
   computed(() => {
@@ -266,6 +272,8 @@ watch(scrollRef, (el) => {
 })
 
 let anchor = -1
+/** 键盘导航的当前行下标（锚点仍用于 Shift 连选）。 */
+let navCursor = -1
 let lastItemClick: { path: string; at: number } | null = null
 
 /** 判定「再次单击已选中条目」的最小间隔，低于它视为双击的一部分。 */
@@ -335,12 +343,15 @@ function onClick(ev: MouseEvent, index: number, entry: FileEntry) {
         ? iconRows.value.slice(a, b + 1).map((e) => e.path)
         : treeRows.value.slice(a, b + 1).map((r) => r.entry.path)
     props.tab.selected = ev.ctrlKey || ev.metaKey ? Array.from(new Set([...props.tab.selected, ...paths])) : paths
+    navCursor = index
   } else if (ev.ctrlKey || ev.metaKey) {
     paneStore.toggleSelect(props.tab, entry.path)
     anchor = index
+    navCursor = index
   } else {
     props.tab.selected = [entry.path]
     anchor = index
+    navCursor = index
   }
 }
 
@@ -348,6 +359,263 @@ function clearSelection() {
   cancelPendingRename()
   paneStore.clearSelection(props.tab)
   anchor = -1
+  navCursor = -1
+}
+
+// ---- 键盘导航 ----
+
+interface NavItem {
+  path: string
+  entry: FileEntry
+}
+
+/** 当前视图的展示条目：详情 / 列表含展开子树，图标视图仅顶层前 ICON_CAP 项。 */
+function navItems(): NavItem[] {
+  return viewMode.value === 'icons'
+    ? iconRows.value.map((entry) => ({ path: entry.path, entry }))
+    : treeRows.value.map((row) => ({ path: row.entry.path, entry: row.entry }))
+}
+
+/** 键盘操作落点：优先上次导航 / 点击的行，其次最后一个选中项。 */
+function activeNavIndex(items: NavItem[]): number {
+  if (navCursor >= 0 && navCursor < items.length) return navCursor
+  if (anchor >= 0 && anchor < items.length) return anchor
+  if (props.tab.selected.length) {
+    const last = props.tab.selected[props.tab.selected.length - 1]
+    const idx = items.findIndex((item) => item.path === last)
+    if (idx >= 0) return idx
+  }
+  return -1
+}
+
+/** 图标视图的列数（用于上下方向键按行移动）。 */
+function iconColumnCount(): number {
+  const grid = rootRef.value?.querySelector<HTMLElement>('.icons-grid')
+  if (!grid) return 1
+  const columns = getComputedStyle(grid).gridTemplateColumns
+  return Math.max(1, columns.split(' ').filter(Boolean).length)
+}
+
+/** PageUp / PageDown 的步长：按当前视图一屏可容纳的条目数估算。 */
+function pageStep(): number {
+  if (viewMode.value === 'icons') {
+    const grid = rootRef.value?.querySelector<HTMLElement>('.icons-grid')
+    const cell = grid?.querySelector<HTMLElement>('.icon-cell')
+    const cellHeight = cell?.getBoundingClientRect().height ?? 100
+    const rows = Math.max(1, Math.floor((iconsScrollRef.value?.clientHeight ?? cellHeight) / (cellHeight + 8)))
+    return Math.max(1, rows * iconColumnCount())
+  }
+  const viewport = scrollRef.value?.clientHeight ?? 0
+  return Math.max(1, Math.floor(viewport / ui.fileRowHeight) || 1)
+}
+
+function scrollNavItemIntoView(index: number) {
+  if (viewMode.value === 'icons') {
+    void nextTick(() => {
+      const cells = rootRef.value?.querySelectorAll<HTMLElement>('.icons-grid .icon-cell')
+      cells?.[index]?.scrollIntoView({ block: 'nearest' })
+    })
+    return
+  }
+  virtualizer.value.scrollToIndex(index, { align: 'auto' })
+}
+
+function applyNavSelection(items: NavItem[], index: number, extend: boolean, current: number) {
+  if (extend) {
+    const base = anchor >= 0 && anchor < items.length ? anchor : current >= 0 ? current : index
+    anchor = base
+    const from = Math.min(base, index)
+    const to = Math.max(base, index)
+    props.tab.selected = items.slice(from, to + 1).map((item) => item.path)
+  } else {
+    anchor = index
+    props.tab.selected = [items[index].path]
+  }
+  navCursor = index
+  scrollNavItemIntoView(index)
+}
+
+function moveNavCursor(delta: number, extend: boolean) {
+  const items = navItems()
+  if (!items.length) return
+  const current = activeNavIndex(items)
+  const next =
+    current < 0
+      ? delta >= 0
+        ? 0
+        : items.length - 1
+      : Math.min(items.length - 1, Math.max(0, current + delta))
+  applyNavSelection(items, next, extend, current)
+}
+
+function gotoNavIndex(index: number, extend: boolean) {
+  const items = navItems()
+  if (!items.length) return
+  const next = Math.min(items.length - 1, Math.max(0, index))
+  applyNavSelection(items, next, extend, activeNavIndex(items))
+}
+
+// ---- 批量重命名 ----
+
+const batchRenameOpen = ref(false)
+
+/** 当前选中的条目（含原地展开的子项），供批量重命名对话框使用。 */
+const batchRenameEntries = computed(() => {
+  const remaining = new Set(props.tab.selected)
+  const out: FileEntry[] = []
+  const collect = (entry: FileEntry) => {
+    if (!remaining.delete(entry.path)) return
+    out.push(entry)
+  }
+  for (const item of navItems()) collect(item.entry)
+  for (const entry of props.tab.entries) collect(entry)
+  return out
+})
+
+/**
+ * 应用批量重命名。
+ *
+ * 若某个新名称正好是另一个待改条目的原名（如互换 a/b），逐条改名会互相冲突：
+ * 先全部改成同目录下的临时名，再改成目标名。撤销记录按操作顺序收集，
+ * 撤销时由 store 反向执行，因此两阶段也能正确还原。
+ */
+async function onBatchRenameConfirm(plans: { from: string; to: string }[]) {
+  batchRenameOpen.value = false
+  if (!plans.length) return
+
+  const lower = (value: string) => value.toLowerCase()
+  const sourceNames = new Set(plans.map((plan) => lower(plan.from)))
+  const needsTemp = plans.some((plan) => sourceNames.has(lower(plan.to)))
+  const undoOps: FsOp[] = []
+  let failures = 0
+  ui.setStatusText(`正在重命名 ${plans.length} 项…`)
+
+  const renameOne = async (from: string, to: string) =>
+    paneStore.runFs(
+      props.paneId,
+      { op: 'rename', sources: [from], target: to },
+      false,
+      // 搜索结果没有目录语义，需要每次改名后就地修补命中项；普通目录最后统一刷新。
+      isSearch.value,
+    )
+
+  if (!needsTemp) {
+    for (const plan of plans) {
+      const result = await renameOne(plan.from, plan.to)
+      if (result.ok) undoOps.push(...(result.undo ?? []))
+      else failures += 1
+    }
+  } else {
+    const stamp = Date.now()
+    const staged: { plan: { from: string; to: string }; temp: string; undo: FsOp[] }[] = []
+    for (let i = 0; i < plans.length; i += 1) {
+      const plan = plans[i]
+      const temp = joinPath(dirname(plan.from), `.stelix-tmp-${stamp}-${i}`)
+      const result = await renameOne(plan.from, temp)
+      if (result.ok) staged.push({ plan, temp, undo: result.undo ?? [] })
+      else failures += 1
+    }
+    for (const item of staged) {
+      const result = await renameOne(item.temp, item.plan.to)
+      if (result.ok) {
+        undoOps.push(...item.undo, ...(result.undo ?? []))
+      } else {
+        failures += 1
+        // 第二阶段失败：尽力改回原名，避免留下临时文件名；成功后丢弃第一阶段的撤销记录。
+        const back = await renameOne(item.temp, item.plan.from)
+        if (!back.ok) undoOps.push(...item.undo, ...(result.undo ?? []))
+      }
+    }
+  }
+
+  if (undoOps.length) paneStore.pushUndo('批量重命名', undoOps)
+  // 所有改名完成后再统一刷新，避免两阶段改名过程中临时文件名在列表里闪现。
+  const dirs = new Set(plans.map((plan) => dirname(plan.from)))
+  await Promise.all([...dirs].map((dir) => paneStore.reloadByPath(dir)))
+  if (!failures) {
+    props.tab.selected = plans.map((plan) => plan.to)
+    anchor = -1
+    navCursor = -1
+  }
+  ui.setStatusText(
+    failures
+      ? `批量重命名完成，${failures} 项失败`
+      : `已重命名 ${plans.length} 项`,
+  )
+}
+
+/** 列表是否被模态层遮挡（设置 / 反馈 / 删除确认等）。 */
+function isModalOpen(): boolean {
+  return ui.settingsOpen || ui.feedbackOpen || !!document.querySelector('.mask')
+}
+
+/**
+ * 处理文件列表的裸键导航（不占用可配置快捷键表）。
+ * 返回 true 表示已消费该按键，调用方负责 preventDefault。
+ */
+function handleNavKey(ev: KeyboardEvent): boolean {
+  if (isModalOpen()) return false
+  const key = ev.key.toLowerCase()
+  const items = navItems()
+
+  if (key === 'enter') {
+    const target = ev.target as HTMLElement | null
+    // 焦点在按钮 / 菜单项上时交给控件自身处理，避免回车触发两次。
+    if (target?.closest('button, a, [role="menuitem"]')) return false
+    const index = activeNavIndex(items)
+    const entry = index >= 0 ? items[index]?.entry : undefined
+    if (!entry) return false
+    cancelPendingRename()
+    void openEntry(entry, true)
+    return true
+  }
+
+  if (key === 'backspace') {
+    void paneStore.goUp(props.paneId)
+    return true
+  }
+
+  if (key === 'escape') {
+    if (!props.tab.selected.length && anchor < 0) return false
+    clearSelection()
+    return true
+  }
+
+  if (!items.length) return false
+  const extend = ev.shiftKey
+  if (key === 'arrowdown') {
+    moveNavCursor(viewMode.value === 'icons' ? iconColumnCount() : 1, extend)
+    return true
+  }
+  if (key === 'arrowup') {
+    moveNavCursor(viewMode.value === 'icons' ? -iconColumnCount() : -1, extend)
+    return true
+  }
+  if (viewMode.value === 'icons' && key === 'arrowright') {
+    moveNavCursor(1, extend)
+    return true
+  }
+  if (viewMode.value === 'icons' && key === 'arrowleft') {
+    moveNavCursor(-1, extend)
+    return true
+  }
+  if (key === 'home') {
+    gotoNavIndex(0, extend)
+    return true
+  }
+  if (key === 'end') {
+    gotoNavIndex(items.length - 1, extend)
+    return true
+  }
+  if (key === 'pageup') {
+    moveNavCursor(-pageStep(), extend)
+    return true
+  }
+  if (key === 'pagedown') {
+    moveNavCursor(pageStep(), extend)
+    return true
+  }
+  return false
 }
 
 function updateMarqueeBox(ev: MouseEvent) {
@@ -400,6 +668,7 @@ function applyMarqueeSelection() {
   //（图标视图最多 600 格）。框选只在跨越行/格边界时才真正改变选中项。
   if (!samePaths(props.tab.selected, next)) props.tab.selected = next
   anchor = -1
+  navCursor = -1
 }
 
 /**
@@ -804,9 +1073,30 @@ function onGlobalKey(ev: KeyboardEvent) {
   if (isCapturingShortcut()) return // 正在设置里捕获新键位，不要触发文件操作
   if (isEditableTarget(ev.target)) return
   if (paneStore.activePaneId !== props.paneId) return // 左右窗格只处理一次
+  if (isModalOpen()) return // 有确认框 / 批量重命名等模态层时不要操作背后的列表
+
+  // Ctrl+A：全选当前视图条目（Windows 资源管理器习惯）。
+  if (
+    !isModalOpen() &&
+    (ev.ctrlKey || ev.metaKey) &&
+    !ev.altKey &&
+    !ev.shiftKey &&
+    ev.key.toLowerCase() === 'a'
+  ) {
+    const items = navItems()
+    if (!items.length) return
+    ev.preventDefault()
+    props.tab.selected = items.map((item) => item.path)
+    anchor = 0
+    navCursor = items.length - 1
+    return
+  }
 
   const id = match(ev)
-  if (!id) return
+  if (!id) {
+    if (handleNavKey(ev)) ev.preventDefault()
+    return
+  }
 
   // 标签页操作对本地 / 搜索 / 远程标签都适用。
   if (id === 'close-tab') {
@@ -845,9 +1135,42 @@ function onGlobalKey(ev: KeyboardEvent) {
       ev.preventDefault()
       void paneStore.pasteInto(props.paneId, props.tab.path)
       return
+    case 'copy-path': {
+      const sel = props.tab.selected
+      if (!sel.length) return
+      ev.preventDefault()
+      // 与 Windows「复制为路径」一致：每行一个带引号的完整路径。
+      const text = sel.map((path) => `"${path}"`).join('\r\n')
+      void navigator.clipboard.writeText(text).then(
+        () => ui.setStatusText(sel.length > 1 ? `已复制 ${sel.length} 个路径` : '已复制路径'),
+        (error) => ui.setStatusText(`复制路径失败：${String(error)}`),
+      )
+      return
+    }
+    case 'copy-to':
+      ev.preventDefault()
+      void paneStore.copySelectedTo(props.paneId, 'copy')
+      return
+    case 'move-to':
+      ev.preventDefault()
+      void paneStore.copySelectedTo(props.paneId, 'move')
+      return
+    case 'undo':
+      ev.preventDefault()
+      void paneStore.undoLast()
+      return
+    case 'duplicate':
+      if (!canFileOp.value || !props.tab.selected.length) return
+      ev.preventDefault()
+      void paneStore.runFs(props.paneId, { op: 'duplicate', sources: [...props.tab.selected] })
+      return
     case 'rename':
       if (!canFileOp.value) return // 远程条目不提供本地重命名
-      if (props.tab.selected.length === 1) {
+      if (props.tab.selected.length > 1) {
+        // 多选时 F2 进入批量重命名。
+        ev.preventDefault()
+        batchRenameOpen.value = true
+      } else if (props.tab.selected.length === 1) {
         ev.preventDefault()
         startRename(props.tab.selected[0])
       }
@@ -865,6 +1188,7 @@ function onGlobalKey(ev: KeyboardEvent) {
 
 onMounted(() => {
   window.addEventListener('keydown', onGlobalKey)
+  window.addEventListener('stelix:batch-rename', onBatchRenameRequest)
 })
 
 onBeforeUnmount(() => {
@@ -873,9 +1197,20 @@ onBeforeUnmount(() => {
   scrollPortObserver = null
   cancelPendingRename()
   window.removeEventListener('keydown', onGlobalKey)
+  window.removeEventListener('stelix:batch-rename', onBatchRenameRequest)
   stopMarquee()
   paneStore.setVisibleDirs(props.paneId, [])
 })
+
+/** 命令面板「批量重命名」入口。 */
+function onBatchRenameRequest() {
+  if (paneStore.activePaneId !== props.paneId) return
+  if (!canFileOp.value || props.tab.selected.length < 2) {
+    ui.setStatusText('请先选择至少两个本地条目')
+    return
+  }
+  batchRenameOpen.value = true
+}
 
 // ---- 工具栏「新建」请求 ----
 
@@ -906,6 +1241,7 @@ watch(
   () => [props.tab.id, props.tab.path],
   () => {
     anchor = -1
+    navCursor = -1
     // 切换标签 / 目录后回到表格最左侧，表头同步复位。
     if (scrollRef.value) scrollRef.value.scrollLeft = 0
     headerScrollX.value = 0
@@ -917,19 +1253,20 @@ watch(
 // 详情/列表与图标视图的下标基准不同（treeRows 含展开子项），切换视图后旧锚点不再有效。
 watch(viewMode, () => {
   anchor = -1
+  navCursor = -1
   // 列表视图没有横向滚动，切回详情时以真实偏移为准重新同步表头。
   headerScrollX.value = 0
 })
 
 const hasEntries = computed(() => props.tab.entries.length > 0)
-// 因「隐藏受保护的操作系统文件」而被清空的目录（无文本过滤与类型筛选时）
-const emptyByProtect = computed(
+// 因隐藏设置而被清空的目录（无文本过滤与类型筛选时）
+const emptyByHidden = computed(
   () =>
     hasEntries.value &&
     rows.value.length === 0 &&
     !props.tab.filter.trim() &&
     !props.tab.typeFilter &&
-    ui.hideProtected,
+    (!ui.showHidden || ui.hideProtected),
 )
 // 因过滤词 / 类型筛选而被清空的目录
 const emptyByFilter = computed(
@@ -1044,7 +1381,7 @@ function onDragStart(ev: DragEvent, entry: FileEntry) {
   // HTML drag data is only visible to other web views. Start an OS file drag
   // instead so applications such as WeChat receive real filesystem paths.
   ev.preventDefault()
-  const operation = ev.shiftKey ? 'copy' : 'move'
+  const operation = ev.ctrlKey || ev.shiftKey ? 'copy' : 'move'
   window.dispatchEvent(new CustomEvent('stelix:file-drag-start', { detail: { operation } }))
   void startDrag({
     item: paths,
@@ -1080,7 +1417,8 @@ function onDragOver(ev: DragEvent) {
   if (!isInternalDrag(ev) || !ev.dataTransfer) return
   if (!isRemote.value && !isLocal.value) return
   // 跨本地 / 远程默认复制：远端删除需逐条成功后追加 quote 操作，拖拽不隐含删除。
-  ev.dataTransfer.dropEffect = isRemote.value || ev.shiftKey ? 'copy' : 'move'
+  // Ctrl / Shift 强制复制，符合 Windows 资源管理器的拖拽习惯。
+  ev.dataTransfer.dropEffect = isRemote.value || ev.ctrlKey || ev.shiftKey ? 'copy' : 'move'
 }
 
 function onEntryDragOver(ev: DragEvent, entry: FileEntry) {
@@ -1088,7 +1426,7 @@ function onEntryDragOver(ev: DragEvent, entry: FileEntry) {
   ev.preventDefault()
   ev.stopPropagation()
   if (ev.dataTransfer) {
-    ev.dataTransfer.dropEffect = isRemote.value || ev.shiftKey ? 'copy' : 'move'
+    ev.dataTransfer.dropEffect = isRemote.value || ev.ctrlKey || ev.shiftKey ? 'copy' : 'move'
   }
   dragOverPath.value = entry.path
 }
@@ -1130,7 +1468,7 @@ async function onEntryDrop(ev: DragEvent, entry: FileEntry) {
   }
 
   const result = await paneStore.runFs(props.paneId, {
-    op: ev.shiftKey ? 'copy' : 'move',
+    op: ev.ctrlKey || ev.shiftKey ? 'copy' : 'move',
     sources: payload.items.map((item) => item.path),
     target: entry.path,
   })
@@ -1166,7 +1504,7 @@ function onDrop(ev: DragEvent) {
   }
 
   const paths = payload.items.map((item) => item.path)
-  if (ev.shiftKey) void paneStore.copyToOtherPane(payload.paneId, paths, payload.items)
+  if (ev.ctrlKey || ev.shiftKey) void paneStore.copyToOtherPane(payload.paneId, paths, payload.items)
   else void paneStore.moveToOtherPane(payload.paneId, paths, payload.items)
 }
 </script>
@@ -1199,9 +1537,9 @@ function onDrop(ev: DragEvent) {
       <Icon name="folder-open" :size="30" class="big-ico" />
       <p>{{ emptyText }}</p>
     </div>
-    <div v-else-if="emptyByProtect && !editingCreate" class="state">
+    <div v-else-if="emptyByHidden && !editingCreate" class="state">
       <Icon name="folder-open" :size="30" class="big-ico" />
-      <p>已隐藏受保护的操作系统文件</p>
+      <p>{{ !ui.showHidden ? '已隐藏隐藏文件' : '已隐藏受保护的操作系统文件' }}</p>
     </div>
     <div v-else-if="emptyByFilter && !editingCreate" class="state">
       <Icon name="search" :size="30" class="big-ico" />
@@ -1389,7 +1727,7 @@ function onDrop(ev: DragEvent) {
     </template>
 
     <!-- 图标视图（限制渲染数量） -->
-    <div v-else class="icons-scroll" @click.self="onBlankClick">
+    <div v-else ref="iconsScrollRef" class="icons-scroll" @click.self="onBlankClick">
       <div v-if="editingCreate && editing" class="icon-cell" :class="{ dir: editingFolder }">
         <span class="icon-big" :class="editingFolder ? 'k-folder' : 'k-file'">
           <FileIcon v-if="editingFolder" :path="tab.path" :is-dir="true" :ext="null" :size="38" />
@@ -1460,6 +1798,14 @@ function onDrop(ev: DragEvent) {
         条目较多，仅显示前 {{ ICON_CAP }} 项（共 {{ rows.length }} 项）
       </p>
     </div>
+
+    <BatchRenameDialog
+      v-if="batchRenameOpen"
+      :entries="batchRenameEntries"
+      :siblings="tab.entries"
+      @cancel="batchRenameOpen = false"
+      @confirm="onBatchRenameConfirm"
+    />
 
     <div
       v-if="marquee"

@@ -321,6 +321,10 @@ onMounted(() => {
         <header class="card-head">视图</header>
         <div class="card-body tight">
           <label class="row">
+            <span class="row-label">显示隐藏文件</span>
+            <input type="checkbox" :checked="ui.showHidden" @change="ui.setShowHidden(($event.target as HTMLInputElement).checked)" />
+          </label>
+          <label class="row">
             <span class="row-label">隐藏受保护的操作系统文件</span>
             <input type="checkbox" :checked="ui.hideProtected" @change="ui.setHideProtected(($event.target as HTMLInputElement).checked)" />
           </label>

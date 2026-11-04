@@ -34,8 +34,8 @@ function toNodes(entries: FileEntry[]): TreeNodeData[] {
   return (
     entries
       .filter((e) => e.isDir)
-      // 「隐藏受保护的操作系统文件」（hidden && system）时同样过滤子树目录
-      .filter((e) => !(ui.hideProtected && e.hidden && e.system))
+      // 与文件列表共用同一套隐藏策略：隐藏全部隐藏项 / 只隐藏受保护的系统文件
+      .filter((e) => (e.hidden ? ui.showHidden && !(e.system && ui.hideProtected) : true))
       .sort((a, b) => compareNames(a.name, b.name))
       .map((e) => ({ name: e.name, path: e.path }))
   )

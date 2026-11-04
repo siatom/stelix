@@ -79,6 +79,55 @@ function buildCommands(locations: QuickLocation[]) {
         if (tab) pane.closeTab(pane.activePaneId, tab.id)
       },
     },
+    {
+      id: 'batch-rename',
+      label: '批量重命名…',
+      hint: `多选后 ${formatCombo(combos.value.rename)}`,
+      run: () => window.dispatchEvent(new CustomEvent('stelix:batch-rename')),
+    },
+    {
+      id: 'undo',
+      label: '撤销上一步操作',
+      hint: formatCombo(combos.value.undo),
+      run: () => pane.undoLast(),
+    },
+    {
+      id: 'duplicate',
+      label: '复制副本',
+      hint: formatCombo(combos.value.duplicate),
+      run: () => {
+        const tab = pane.activeTab
+        if (!tab || !tab.selected.length) {
+          ui.setStatusText('请先选择要复制副本的条目')
+          return
+        }
+        if (tab.kind === 'remote' || tab.kind === 'terminal' || tab.kind === 'trash') {
+          ui.setStatusText('该位置不支持此操作')
+          return
+        }
+        void pane.runFs(pane.activePaneId, { op: 'duplicate', sources: [...tab.selected] })
+      },
+    },
+    {
+      id: 'copy-to',
+      label: '复制所选到…',
+      hint: formatCombo(combos.value['copy-to']),
+      run: () => pane.copySelectedTo(pane.activePaneId, 'copy'),
+    },
+    {
+      id: 'move-to',
+      label: '移动所选到…',
+      hint: formatCombo(combos.value['move-to']),
+      run: () => pane.copySelectedTo(pane.activePaneId, 'move'),
+    },
+    {
+      id: 'toggle-hidden',
+      label: ui.showHidden ? '隐藏隐藏文件' : '显示隐藏文件',
+      run: () => {
+        ui.toggleShowHidden()
+        buildCommands(quickLocations)
+      },
+    },
     { id: 'toggle-ai', label: '打开 AI 助手面板', run: () => ui.setPanel('ai') },
     { id: 'toggle-sidebar', label: '切换侧边栏', run: () => ui.toggleSidebar() },
     {

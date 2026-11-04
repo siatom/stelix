@@ -124,6 +124,8 @@ pub enum FsOpKind {
     Mkdir,
     /// 新建空文件
     CreateFile,
+    /// 在原目录生成「xxx - 副本」副本
+    Duplicate,
 }
 
 /// 一次文件操作请求
@@ -157,6 +159,14 @@ pub struct FsOpResult {
     /// 其它错误（文件被占用 32 / 目录非空 145 / 权限不足 1314 等）**不**进入此列表。
     #[serde(default)]
     pub denied: Vec<String>,
+    /// 已成功执行的条目对应的**逆向操作**（按执行顺序记录），供前端撤销。
+    ///
+    /// - Mkdir / CreateFile → 删除新建的路径
+    /// - Rename → 改回原名
+    /// - Copy / Move → 删除副本 / 移回原目录
+    /// - Delete 无法逆向（普通删除可去回收站还原），不记录
+    #[serde(default)]
+    pub undo: Vec<FsOp>,
 }
 
 /// 回收站中的一个条目。

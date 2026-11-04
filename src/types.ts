@@ -59,7 +59,7 @@ export interface IndexProgress {
   done: boolean
 }
 
-export type FsOpKind = 'copy' | 'move' | 'delete' | 'rename' | 'mkdir' | 'createFile'
+export type FsOpKind = 'copy' | 'move' | 'delete' | 'rename' | 'mkdir' | 'createFile' | 'duplicate'
 
 export interface FsOp {
   op: FsOpKind
@@ -74,6 +74,8 @@ export interface FsOpResult {
   errors: string[]
   /** 因权限不足（Windows ERROR_ACCESS_DENIED）失败的路径；用于发起 UAC 提权重试。 */
   denied?: string[]
+  /** 已成功执行条目的逆向操作（按执行顺序），用于「撤销上一步」。 */
+  undo?: FsOp[]
 }
 
 /** 回收站中的一个条目。 */

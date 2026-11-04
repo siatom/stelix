@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { computed, ref, watch } from 'vue'
 import { homeDir } from '@tauri-apps/api/path'
+import { open as openDialog } from '@tauri-apps/plugin-dialog'
 import { api } from '../api'
 import type { DirListing, FileEntry, FsOp, FsOpResult, PaneState, RemoteLocation, RemoteTransferItem, RemoteTransferResult, SearchHit, TabState, ViewMode } from '../types'
 import { useUiStore } from './ui'
@@ -205,6 +206,13 @@ interface PaneClipboard {
   items?: RemoteTransferItem[]
 }
 
+/** 一次可撤销的文件操作（可能包含多条逆向 FsOp，如批量重命名）。 */
+export interface UndoEntry {
+  /** 展示用名称，如「重命名」「批量重命名」。 */
+  label: string
+  ops: FsOp[]
+}
+
 /** 顶部标题栏可派发给活动窗格的文件操作。 */
 export type PaneActionKind = 'mkdir' | 'createFile' | 'mkdirMove' | 'delete'
 
@@ -222,6 +230,10 @@ export const usePaneStore = defineStore('pane', () => {
   const lastLocalPaths = ref<Record<string, string>>({ left: fallbackHome, right: fallbackHome })
   /** 内部剪贴板（复制 / 剪切） */
   const clipboard = ref<PaneClipboard | null>(null)
+  /** 撤销栈（最近操作在末尾，最多保留 20 步）。 */
+  const undoStack = ref<UndoEntry[]>([])
+  const canUndo = computed(() => undoStack.value.length > 0)
+  const undoLabel = computed(() => undoStack.value[undoStack.value.length - 1]?.label ?? '')
   /** 每个标签的浏览历史（存于 store，避免改动冻结的 types.ts） */
   const histories = ref<Record<string, HistoryEntry>>({})
   /** 外部请求定位到某个条目（搜索结果 / AI 操作后） */
@@ -1454,18 +1466,53 @@ export const usePaneStore = defineStore('pane', () => {
     return { op: op.op, sources, target: op.target, permanent: op.permanent }
   }
 
-  async function runFs(paneId: string, op: FsOp): Promise<FsOpResult> {
+  /** 撤销栈条目的展示名称。 */
+  function opLabel(op: FsOp): string {
+    switch (op.op) {
+      case 'rename':
+        return '重命名'
+      case 'move':
+        return '移动'
+      case 'copy':
+        return '复制'
+      case 'delete':
+        return op.permanent ? '永久删除' : '删除'
+      case 'mkdir':
+        return '新建文件夹'
+      case 'createFile':
+        return '新建文件'
+      case 'duplicate':
+        return '复制副本'
+    }
+  }
+
+  function pushUndo(label: string, ops: FsOp[]) {
+    undoStack.value.push({ label, ops })
+    if (undoStack.value.length > 20) undoStack.value.shift()
+  }
+
+  async function runFs(
+    paneId: string,
+    op: FsOp,
+    recordUndo = true,
+    refreshList = true,
+  ): Promise<FsOpResult> {
     let result: FsOpResult
     /** 实际已执行的部分；null 表示没有任何来源被改动（搜索命中列表保持原样）。 */
     let applied: FsOp | null = null
+    /** 首次尝试与提权重试中实际成功条目的逆向操作。 */
+    let undo: FsOp[] = []
     try {
       result = await api.fsOperation(op)
+      undo = [...(result.undo ?? [])]
       const denied = result.denied
       if (!result.ok && denied?.length) {
         // 权限不足 → 向系统发起 UAC 提权，以管理员身份只重试失败的那部分。
         setStatus('需要管理员权限，正在请求提权…')
         try {
-          result = await api.fsOperationElevated(buildRetryOp(op, denied))
+          const elevated = await api.fsOperationElevated(buildRetryOp(op, denied))
+          result = elevated
+          undo.push(...(elevated.undo ?? []))
           if (!result.ok) {
             setStatus(`操作失败：${result.errors.join('; ')}`)
             applied = appliedSources(op, denied)
@@ -1501,13 +1548,95 @@ export const usePaneStore = defineStore('pane', () => {
       result = { ok: false, errors: [String(e)] }
       setStatus(`操作失败：${String(e)}`)
     }
-    await refreshAfterOp(paneId, applied)
+    // 即使后续替换了 result（提权成功 / 失败），也保留首次尝试已成功条目的撤销信息。
+    result.undo = undo
+    if (recordUndo) {
+      // 删除没有逆向 FsOp（可去回收站还原），但成功时也要占一个栈位：
+      // 否则 Ctrl+Z 会跳过删除、误撤销更早的其它操作。
+      if (op.op === 'delete' && (result.ok || applied)) pushUndo(opLabel(op), [])
+      else if (undo.length) pushUndo(opLabel(op), undo)
+    }
+    if (refreshList) await refreshAfterOp(paneId, applied)
     // 普通删除会改变回收站内容；已打开的回收站标签据此自动刷新，侧边栏图标同步切换。
     if (applied?.op === 'delete' && !applied.permanent) {
       trashRefreshSeq.value += 1
       refreshTrashIcon()
     }
     return result
+  }
+
+  /** 一条逆向操作涉及的目录（用于撤销后刷新列表）。 */
+  function opAffectedDirs(op: FsOp): string[] {
+    const dirs = new Set<string>()
+    const addParent = (path?: string | null) => {
+      if (!path) return
+      const parent = dirname(path)
+      if (parent) dirs.add(parent)
+    }
+    for (const source of op.sources ?? []) addParent(source)
+    if (op.target) {
+      // Rename / CreateFile 的 target 是完整新路径；Copy / Move 的 target 是目标目录。
+      if (op.op === 'rename' || op.op === 'createFile') addParent(op.target)
+      else dirs.add(op.target)
+    }
+    return [...dirs]
+  }
+
+  /** 撤销上一步文件操作（批量操作按记录顺序逆向执行）。 */
+  async function undoLast() {
+    const entry = undoStack.value.pop()
+    if (!entry) {
+      setStatus('没有可撤销的操作')
+      return
+    }
+    if (!entry.ops.length) {
+      setStatus(
+        entry.label === '删除'
+          ? '删除操作无法撤销，可到回收站还原'
+          : `${entry.label}操作无法撤销`,
+      )
+      return
+    }
+    setStatus(`正在撤销：${entry.label}`)
+    let ok = true
+    const dirs = new Set<string>()
+    for (const op of [...entry.ops].reverse()) {
+      for (const dir of opAffectedDirs(op)) dirs.add(dir)
+      const result = await runFs(activePaneId.value, op, false, false)
+      if (!result.ok) ok = false
+    }
+    // runFs 只刷新活动窗格；对侧窗格 / 多个目录也一并刷新。
+    await Promise.all([...dirs].map((dir) => reloadByPath(dir)))
+    setStatus(ok ? `已撤销：${entry.label}` : `撤销未完成：${entry.label}`)
+  }
+
+  /** 弹出目录选择器，把所选条目复制 / 移动到指定文件夹。 */
+  async function copySelectedTo(paneId: string, op: 'copy' | 'move') {
+    const pane = paneById(paneId)
+    const tab = pane ? activeTabOf(pane) : undefined
+    if (!tab || !tab.selected.length) {
+      setStatus('请先选择要操作的条目')
+      return
+    }
+    if (tab.kind === 'remote' || tab.kind === 'terminal' || tab.kind === 'trash') {
+      setStatus('该位置不支持此操作')
+      return
+    }
+    let picked: string | string[] | null
+    try {
+      picked = await openDialog({
+        directory: true,
+        multiple: false,
+        title: op === 'copy' ? '复制到…' : '移动到…',
+        defaultPath: tab.path,
+      })
+    } catch (e) {
+      setStatus(`无法打开文件夹选择器：${String(e)}`)
+      return
+    }
+    const target = typeof picked === 'string' ? picked : null
+    if (!target) return
+    await runFs(paneId, { op, sources: [...tab.selected], target })
   }
 
   /** Windows 文件名不允许的字符（含控制字符）。 */
@@ -1967,6 +2096,12 @@ export const usePaneStore = defineStore('pane', () => {
     splitRatio,
     singlePane,
     clipboard,
+    undoStack,
+    canUndo,
+    undoLabel,
+    pushUndo,
+    undoLast,
+    copySelectedTo,
     revealTarget,
     editingTabId,
     folderSizes,

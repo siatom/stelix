@@ -45,6 +45,7 @@ const SETTINGS_DB_NAME = 'stelix-ui-settings'
 const SETTINGS_DB_STORE = 'preferences'
 const SETTINGS_BACKGROUND_KEY = 'backgroundImage'
 const LS_HIDE_PROTECTED = 'stelix.hideProtected'
+const LS_SHOW_HIDDEN = 'stelix.showHidden'
 const LS_HIDE_FILE_EXTENSIONS = 'stelix.hideFileExtensions'
 const LS_SIDEBAR_COLLAPSED = 'stelix.sidebarCollapsed'
 const LS_FONT_SIZE = 'stelix.fontSize'
@@ -136,6 +137,7 @@ const FONT_SIZE_MIN = 11
 const FONT_SIZE_MAX = 16
 const FONT_SIZE_DEF = 12
 const HIDE_PROTECTED_DEF = true
+const SHOW_HIDDEN_DEF = true
 const HIDE_FILE_EXTENSIONS_DEF = false
 
 function readFontSize(key = LS_FONT_SIZE, fallback = FONT_SIZE_DEF): number {
@@ -310,6 +312,8 @@ export const useUiStore = defineStore('ui', () => {
   const fileRowHeight = ref(readRowHeight(LS_FILE_ROW_H, FILE_ROW_MIN, FILE_ROW_MAX, FILE_ROW_DEF))
   const resolvedTheme = computed(() => theme.value)
   const hideProtected = ref(readBool(LS_HIDE_PROTECTED, HIDE_PROTECTED_DEF))
+  /** 是否显示隐藏（FILE_ATTRIBUTE_HIDDEN）条目；关闭后连同受保护系统文件一起隐藏。 */
+  const showHidden = ref(readBool(LS_SHOW_HIDDEN, SHOW_HIDDEN_DEF))
   const hideFileExtensions = ref(readBool(LS_HIDE_FILE_EXTENSIONS, HIDE_FILE_EXTENSIONS_DEF))
   /** 详细视图列宽（表头拖动后持久化） */
   const detailColumnWidths = ref<DetailColumnWidths>(readDetailColumnWidths())
@@ -586,6 +590,19 @@ export const useUiStore = defineStore('ui', () => {
     setHideProtected(!hideProtected.value)
   }
 
+  function setShowHidden(value: boolean) {
+    showHidden.value = value
+    try {
+      localStorage.setItem(LS_SHOW_HIDDEN, value ? '1' : '0')
+    } catch {
+      /* ignore */
+    }
+  }
+
+  function toggleShowHidden() {
+    setShowHidden(!showHidden.value)
+  }
+
   function setHideFileExtensions(value: boolean) {
     hideFileExtensions.value = value
     try {
@@ -604,6 +621,7 @@ export const useUiStore = defineStore('ui', () => {
       localStorage.removeItem(LS_SIDEBAR_ROW_H)
       localStorage.removeItem(LS_FILE_ROW_H)
       localStorage.removeItem(LS_HIDE_PROTECTED)
+      localStorage.removeItem(LS_SHOW_HIDDEN)
       localStorage.removeItem(LS_HIDE_FILE_EXTENSIONS)
       localStorage.removeItem(LS_DETAIL_COLUMNS)
       localStorage.removeItem(LS_TRASH_COLUMNS)
@@ -616,6 +634,7 @@ export const useUiStore = defineStore('ui', () => {
     sidebarRowHeight.value = SIDEBAR_ROW_DEF
     fileRowHeight.value = FILE_ROW_DEF
     hideProtected.value = HIDE_PROTECTED_DEF
+    showHidden.value = SHOW_HIDDEN_DEF
     hideFileExtensions.value = HIDE_FILE_EXTENSIONS_DEF
     detailColumnWidths.value = { ...DETAIL_COL_DEF }
     trashColumnWidths.value = { ...TRASH_COL_DEF }
@@ -693,6 +712,9 @@ export const useUiStore = defineStore('ui', () => {
     fileRowHeight,
     resolvedTheme,
     hideProtected,
+    showHidden,
+    setShowHidden,
+    toggleShowHidden,
     hideFileExtensions,
     activePanel,
     searchScope,
