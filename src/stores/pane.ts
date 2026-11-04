@@ -187,6 +187,14 @@ export interface CreateFoldersResult {
   failures: FolderCreateFailure[]
 }
 
+export interface CreateFolderAndMoveResult {
+  ok: boolean
+  /** 新文件夹是否已成功创建（用于区分「未创建」与「已创建但移动失败」）。 */
+  created: boolean
+  /** 可直接展示的失败原因。 */
+  reason?: string
+}
+
 /** 剪贴板内容：本地路径与远程路径语义不同，远程来源额外记录连接信息与目录标记。 */
 interface PaneClipboard {
   op: 'copy' | 'move'
@@ -198,7 +206,7 @@ interface PaneClipboard {
 }
 
 /** 顶部标题栏可派发给活动窗格的文件操作。 */
-export type PaneActionKind = 'mkdir' | 'createFile' | 'delete'
+export type PaneActionKind = 'mkdir' | 'createFile' | 'mkdirMove' | 'delete'
 
 export const usePaneStore = defineStore('pane', () => {
   let fallbackHome = 'C:\\'
@@ -287,6 +295,15 @@ export const usePaneStore = defineStore('pane', () => {
       tab.kind !== 'remote' &&
       tab.kind !== 'terminal' &&
       tab.kind !== 'trash' &&
+      tab.selected.length > 0
+    )
+  })
+  // 「移动到新建文件夹」需要同时具备本地目录写权限与选中项；搜索 / 远程 / 终端标签不可用。
+  const canMoveToNewFolderInActivePane = computed(() => {
+    const tab = activeTab.value
+    return (
+      !!tab &&
+      (tab.kind ?? 'files') === 'files' &&
       tab.selected.length > 0
     )
   })
@@ -1505,6 +1522,17 @@ export const usePaneStore = defineStore('pane', () => {
     return detail.split(path).join(name)
   }
 
+  /** 把移动失败的后端错误收敛成可直接展示的原因。 */
+  function moveErrorReason(errors: string[]): string {
+    const raw = errors.join('；')
+    if (!raw) return '移动未完成'
+    if (raw.includes('路径不存在')) return '所选条目已不存在，可能已被移动或删除'
+    if (raw.includes('拒绝访问') || raw.includes('os error 5')) return '没有权限移动所选条目'
+    if (raw.includes('已拒绝把目录放入其自身子目录')) return '不能把文件夹移动到它自己的子目录'
+    if (raw.includes('已拒绝操作驱动器根目录')) return '不能移动驱动器根目录'
+    return raw
+  }
+
   /** 状态栏里的失败摘要：逐条展示前几项，其余折叠为数量。 */
   function failureSummary(failures: FolderCreateFailure[]): string {
     const shown = failures
@@ -1625,6 +1653,74 @@ export const usePaneStore = defineStore('pane', () => {
       )
     }
     return { created, failures }
+  }
+
+  /**
+   * 新建一个文件夹，并把当前选中项移动进去。
+   *
+   * 创建与移动分两步执行：创建失败（名称非法 / 已存在 / 权限不足）时不动选中项；
+   * 创建成功后即使移动失败，新文件夹也会保留，状态栏会说明当前进度。
+   */
+  async function createFolderAndMove(
+    paneId: string,
+    rawName: string,
+  ): Promise<CreateFolderAndMoveResult> {
+    const pane = paneById(paneId)
+    const tab = pane ? activeTabOf(pane) : undefined
+    if (!tab || (tab.kind ?? 'files') !== 'files') {
+      setStatus('当前标签不支持新建文件夹')
+      return { ok: false, created: false, reason: '当前标签不支持新建文件夹' }
+    }
+
+    const name = rawName.trim()
+    if (!name) {
+      setStatus('新建失败：名称为空')
+      return { ok: false, created: false, reason: '名称为空' }
+    }
+    const invalid = folderNameError(name)
+    if (invalid) {
+      setStatus(`新建失败：${name}（${invalid}）`)
+      return { ok: false, created: false, reason: invalid }
+    }
+
+    const sources = [...tab.selected]
+    if (!sources.length) {
+      setStatus('请先选择要移动的条目')
+      return { ok: false, created: false, reason: '未选择任何条目' }
+    }
+
+    const target = joinPath(tab.path, name)
+
+    /** runFs 刷新目录时会清空选中；失败后把仍然存在的来源恢复选中，便于改名重试。 */
+    const restoreSelection = (paths: string[]) => {
+      const currentPane = paneById(paneId)
+      const currentTab = currentPane ? activeTabOf(currentPane) : undefined
+      if (!currentTab || currentTab.id !== tab.id) return
+      const alive = new Set(currentTab.entries.map((entry) => entry.path))
+      currentTab.selected = paths.filter((path) => alive.has(path))
+    }
+
+    const create = await runFs(paneId, { op: 'mkdir', target })
+    if (!create.ok) {
+      restoreSelection(sources)
+      // 提权取消时 runFs 已在状态栏说明，这里只补充名称与具体原因。
+      const reason = create.errors.length
+        ? folderErrorReason(create.errors, target, name)
+        : '新建文件夹未完成'
+      if (create.errors.length) setStatus(`新建失败：${name}（${reason}）`)
+      return { ok: false, created: false, reason }
+    }
+
+    const move = await runFs(paneId, { op: 'move', sources, target })
+    if (!move.ok) {
+      restoreSelection(sources)
+      const reason = moveErrorReason(move.errors)
+      setStatus(`已新建「${name}」，但移动失败：${reason}`)
+      return { ok: false, created: true, reason }
+    }
+
+    setStatus(`已新建「${name}」并移动 ${sources.length} 项`)
+    return { ok: true, created: true }
   }
 
   /** 从标签已知条目（含「原地展开」缓存）补齐每个路径的目录标记。 */
@@ -1854,6 +1950,7 @@ export const usePaneStore = defineStore('pane', () => {
     consumeAction,
     canCreateInActivePane,
     canDeleteInActivePane,
+    canMoveToNewFolderInActivePane,
     splitRatio,
     singlePane,
     clipboard,
@@ -1907,6 +2004,7 @@ export const usePaneStore = defineStore('pane', () => {
     refreshRemoteTabs,
     runFs,
     createFolders,
+    createFolderAndMove,
     copyToOtherPane,
     moveToOtherPane,
     showInOtherPane,

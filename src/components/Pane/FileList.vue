@@ -16,7 +16,7 @@ import { recordOpenedFileDirectory } from '../Sidebar/shared'
 
 /** 由顶部标题栏发起的一次「新建」请求（FileList 处理后回发 create-handled）。 */
 interface CreateRequest {
-  kind: 'mkdir' | 'createFile'
+  kind: 'mkdir' | 'createFile' | 'mkdirMove'
   seq: number
   tabId: string
 }
@@ -25,6 +25,7 @@ const props = defineProps<{ paneId: string; tab: TabState; createRequest?: Creat
 const emit = defineEmits<{
   (e: 'delete', paths: string[], permanent?: boolean): void
   (e: 'create-handled'): void
+  (e: 'error', message: string | null): void
 }>()
 
 const paneStore = usePaneStore()
@@ -519,7 +520,7 @@ async function onDblClick(entry: FileEntry) {
 // ---- 行内编辑（重命名 / 新建文件夹 / 新建文件） ----
 
 interface Editing {
-  mode: 'rename' | 'mkdir' | 'createFile'
+  mode: 'rename' | 'mkdir' | 'mkdirMove' | 'createFile'
   /** rename 时的原路径 */
   path?: string
   /** 输入框当前文本 */
@@ -626,26 +627,39 @@ function cancelEdit() {
 }
 
 /** 进入「新建」行内编辑（文件夹 / 空文件），在当前目录创建 */
-function startCreate(kind: 'mkdir' | 'createFile') {
+function startCreate(kind: 'mkdir' | 'mkdirMove' | 'createFile') {
   if (!isLocal.value) return // 搜索结果 / 远程标签无本地目录语义
+  emit('error', null)
   editSeq += 1
   editing.value = { mode: kind, name: '', selStart: 0, selEnd: 0 }
   if (kind === 'mkdir') {
     ui.setStatusText('新建文件夹：每行一个名称，Shift+Enter 换行，Enter 创建，Esc 取消')
+  } else if (kind === 'mkdirMove') {
+    const count = props.tab.selected.length
+    ui.setStatusText(`移动到新建文件夹：输入名称，Enter 创建并移动 ${count} 项，Esc 取消`)
   }
   focusEdit()
 }
 
 /** 正在行内新建（文件夹 / 文件）时，即使目录为空也要渲染列表分支以显示输入行 */
 const editingCreate = computed(
-  () => editing.value?.mode === 'mkdir' || editing.value?.mode === 'createFile',
+  () =>
+    editing.value?.mode === 'mkdir' ||
+    editing.value?.mode === 'mkdirMove' ||
+    editing.value?.mode === 'createFile',
+)
+
+/** 行内新建的是文件夹（普通新建 / 新建并移动）。 */
+const editingFolder = computed(
+  () => editing.value?.mode === 'mkdir' || editing.value?.mode === 'mkdirMove',
 )
 
 async function commitEdit(reopenFailed = false) {
   const e = editing.value
   if (!e) return
   // 新建类要落到「当前目录」，搜索结果没有目录语义；重命名作用于条目自身路径，本地标签都可用。
-  const creating = e.mode === 'mkdir' || e.mode === 'createFile'
+  const creating =
+    e.mode === 'mkdir' || e.mode === 'mkdirMove' || e.mode === 'createFile'
   if (isRemote.value || (creating && !isLocal.value)) {
     editing.value = null
     return
@@ -662,6 +676,17 @@ async function commitEdit(reopenFailed = false) {
   if (e.mode === 'mkdir') {
     if (!names.length) return
     const result = await paneStore.createFolders(props.paneId, names)
+    if (result.failures.length) {
+      const details = result.failures.map((item) => `${item.name}（${item.reason}）`).join('；')
+      emit(
+        'error',
+        result.failures.length === 1
+          ? `无法创建文件夹：${details}`
+          : `有 ${result.failures.length} 个文件夹创建失败：${details}`,
+      )
+    } else {
+      emit('error', null)
+    }
     if (reopenFailed && result.failures.length && editSeq === seq && !editing.value) {
       // 回车提交失败时保留失败项，便于修正后直接重试（原因已由 store 汇总到状态栏）。
       const failedNames = result.failures.map((item) => item.name).filter(Boolean)
@@ -673,17 +698,50 @@ async function commitEdit(reopenFailed = false) {
     }
     return
   }
+  if (e.mode === 'mkdirMove') {
+    if (!name) return
+    const result = await paneStore.createFolderAndMove(props.paneId, name)
+    if (!result.ok) {
+      const reason = result.reason || '未知原因'
+      emit(
+        'error',
+        result.created
+          ? `文件夹「${name}」已创建，但所选条目移动失败：${reason}`
+          : `无法创建文件夹「${name}」：${reason}`,
+      )
+    } else {
+      emit('error', null)
+    }
+    // 文件夹尚未创建（名称非法 / 已存在 / 取消提权）时保留输入，便于直接改名重试。
+    if (!result.created && result.reason && reopenFailed && editSeq === seq && !editing.value) {
+      editing.value = {
+        mode: 'mkdirMove',
+        name,
+        selStart: 0,
+        selEnd: name.length,
+      }
+      focusEdit()
+    }
+    return
+  }
   if (!name) return
   if (creating) {
-    await paneStore.runFs(props.paneId, { op: e.mode, target: joinPath(props.tab.path, name) })
+    const result = await paneStore.runFs(props.paneId, {
+      op: e.mode,
+      target: joinPath(props.tab.path, name),
+    })
+    if (!result.ok) emit('error', result.errors.join('；') || '新建文件失败')
+    else emit('error', null)
     return
   }
   if (!e.path || name === basename(e.path)) return // 名称未变则取消
-  await paneStore.runFs(props.paneId, {
+  const result = await paneStore.runFs(props.paneId, {
     op: 'rename',
     sources: [e.path],
     target: joinPath(dirname(e.path), name),
   })
+  if (!result.ok) emit('error', result.errors.join('；') || '重命名失败')
+  else emit('error', null)
 }
 
 function openCtx(ev: MouseEvent, entry: FileEntry) {
@@ -1231,7 +1289,7 @@ function onDrop(ev: DragEvent) {
         <span class="name-cell">
           <span class="twisty placeholder" />
           <span class="ico">
-            <FileIcon v-if="editing.mode === 'mkdir'" :path="tab.path" :is-dir="true" :ext="null" :size="18" />
+            <FileIcon v-if="editingFolder" :path="tab.path" :is-dir="true" :ext="null" :size="18" />
             <Icon v-else name="file" :size="18" />
           </span>
           <span class="nm">
@@ -1252,6 +1310,7 @@ function onDrop(ev: DragEvent) {
               v-model="editing.name"
               class="inline-edit"
               spellcheck="false"
+              :placeholder="editing.mode === 'mkdirMove' ? '新文件夹名称' : undefined"
               @keydown="onInlineKeydown"
               @blur="commitEdit()"
               @click.stop
@@ -1331,9 +1390,9 @@ function onDrop(ev: DragEvent) {
 
     <!-- 图标视图（限制渲染数量） -->
     <div v-else class="icons-scroll" @click.self="onBlankClick">
-      <div v-if="editingCreate && editing" class="icon-cell" :class="{ dir: editing.mode === 'mkdir' }">
-        <span class="icon-big" :class="editing.mode === 'mkdir' ? 'k-folder' : 'k-file'">
-          <FileIcon v-if="editing.mode === 'mkdir'" :path="tab.path" :is-dir="true" :ext="null" :size="38" />
+      <div v-if="editingCreate && editing" class="icon-cell" :class="{ dir: editingFolder }">
+        <span class="icon-big" :class="editingFolder ? 'k-folder' : 'k-file'">
+          <FileIcon v-if="editingFolder" :path="tab.path" :is-dir="true" :ext="null" :size="38" />
           <Icon v-else name="file" :size="38" />
         </span>
         <span class="icon-name">
@@ -1354,6 +1413,7 @@ function onDrop(ev: DragEvent) {
             v-model="editing.name"
             class="inline-edit"
             spellcheck="false"
+            :placeholder="editing.mode === 'mkdirMove' ? '新文件夹名称' : undefined"
             @keydown="onInlineKeydown"
             @blur="commitEdit()"
             @click.stop

@@ -777,6 +777,26 @@ mod tests {
     }
 
     #[test]
+    fn move_files_into_newly_created_folder() {
+        let dir = temp_dir("move-new-folder");
+        let source = dir.join("a.txt");
+        fs::write(&source, b"a").unwrap();
+        let target = dir.join("archive");
+        assert!(execute(&op(FsOpKind::Mkdir, &target)).ok);
+
+        let res = execute(&FsOp {
+            op: FsOpKind::Move,
+            sources: vec![source.to_string_lossy().to_string()],
+            target: Some(target.to_string_lossy().to_string()),
+            permanent: false,
+        });
+        assert!(res.ok, "{:?}", res.errors);
+        assert!(!source.exists());
+        assert!(target.join("a.txt").is_file());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn only_access_denied_counts_as_elevatable() {
         // 只有 ERROR_ACCESS_DENIED(5) 值得提权重试。
         assert!(is_access_denied(&std::io::Error::from_raw_os_error(5)));

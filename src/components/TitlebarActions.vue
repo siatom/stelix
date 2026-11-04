@@ -19,6 +19,9 @@ const modes: { key: ViewMode; icon: IconName; title: string }[] = [
 ]
 
 const viewMode = computed(() => paneStore.activePane?.viewMode ?? 'details')
+/** 当前活动窗格已选中的条目数（「移动到新建文件夹」按钮的提示与可用态）。 */
+const selectedCount = computed(() => paneStore.activeTab?.selected.length ?? 0)
+const moveCountHint = computed(() => (selectedCount.value ? `（${selectedCount.value} 项）` : ''))
 const canOpenTerminal = computed(() => {
   const tab = paneStore.activeTab
   return !!tab && (!tab.kind || tab.kind === 'files')
@@ -52,6 +55,15 @@ async function openTerminalHere() {
         @click="paneStore.requestAction('mkdir')"
       >
         <Icon name="folder-plus" :size="15" />
+      </button>
+      <button
+        type="button"
+        :title="`移动到新建文件夹${moveCountHint}${scopeHint}`"
+        :aria-label="`移动到新建文件夹${scopeHint}`"
+        :disabled="!paneStore.canMoveToNewFolderInActivePane"
+        @click="paneStore.requestAction('mkdirMove')"
+      >
+        <Icon name="folder-input" :size="15" />
       </button>
       <button
         type="button"

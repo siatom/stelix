@@ -78,7 +78,7 @@ function activate() {
 // 标题栏（App.vue）把操作写进 store 的 pendingAction（目标是活动窗格），
 // 对应窗格在这里消费：新建转成一次 createRequest 交给 FileList 行内编辑，删除直接开确认框。
 // Pane 与 FileList 是父子组件，用一次性请求对象中转；FileList 处理完回发 create-handled。
-const createRequest = ref<{ kind: 'mkdir' | 'createFile'; seq: number; tabId: string } | null>(null)
+const createRequest = ref<{ kind: 'mkdir' | 'createFile' | 'mkdirMove'; seq: number; tabId: string } | null>(null)
 let createSeq = 0
 
 watch(
@@ -110,6 +110,32 @@ const permanentDelete = ref(false)
 const errorMsg = ref<string | null>(null)
 const busy = ref(false)
 
+/** 文件列表里的行内新建 / 重命名失败：在窗格顶部显示可关闭的错误提示。 */
+let errorTimer: ReturnType<typeof setTimeout> | null = null
+
+function clearErrorTimer() {
+  if (errorTimer !== null) {
+    clearTimeout(errorTimer)
+    errorTimer = null
+  }
+}
+
+function showError(message: string | null) {
+  clearErrorTimer()
+  errorMsg.value = message
+  if (!message) return
+  // 提示 3 秒后自动消失；期间再次报错会重新计时。
+  errorTimer = setTimeout(() => {
+    errorMsg.value = null
+    errorTimer = null
+  }, 3000)
+}
+
+function dismissError() {
+  clearErrorTimer()
+  errorMsg.value = null
+}
+
 function handleDeleteDialogKeydown(event: KeyboardEvent) {
   if (isCapturingShortcut()) return // 设置里正在捕获新键位
   if (!deleteDialog.value || event.key !== 'Enter' || event.isComposing) return
@@ -119,10 +145,13 @@ function handleDeleteDialogKeydown(event: KeyboardEvent) {
 }
 
 onMounted(() => window.addEventListener('keydown', handleDeleteDialogKeydown, true))
-onBeforeUnmount(() => window.removeEventListener('keydown', handleDeleteDialogKeydown, true))
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', handleDeleteDialogKeydown, true)
+  clearErrorTimer()
+})
 
 function openDelete(paths: string[], permanent = false) {
-  errorMsg.value = null
+  dismissError()
   permanentDelete.value = permanent
   deleteDialog.value = [...paths]
 }
@@ -223,6 +252,7 @@ async function confirmDelete() {
         :create-request="createRequest"
         @delete="openDelete"
         @create-handled="onCreateHandled"
+        @error="showError"
       />
       <TrashView v-else-if="tab.kind === 'trash'" ref="trashView" :pane-id="paneId" :tab="tab" />
       <TerminalView
@@ -243,9 +273,12 @@ async function confirmDelete() {
       :trash-selected-count="tab?.kind === 'trash' ? trashView?.selectedCount ?? 0 : undefined"
     />
 
-    <div v-if="errorMsg" class="error-bar">
+    <div v-if="errorMsg" class="error-bar" role="alert">
+      <Icon name="alert-triangle" :size="14" />
       <span>{{ errorMsg }}</span>
-      <button @click="errorMsg = null"><Icon name="x" :size="13" /></button>
+      <button type="button" aria-label="关闭提示" title="关闭提示" @click="dismissError">
+        <Icon name="x" :size="13" />
+      </button>
     </div>
 
     <!-- 删除确认 -->
@@ -441,9 +474,10 @@ async function confirmDelete() {
 
 .error-bar {
   position: absolute;
+  top: calc(var(--pane-bar-h) + 8px);
   left: 8px;
   right: 8px;
-  bottom: 8px;
+  z-index: 30;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -451,14 +485,31 @@ async function confirmDelete() {
   background: var(--danger-soft);
   border: 1px solid var(--danger);
   border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
   font-size: 1rem;
   color: var(--fg);
+  animation: error-bar-in 160ms ease-out;
+}
+@keyframes error-bar-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.error-bar > .icon {
+  flex: none;
+  color: var(--danger);
 }
 .error-bar span {
   flex: 1;
   word-break: break-word;
 }
 .error-bar button {
+  flex: none;
   color: var(--fg-muted);
 }
 

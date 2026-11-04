@@ -82,6 +82,17 @@ function buildCommands(locations: QuickLocation[]) {
     { id: 'toggle-ai', label: '打开 AI 助手面板', run: () => ui.setPanel('ai') },
     { id: 'toggle-sidebar', label: '切换侧边栏', run: () => ui.toggleSidebar() },
     {
+      id: 'mkdir-move',
+      label: '新建文件夹并移动所选',
+      run: () => {
+        if (!pane.canMoveToNewFolderInActivePane) {
+          ui.setStatusText('请先在本地目录中选择要移动的条目')
+          return
+        }
+        pane.requestAction('mkdirMove')
+      },
+    },
+    {
       id: 'focus-search',
       label: '打开搜索面板',
       hint: combos.value.search?.key ? formatCombo(combos.value.search) : undefined,
