@@ -52,6 +52,9 @@ const BLOCKED_COMBOS: ReadonlyArray<{ ctrl?: boolean; shift?: boolean; alt?: boo
   { ctrl: true, shift: true, key: 'n' },
   { ctrl: true, shift: true, key: 'w' },
   { ctrl: true, shift: true, key: 't' },
+  // 窗格动作（Ctrl+Shift+O / S）：同时屏蔽浏览器的书签管理器与「网页另存为」。
+  { ctrl: true, shift: true, key: 'o' },
+  { ctrl: true, shift: true, key: 's' },
   // 新建隐身窗口（部分环境会触发）
   { ctrl: true, shift: true, key: 'p' },
 ]

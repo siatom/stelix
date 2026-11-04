@@ -59,6 +59,8 @@ export const SHORTCUT_DEFS: readonly ShortcutDef[] = [
   { id: 'delete', label: '删除（移到回收站）', group: 'files', default: { key: 'delete' } },
   { id: 'delete-permanent', label: '永久删除（跳过回收站）', group: 'files', default: { shift: true, key: 'delete' } },
   { id: 'close-window', label: '关闭窗口', group: 'window', default: { alt: true, key: 'f4' } },
+  { id: 'open-in-other-pane', label: '在另一栏打开当前文件夹', group: 'window', default: { ctrl: true, shift: true, key: 'o' } },
+  { id: 'swap-panes', label: '交换左右栏', group: 'window', default: { ctrl: true, shift: true, key: 's' } },
   { id: 'search', label: '打开搜索面板', group: 'global', default: { ctrl: true, key: 'f' } },
   { id: 'command-palette', label: '打开命令面板', group: 'global', default: { ctrl: true, key: 'k' } },
 ]

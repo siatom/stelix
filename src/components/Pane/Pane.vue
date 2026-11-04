@@ -2,7 +2,8 @@
 // 单个窗格 = 标签栏 + 内嵌工具栏 + 面包屑 + 文件列表（虚拟滚动）（WS-D）
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { usePaneStore } from '../../stores/pane'
-import { isCapturingShortcut } from '../../stores/shortcuts'
+import { useUiStore } from '../../stores/ui'
+import { isCapturingShortcut, match } from '../../stores/shortcuts'
 import { basename, RECYCLE_BIN_SHELL_PATH } from './utils'
 import TabBar from './TabBar.vue'
 import PaneToolbar from './PaneToolbar.vue'
@@ -20,6 +21,7 @@ import type { TerminalSession } from '../../stores/terminal'
 const props = defineProps<{ paneId: string; dropActive?: boolean }>()
 
 const paneStore = usePaneStore()
+const ui = useUiStore()
 const terminalStore = useTerminalStore()
 /** 回收站标签的内容与操作由子组件维护，标题栏按钮通过它读取选中态并触发操作。 */
 const trashView = ref<InstanceType<typeof TrashView> | null>(null)
@@ -144,9 +146,41 @@ function handleDeleteDialogKeydown(event: KeyboardEvent) {
   if (!busy.value) void confirmDelete()
 }
 
-onMounted(() => window.addEventListener('keydown', handleDeleteDialogKeydown, true))
+function isEditableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false
+  if (target.isContentEditable) return true
+  const tag = target.tagName
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT'
+}
+
+/** 窗格级快捷键：在另一栏打开当前文件夹 / 交换左右栏（只由活动窗格响应一次）。 */
+function onPaneShortcut(event: KeyboardEvent) {
+  if (isCapturingShortcut()) return
+  if (!isActivePane.value) return
+  if (isEditableTarget(event.target)) return
+  if (ui.settingsOpen || ui.feedbackOpen || document.querySelector('.mask')) return
+
+  const id = match(event)
+  if (id === 'open-in-other-pane') {
+    const current = tab.value
+    if (!current || current.kind === 'trash') return
+    event.preventDefault()
+    void paneStore.showInOtherPane(props.paneId)
+    return
+  }
+  if (id === 'swap-panes') {
+    event.preventDefault()
+    paneStore.swapPanes()
+  }
+}
+
+onMounted(() => {
+  window.addEventListener('keydown', handleDeleteDialogKeydown, true)
+  window.addEventListener('keydown', onPaneShortcut)
+})
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleDeleteDialogKeydown, true)
+  window.removeEventListener('keydown', onPaneShortcut)
   clearErrorTimer()
 })
 

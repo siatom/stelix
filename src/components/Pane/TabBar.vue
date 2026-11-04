@@ -2,6 +2,7 @@
 // 标签栏（窗格标题栏）：标签切换/关闭 + 新建；右侧双栏动作按钮；活动窗格用底色区分焦点（WS-D）
 import { computed } from 'vue'
 import { usePaneStore } from '../../stores/pane'
+import { combos, formatCombo } from '../../stores/shortcuts'
 import { basename, RECYCLE_BIN_SHELL_PATH } from './utils'
 import Icon from '../icons/Icon.vue'
 import FileIcon from '../icons/FileIcon.vue'
@@ -14,6 +15,17 @@ const isActive = computed(() => paneStore.activePaneId === props.paneId)
 function label(tab: { path: string; title?: string }): string {
   return tab.title || basename(tab.path) || tab.path
 }
+
+/** 动作按钮的提示文案：按窗格方向区分「另一栏」，并附带当前快捷键。 */
+function actionTitle(id: string, text: string): string {
+  const combo = combos.value[id]
+  return combo?.key ? `${text}（${formatCombo(combo)}）` : text
+}
+
+const openInOtherPaneTitle = computed(() =>
+  actionTitle('open-in-other-pane', `在${props.paneId === 'left' ? '右' : '左'}侧栏打开当前文件夹`),
+)
+const swapPanesTitle = computed(() => actionTitle('swap-panes', '交换左右栏'))
 
 function onMiddle(ev: MouseEvent, tabId: string) {
   if (ev.button === 1) {
@@ -68,12 +80,12 @@ function onContext(ev: MouseEvent, tabId: string) {
     </div>
 
     <div class="pane-actions">
-      <button title="在另一栏打开当前文件夹" @click="paneStore.showInOtherPane(paneId)">
+      <button :title="openInOtherPaneTitle" :aria-label="openInOtherPaneTitle" @click="paneStore.showInOtherPane(paneId)">
         <span class="directional-icon" :class="{ reversed: paneId === 'right' }">
           <Icon name="pane-open-other" :size="15" />
         </span>
       </button>
-      <button title="交换左右栏" @click="paneStore.swapPanes()">
+      <button :title="swapPanesTitle" :aria-label="swapPanesTitle" @click="paneStore.swapPanes()">
         <span class="directional-icon" :class="{ reversed: paneId === 'right' }">
           <Icon name="pane-swap" :size="15" />
         </span>
