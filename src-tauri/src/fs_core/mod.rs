@@ -332,10 +332,10 @@ fn windows_roots() -> Vec<DriveInfo> {
             ejectable: unsafe {
                 windows_sys::Win32::Storage::FileSystem::GetDriveTypeW(
                     format!("{letter}:\\\\").encode_utf16().chain(std::iter::once(0)).collect::<Vec<_>>().as_ptr(),
-                ) == windows_sys::Win32::Storage::FileSystem::DRIVE_REMOVABLE
+                ) == windows_sys::Win32::System::WindowsProgramming::DRIVE_REMOVABLE
                     || windows_sys::Win32::Storage::FileSystem::GetDriveTypeW(
                         format!("{letter}:\\\\").encode_utf16().chain(std::iter::once(0)).collect::<Vec<_>>().as_ptr(),
-                    ) == windows_sys::Win32::Storage::FileSystem::DRIVE_CDROM
+                    ) == windows_sys::Win32::System::WindowsProgramming::DRIVE_CDROM
             },
         });
     }
