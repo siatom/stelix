@@ -17,6 +17,7 @@ import SettingsDialog from './components/SettingsDialog.vue'
 import FeedbackDialog from './components/FeedbackDialog.vue'
 import ConflictDialog from './components/ConflictDialog.vue'
 import SyncDialog from './components/Pane/SyncDialog.vue'
+import PreviewOverlay from './components/PreviewOverlay.vue'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { LogicalSize, PhysicalPosition, PhysicalSize } from '@tauri-apps/api/dpi'
@@ -434,6 +435,7 @@ onBeforeUnmount(() => {
       @resolve="paneStore.resolveConflict"
     />
     <SyncDialog v-if="ui.syncOpen" />
+    <PreviewOverlay />
   </div>
 </template>
 

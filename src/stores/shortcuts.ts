@@ -60,6 +60,7 @@ export const SHORTCUT_DEFS: readonly ShortcutDef[] = [
   { id: 'rename', label: '重命名', group: 'files', default: { key: 'f2' } },
   { id: 'delete', label: '删除（移到回收站）', group: 'files', default: { key: 'delete' } },
   { id: 'delete-permanent', label: '永久删除（跳过回收站）', group: 'files', default: { shift: true, key: 'delete' } },
+  { id: 'preview', label: '预览文件', group: 'files', default: { key: ' ' } },
   { id: 'close-window', label: '关闭窗口', group: 'window', default: { alt: true, key: 'f4' } },
   { id: 'open-in-other-pane', label: '在另一栏打开当前文件夹', group: 'window', default: { ctrl: true, shift: true, key: 'o' } },
   { id: 'swap-panes', label: '交换左右栏', group: 'window', default: { ctrl: true, shift: true, key: 's' } },
@@ -70,10 +71,12 @@ export const SHORTCUT_DEFS: readonly ShortcutDef[] = [
 /** 修饰键自身（按下时尚未构成组合键）。 */
 const MODIFIER_KEYS = new Set(['control', 'shift', 'alt', 'meta', 'os'])
 
-/** 允许「不带 Ctrl / Alt」单独绑定的按键（功能键与编辑键）。 */
+/** 允许「不带 Ctrl / Alt」单独绑定的按键（功能键、编辑键与空格）。 */
 const BARE_KEYS = new Set([
   'f1', 'f2', 'f3', 'f4', 'f5', 'f6', 'f7', 'f8', 'f9', 'f10', 'f11', 'f12',
   'delete', 'insert', 'home', 'end', 'pageup', 'pagedown',
+  // 空格：预览默认键位（Finder 的 Quick Look 习惯），输入框内不触发。
+  ' ',
 ])
 
 const KEY_LABELS: Record<string, string> = {
@@ -214,7 +217,7 @@ export function assignCombo(id: string, raw: KeyCombo): AssignResult {
     return { ok: true }
   }
   if (!combo.ctrl && !combo.alt && !BARE_KEYS.has(combo.key)) {
-    return { ok: false, reason: 'invalid', message: '请使用 Ctrl / Alt 组合键，或 F1–F12、Delete 等功能键' }
+    return { ok: false, reason: 'invalid', message: '请使用 Ctrl / Alt 组合键，或 F1–F12、Delete、空格等功能键' }
   }
 
   const conflict = SHORTCUT_DEFS.find((other) => {

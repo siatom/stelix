@@ -3,6 +3,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { api } from '../api'
 import { usePaneStore } from '../stores/pane'
+import { usePreviewStore } from '../stores/preview'
 import { useUiStore } from '../stores/ui'
 import { formatCombo, match, combos, isCapturingShortcut } from '../stores/shortcuts'
 import { resolveSystemLocations } from './Sidebar/shared'
@@ -17,6 +18,7 @@ interface Command {
 }
 
 const pane = usePaneStore()
+const preview = usePreviewStore()
 const ui = useUiStore()
 
 const open = ref(false)
@@ -97,12 +99,30 @@ function buildCommands(locations: QuickLocation[]) {
       },
     },
     {
+      id: 'preview',
+      label: '预览所选文件',
+      hint: formatCombo(combos.value.preview),
+      run: () => {
+        const tab = pane.activeTab
+        if (!tab) return
+        if (tab.selected.length !== 1) {
+          ui.setStatusText('请先选择一个文件再预览')
+          return
+        }
+        const entry = tab.entries.find((item) => item.path === tab.selected[0])
+        if (!entry || entry.isDir) {
+          ui.setStatusText('文件夹不支持预览')
+          return
+        }
+        preview.show(tab.entries, entry.path, { remote: tab.kind === 'remote' })
+      },
+    },
+    {
       id: 'batch-rename',
       label: '批量重命名…',
       hint: `多选后 ${formatCombo(combos.value.rename)}`,
       run: () => window.dispatchEvent(new CustomEvent('stelix:batch-rename')),
-    },
-    {
+    },    {
       id: 'copy-name',
       label: '复制所选文件名',
       hint: '每行一项',

@@ -6,6 +6,7 @@ import { openPath } from '@tauri-apps/plugin-opener'
 import { startDrag } from '@crabnebula/tauri-plugin-drag'
 import type { FileEntry, FsOp, RemoteLocation, RemoteTransferItem, TabState } from '../../types'
 import { usePaneStore } from '../../stores/pane'
+import { usePreviewStore } from '../../stores/preview'
 import { useUiStore, type DetailColumnKey } from '../../stores/ui'
 import { match, isCapturingShortcut } from '../../stores/shortcuts'
 import { api } from '../../api'
@@ -31,6 +32,7 @@ const emit = defineEmits<{
 }>()
 
 const paneStore = usePaneStore()
+const previewStore = usePreviewStore()
 const ui = useUiStore()
 
 const ICON_CAP = 600
@@ -1105,6 +1107,36 @@ function onBlankContextMenu(ev: MouseEvent) {
   void showNativeCtx(ev, currentDirEntry())
 }
 
+/** 预览所选文件（右键菜单入口）：始终打开，不切换。 */
+function openPreview(entry: FileEntry) {
+  if (entry.isDir) return
+  previewStore.show(
+    navItems().map((item) => item.entry),
+    entry.path,
+    { remote: isRemote.value },
+  )
+}
+
+/** 空格：打开 / 关闭预览。返回是否已处理。 */
+function togglePreview(): boolean {
+  if (previewStore.open) {
+    previewStore.close()
+    return true
+  }
+  if (props.tab.selected.length !== 1) return false
+  const path = props.tab.selected[0]
+  const entry =
+    navItems().find((item) => item.path === path)?.entry ??
+    props.tab.entries.find((item) => item.path === path)
+  if (!entry || entry.isDir) return false
+  previewStore.show(
+    navItems().map((item) => item.entry),
+    entry.path,
+    { remote: isRemote.value },
+  )
+  return true
+}
+
 /**
  * 系统菜单末尾追加的应用扩展项（顺序固定）。
  * 回收站标签不追加任何应用项；远程标签不会走到这里。
@@ -1115,6 +1147,10 @@ function contextMenuItems(): { id: string; label: string }[] {
   const items: { id: string; label: string }[] = [
     { id: 'undo', label: paneStore.canUndo ? `撤销${paneStore.undoLabel}` : '撤销上一步' },
   ]
+  // 单选文件时把「预览」放在最前：这是最常用的一项。
+  const single =
+    selected === 1 ? props.tab.entries.find((entry) => entry.path === props.tab.selected[0]) : undefined
+  if (single && !single.isDir) items.unshift({ id: 'preview', label: '预览' })
   // 重做只在撤销栈里确实有可重做项时出现（系统菜单不支持禁用项）。
   if (paneStore.canRedo) items.push({ id: 'redo', label: `重做${paneStore.redoLabel}` })
   if (selected) {
@@ -1147,6 +1183,9 @@ function copySelectedText(kind: 'name' | 'path') {
 /** 分发系统菜单里被选中的应用扩展项（目标一律取当前选中集，而非可能已过期的 entry）。 */
 function handleCtxAction(id: string, entry: FileEntry) {
   switch (id) {
+    case 'preview':
+      openPreview(entry)
+      return
     case 'copy-name':
       copySelectedText('name')
       return
@@ -1255,6 +1294,10 @@ function onGlobalKey(ev: KeyboardEvent) {
   }
 
   switch (id) {
+    case 'preview': {
+      if (togglePreview()) ev.preventDefault()
+      return
+    }
     case 'copy':
     case 'cut': {
       const sel = props.tab.selected

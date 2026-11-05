@@ -15,7 +15,8 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 # tray-icon：系统托盘支持（托盘图标 + 右键菜单），用于「关闭窗口最小化到托盘」
-tauri = { version = "2", features = ["tray-icon"] }
+# protocol-asset：预览弹窗直接以流式方式加载图片 / PDF（tauri.conf.json 的 assetProtocol）
+tauri = { version = "2", features = ["tray-icon", "protocol-asset"] }
 tauri-plugin-opener = "2"
 # dialog：远程传输时选择本地上传文件 / 下载目标目录（官方插件）
 tauri-plugin-dialog = "2"
@@ -46,6 +47,8 @@ chrono = { version = "0.4", features = ["serde"] }
 dirs = "6"
 uuid = { version = "1", features = ["v4", "serde"] }
 keyring = { version = "3.6.3", default-features = false, features = ["windows-native"] }
+# 文本预览：GBK / UTF-8 等编码解码（reqwest 已传递依赖同一版本）
+encoding_rs = "0.8"
 
 # SSH 终端：纯 Rust 客户端（ring 加密后端，避免额外 C/OpenSSL 依赖）
 russh = { version = "0.65", default-features = false, features = ["ring", "rsa"] }

@@ -20,6 +20,7 @@ mod fs_core;
 mod index_engine;
 mod network;
 mod persistence;
+mod preview;
 mod recycle_bin;
 mod schedule;
 mod search_engine;
@@ -463,6 +464,17 @@ async fn get_file_icon(
     })
     .await
     .map_err(|error| format!("图标提取任务失败: {error}"))
+}
+
+/// 读取文本类文件的预览内容（带上限与二进制识别），供预览弹窗使用。
+#[tauri::command]
+async fn read_text_preview(
+    path: String,
+    max_bytes: Option<u64>,
+) -> Result<preview::TextPreview, String> {
+    tauri::async_runtime::spawn_blocking(move || preview::read_text_preview(&path, max_bytes))
+        .await
+        .map_err(|error| format!("预览读取任务失败: {error}"))?
 }
 
 #[tauri::command]
@@ -1167,6 +1179,7 @@ pub fn run() {
             trash_purge,
             trash_empty,
             get_file_icon,
+            read_text_preview,
             set_file_clipboard,
             get_file_clipboard,
             path_is_file,

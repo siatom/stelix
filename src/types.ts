@@ -26,6 +26,17 @@ export interface DirFilterResult {
   truncated: boolean
 }
 
+/** 文本类文件预览（`read_text_preview` 返回值）。 */
+export interface TextPreview {
+  text: string
+  /** 文件大于读取上限，`text` 只是开头部分。 */
+  truncated: boolean
+  size: number
+  /** 内容不是文本（含 NUL 或大量控制字符）；为真时 `text` 为空。 */
+  binary: boolean
+  encoding: string
+}
+
 /**
  * 文件窗格的高级筛选规则。
  *

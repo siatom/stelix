@@ -41,6 +41,7 @@ import type {
   TaskAction,
   TaskPlanReply,
   TaskPreview,
+  TextPreview,
   ToolOutcome,
   TrashEntry,
   TrashOpResult,
@@ -153,6 +154,9 @@ export const api = {
     trashState = false,
   ) => invoke<string | null>('get_file_icon', { path, isDir, usePathIcon, emptyTrash, trashState }),
   pathIsFile: (path: string) => invoke<boolean>('path_is_file', { path }),
+  /** 读取文本类文件预览内容（带大小上限与二进制识别）。 */
+  readTextPreview: (path: string, maxBytes?: number) =>
+    invoke<TextPreview>('read_text_preview', { path, maxBytes }),
   /** 展开地址栏输入中的 Windows 环境变量（`%APPDATA%`）与 `~` 主目录。 */
   expandPath: (path: string) => invoke<string>('expand_path', { path }),
   openInTerminal: (path: string) => invoke<void>('open_in_terminal', { path }),
