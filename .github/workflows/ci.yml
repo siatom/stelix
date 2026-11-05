@@ -37,8 +37,16 @@ jobs:
         run: pnpm build
 
   rust:
-    name: Rust (Windows)
-    runs-on: windows-latest
+    name: Rust (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            name: Windows
+          - os: macos-15
+            name: macOS (Apple Silicon)
     steps:
       - uses: actions/checkout@v7
 

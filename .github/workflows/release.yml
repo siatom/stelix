@@ -17,8 +17,23 @@ env:
 
 jobs:
   release:
-    name: Build & publish (Windows)
-    runs-on: windows-latest
+    name: Build & publish (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    # All builds update the same draft release; serialize them to avoid release asset races.
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        include:
+          - name: Windows x64
+            os: windows-latest
+            args: --bundles nsis
+          - name: macOS Apple Silicon
+            os: macos-15
+            args: --target aarch64-apple-darwin --bundles dmg
+          - name: macOS Intel
+            os: macos-15-intel
+            args: --target x86_64-apple-darwin --bundles dmg
     steps:
       - uses: actions/checkout@v7
         with:
@@ -47,15 +62,15 @@ jobs:
 
       - name: Detect prerelease
         id: meta
-        shell: pwsh
+        shell: bash
         env:
           TAG: ${{ github.ref_name }}
         run: |
-          if ($env:TAG -like '*-*') {
-            "prerelease=true" >> $env:GITHUB_OUTPUT
-          } else {
-            "prerelease=false" >> $env:GITHUB_OUTPUT
-          }
+          if [[ "$TAG" == *-* ]]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Build and publish
         uses: tauri-apps/tauri-action@v0
@@ -65,13 +80,14 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: 'Stelix ${{ github.ref_name }}'
           releaseBody: |
-            Windows x64 安装包（NSIS）。
+            Windows x64 安装包（NSIS）和 macOS Apple Silicon / Intel 安装映像（DMG）。
 
-            - 安装包尚未做代码签名，首次运行时 SmartScreen 可能提示“未知发布者”，选择“仍要运行”即可。
+            - Windows 安装包未做代码签名，首次运行时 SmartScreen 可能提示“未知发布者”。
+            - macOS 安装包未做代码签名或公证，首次打开时可能需要在“隐私与安全性”中允许运行。
             - 发布页由 CI 以草稿形式创建，确认产物无误后再点击发布。
 
             提交记录：https://github.com/${{ github.repository }}/commits/${{ github.ref_name }}
           releaseDraft: true
           prerelease: ${{ steps.meta.outputs.prerelease }}
           tauriScript: pnpm tauri
-          args: --bundles nsis
+          args: ${{ matrix.args }}

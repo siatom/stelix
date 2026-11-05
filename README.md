@@ -7,6 +7,8 @@
 
 基于 Tauri 2、Vue 3 和 TypeScript 构建的桌面文件管理器。
 
+支持 **Windows** 与 **macOS** 桌面平台。两端共享主要文件管理功能；Everything 搜索、UAC 提权、Shell 图标和 WSL 等 Windows 专属功能在 macOS 上会自动禁用或使用原生替代实现。
+
 ## 开发环境
 
 - Node.js
@@ -47,8 +49,8 @@ pnpm tauri build
 
 GitHub Actions 工作流位于 `.github/workflows/`：
 
-- `ci.yml`：推送到 `main`、提交 PR 或手动触发时运行。`frontend` 任务在 Ubuntu 上执行 `pnpm build`（`vue-tsc` 类型检查 + Vite 构建）；`rust` 任务在 Windows 上执行 `cargo clippy --all-targets` 和 `cargo test`，并缓存前端与 Cargo 依赖（clippy 暂不阻断：现有代码仍有少量 warning，清理完再加 `-- -D warnings`）。
-- `release.yml`：推送 `v*` 形式的 tag 时触发，在 Windows 上构建 NSIS 安装包并创建 GitHub Release 草稿。
+- `ci.yml`：推送到 `main`、提交 PR 或手动触发时运行。`frontend` 任务在 Ubuntu 上执行 `pnpm build`（`vue-tsc` 类型检查 + Vite 构建）；`rust` 任务在 Windows 和 macOS Apple Silicon 上执行 `cargo clippy --all-targets` 和 `cargo test`，并缓存前端与 Cargo 依赖（clippy 暂不阻断：现有代码仍有少量 warning，清理完再加 `-- -D warnings`）。
+- `release.yml`：推送 `v*` 形式的 tag 时触发，依次构建 Windows x64 NSIS 安装包、macOS Apple Silicon DMG 和 macOS Intel DMG，并创建 GitHub Release 草稿。
 
 发布新版本：
 
@@ -59,7 +61,7 @@ git push origin v0.2.0   # origin 同时推送到 GitHub 与 gitee
 
 版本号以 tag 为准：工作流用 `scripts/sync-version.mjs` 把 `v0.2.0` 写入 `package.json`、`src-tauri/tauri.conf.json`、`Cargo.toml` 和 `Cargo.lock` 后再打包，所以安装包文件名与 exe 元数据跟 tag 一致。本地需要同步时执行 `node scripts/sync-version.mjs v0.2.0`。
 
-发布默认创建草稿，确认产物无误后再在 GitHub 上发布。目前只构建 Windows x64 安装包，且安装包未做代码签名，首次运行可能触发 SmartScreen 提示。
+发布默认创建草稿，确认产物无误后再在 GitHub 上发布。Windows 安装包未做代码签名，首次运行可能触发 SmartScreen 提示；macOS 安装包未做代码签名或公证，首次打开时可能需要在“隐私与安全性”中允许运行。
 
 ## 技术栈
 
