@@ -9,16 +9,32 @@ import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import type { FileEntry } from '../types'
 
-export type PreviewKind = 'image' | 'text' | 'pdf' | 'unsupported'
+export type PreviewKind =
+  | 'image'
+  | 'text'
+  | 'markdown'
+  | 'pdf'
+  | 'word'
+  | 'excel'
+  | 'powerpoint'
+  | 'unsupported'
 
 /** WebView2（Chromium）能直接解码的图片格式。 */
 const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg', 'bmp', 'ico', 'avif'])
 
 const PDF_EXTS = new Set(['pdf'])
 
-/** 按纯文本展示的扩展名（不做语法高亮，避免引入额外依赖与开销）。 */
+/** Markdown 单独成一类：默认渲染成排版好的文档，可切回源码。 */
+const MARKDOWN_EXTS = new Set(['md', 'markdown', 'mdown', 'mkd'])
+
+/** Office Open XML：只读渲染，不支持 97-2003 的 .doc/.xls/.ppt 二进制格式。 */
+const WORD_EXTS = new Set(['docx', 'docm'])
+const EXCEL_EXTS = new Set(['xlsx', 'xlsm'])
+const POWERPOINT_EXTS = new Set(['pptx', 'pptm'])
+
+/** 按纯文本展示的扩展名（预览时按语言做语法高亮）。 */
 const TEXT_EXTS = new Set([
-  'txt', 'text', 'log', 'md', 'markdown', 'mdx', 'rst', 'adoc',
+  'txt', 'text', 'log', 'mdx', 'rst', 'adoc',
   'json', 'jsonc', 'json5', 'jsonl', 'ndjson', 'geojson',
   'js', 'mjs', 'cjs', 'jsx', 'ts', 'mts', 'cts', 'tsx', 'vue', 'svelte', 'astro',
   'rs', 'go', 'py', 'pyi', 'rb', 'php', 'java', 'kt', 'kts', 'scala', 'groovy', 'clj', 'cljs',
@@ -46,6 +62,10 @@ export function previewKindOf(ext: string | null | undefined, name?: string): Pr
   if (value) {
     if (IMAGE_EXTS.has(value)) return 'image'
     if (PDF_EXTS.has(value)) return 'pdf'
+    if (MARKDOWN_EXTS.has(value)) return 'markdown'
+    if (WORD_EXTS.has(value)) return 'word'
+    if (EXCEL_EXTS.has(value)) return 'excel'
+    if (POWERPOINT_EXTS.has(value)) return 'powerpoint'
     if (TEXT_EXTS.has(value)) return 'text'
     return 'unsupported'
   }

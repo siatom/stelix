@@ -59,6 +59,17 @@
   --ok-soft: rgba(98, 213, 161, 0.14);
   --mask: rgba(0, 0, 0, 0.58);
 
+  /* 代码预览的语法高亮（One Dark 系，压低饱和度以贴合石墨黑基调） */
+  --code-keyword: #c678dd;
+  --code-string: #98c379;
+  --code-comment: #7f848e;
+  --code-number: #d19a66;
+  --code-function: #61afef;
+  --code-type: #e5c07b;
+  --code-meta: #56b6c2;
+  --code-added: #98c379;
+  --code-removed: #e06c75;
+
   --shadow-sm: 0 2px 6px rgba(4, 6, 12, 0.22);
   --shadow-md: 0 12px 30px rgba(4, 6, 12, 0.34);
   --shadow-lg: 0 24px 64px rgba(4, 6, 12, 0.5);
@@ -115,6 +126,17 @@
   --warn-soft: rgba(166, 107, 20, 0.1);
   --ok-soft: rgba(35, 134, 95, 0.1);
   --mask: rgba(0, 0, 0, 0.32);
+
+  /* 代码预览的语法高亮（One Light 系） */
+  --code-keyword: #a626a4;
+  --code-string: #50a14f;
+  --code-comment: #a0a1a7;
+  --code-number: #986801;
+  --code-function: #4078f2;
+  --code-type: #c18401;
+  --code-meta: #0184bc;
+  --code-added: #50a14f;
+  --code-removed: #e45649;
 
   --shadow-sm: 0 2px 5px rgba(0, 0, 0, 0.04);
   --shadow-md: 0 12px 28px rgba(0, 0, 0, 0.1);
