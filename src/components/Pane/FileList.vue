@@ -1504,6 +1504,13 @@ function readDragPayload(ev: DragEvent): DragPayload | null {
   }
 }
 
+/** 按设置解析应用内拖拽操作；Ctrl 拖动强制复制，Shift 拖动强制移动。 */
+function dragOperation(ev: DragEvent): 'move' | 'copy' {
+  if (ev.ctrlKey) return 'copy'
+  if (ev.shiftKey) return 'move'
+  return ui.paneDragMode
+}
+
 function onDragStart(ev: DragEvent, entry: FileEntry) {
   if (!ev.dataTransfer) return
   if (!props.tab.selected.includes(entry.path)) props.tab.selected = [entry.path]
@@ -1523,8 +1530,12 @@ function onDragStart(ev: DragEvent, entry: FileEntry) {
   // HTML drag data is only visible to other web views. Start an OS file drag
   // instead so applications such as WeChat receive real filesystem paths.
   ev.preventDefault()
-  const operation = ev.ctrlKey || ev.shiftKey ? 'copy' : 'move'
-  window.dispatchEvent(new CustomEvent('stelix:file-drag-start', { detail: { operation } }))
+  const operation = dragOperation(ev)
+  window.dispatchEvent(
+    new CustomEvent('stelix:file-drag-start', {
+      detail: { operation, paneId: props.paneId, modifier: ev.ctrlKey || ev.shiftKey, paths },
+    }),
+  )
   void startDrag({
     item: paths,
     // Omit the optional preview asset so no asynchronous resource lookup can
@@ -1559,8 +1570,8 @@ function onDragOver(ev: DragEvent) {
   if (!isInternalDrag(ev) || !ev.dataTransfer) return
   if (!isRemote.value && !isLocal.value) return
   // 跨本地 / 远程默认复制：远端删除需逐条成功后追加 quote 操作，拖拽不隐含删除。
-  // Ctrl / Shift 强制复制，符合 Windows 资源管理器的拖拽习惯。
-  ev.dataTransfer.dropEffect = isRemote.value || ev.ctrlKey || ev.shiftKey ? 'copy' : 'move'
+  // 本地目标按设置决定移动 / 复制，Ctrl / Shift 临时切换。
+  ev.dataTransfer.dropEffect = isRemote.value ? 'copy' : dragOperation(ev)
 }
 
 function onEntryDragOver(ev: DragEvent, entry: FileEntry) {
@@ -1568,7 +1579,7 @@ function onEntryDragOver(ev: DragEvent, entry: FileEntry) {
   ev.preventDefault()
   ev.stopPropagation()
   if (ev.dataTransfer) {
-    ev.dataTransfer.dropEffect = isRemote.value || ev.ctrlKey || ev.shiftKey ? 'copy' : 'move'
+    ev.dataTransfer.dropEffect = isRemote.value ? 'copy' : dragOperation(ev)
   }
   dragOverPath.value = entry.path
 }
@@ -1586,6 +1597,12 @@ async function onEntryDrop(ev: DragEvent, entry: FileEntry) {
   dragOverPath.value = null
   const payload = readDragPayload(ev)
   if (!payload) return
+
+  // 同一窗格内默认不执行文件操作，避免拖动时误移动 / 复制；按住 Ctrl / Shift 才处理。
+  if (payload.paneId === props.paneId && !ev.ctrlKey && !ev.shiftKey) {
+    ui.setStatusText('同一窗格内按住 Ctrl 拖动复制，按住 Shift 拖动移动')
+    return
+  }
 
   if (isRemote.value) {
     const target = props.tab.remote
@@ -1610,7 +1627,7 @@ async function onEntryDrop(ev: DragEvent, entry: FileEntry) {
   }
 
   const result = await paneStore.runFs(props.paneId, {
-    op: ev.ctrlKey || ev.shiftKey ? 'copy' : 'move',
+    op: dragOperation(ev),
     sources: payload.items.map((item) => item.path),
     target: entry.path,
   })
@@ -1646,7 +1663,7 @@ function onDrop(ev: DragEvent) {
   }
 
   const paths = payload.items.map((item) => item.path)
-  if (ev.ctrlKey || ev.shiftKey) void paneStore.copyToOtherPane(payload.paneId, paths, payload.items)
+  if (dragOperation(ev) === 'copy') void paneStore.copyToOtherPane(payload.paneId, paths, payload.items)
   else void paneStore.moveToOtherPane(payload.paneId, paths, payload.items)
 }
 </script>

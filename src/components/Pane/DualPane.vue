@@ -14,15 +14,50 @@ const dragging = ref(false)
 const dropTargetPaneId = ref<string | null>(null)
 let unlistenDragEvents: UnlistenFn[] = []
 let dragEventSequence = 0
-let internalDragOperation: 'move' | 'copy' | null = null
-
-function onFileDragStart(event: Event) {
-  const detail = (event as CustomEvent<{ operation?: 'move' | 'copy' }>).detail
-  internalDragOperation = detail?.operation === 'copy' ? 'copy' : 'move'
+interface InternalDrag {
+  operation: 'move' | 'copy'
+  paneId: string | null
+  modifier: boolean
+  paths: string[]
 }
 
+let internalDrag: InternalDrag | null = null
+let dragEndTimer: number | undefined
+
+/** 内部拖拽的路径集合是否与本次落点一致（用于区分应用内拖拽和外部文件拖入）。 */
+function samePaths(a: string[], b: string[]): boolean {
+  if (!a.length || a.length !== b.length) return false
+  const normalize = (path: string) => path.replace(/\//g, '\\').toLowerCase()
+  const expected = new Set(b.map(normalize))
+  return a.every((path) => expected.has(normalize(path)))
+}
+
+function onFileDragStart(event: Event) {
+  const detail = (
+    event as CustomEvent<{ operation?: 'move' | 'copy'; paneId?: string; modifier?: boolean; paths?: string[] }>
+  ).detail
+  internalDrag = {
+    operation: detail?.operation === 'copy' ? 'copy' : 'move',
+    paneId: detail?.paneId ?? null,
+    modifier: detail?.modifier === true,
+    paths: detail?.paths ?? [],
+  }
+  if (dragEndTimer !== undefined) {
+    window.clearTimeout(dragEndTimer)
+    dragEndTimer = undefined
+  }
+}
+
+/**
+ * 原生 drop 事件可能晚于拖拽结束回调到达，因此延迟清理拖拽信息；
+ * 下一次拖拽开始会立即覆盖，落点再用路径比对，避免把外部拖入误判为应用内拖拽。
+ */
 function onFileDragEnd() {
-  internalDragOperation = null
+  if (dragEndTimer !== undefined) window.clearTimeout(dragEndTimer)
+  dragEndTimer = window.setTimeout(() => {
+    internalDrag = null
+    dragEndTimer = undefined
+  }, 2000)
 }
 
 /** AI 助手分屏时，右侧只保留当前活动窗格（与 AI 对话栏左右均分）。 */
@@ -68,7 +103,9 @@ onMounted(() => {
     payload: { paths?: string[]; position: { x: number; y: number } },
     isDrop: boolean,
   ) => {
-    const dragOperation = isDrop ? internalDragOperation : null
+    const dragPaths = payload.paths ?? []
+    const internal = internalDrag && samePaths(dragPaths, internalDrag.paths) ? internalDrag : null
+    const dragOperation = isDrop ? internal?.operation ?? null : null
     const sequence = ++dragEventSequence
     try {
       const scale = await getCurrentWindow().scaleFactor()
@@ -94,18 +131,26 @@ onMounted(() => {
         dropTargetPaneId.value = null
         return
       }
+      // 同一窗格内默认不执行文件操作；按住 Ctrl / Shift 拖动才允许。
+      if (internal?.paneId === paneId && !internal.modifier) {
+        dropTargetPaneId.value = null
+        return
+      }
       dropTargetPaneId.value = paneId
       if (!isDrop || !payload.paths?.length) return
+      const sourcePaneId = internal?.paneId ?? paneId
       const op = {
         op: dragOperation ?? 'copy',
         sources: payload.paths,
         target: tab.path,
       }
       try {
-        await paneStore.runFs(paneId, op)
+        await paneStore.runFs(sourcePaneId, op)
+        // runFs 只刷新发起操作的窗格；跨窗格拖拽时再刷新落点窗格。
+        if (sourcePaneId !== paneId) await paneStore.refresh(paneId)
       } finally {
         dropTargetPaneId.value = null
-        internalDragOperation = null
+        internalDrag = null
       }
     } catch (error) {
       dropTargetPaneId.value = null

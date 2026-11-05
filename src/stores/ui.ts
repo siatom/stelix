@@ -13,6 +13,9 @@ export type SettingsTab = 'general' | 'appearance' | 'index' | 'shortcuts' | 'ai
 /** 主题模式 */
 export type ThemeMode = 'dark' | 'light'
 
+/** 在两个窗格之间拖动文件时的默认操作 */
+export type PaneDragMode = 'move' | 'copy'
+
 /** 系统默认字体栈，与 tokens.css 的 --font 保持一致；设置为空时回落到这里 */
 export const DEFAULT_FONT_STACK = "'Segoe UI Variable', 'Segoe UI', 'Microsoft YaHei', -apple-system, sans-serif"
 
@@ -71,6 +74,7 @@ const SETTINGS_BACKGROUND_KEY = 'backgroundImage'
 const LS_HIDE_PROTECTED = 'stelix.hideProtected'
 const LS_SHOW_HIDDEN = 'stelix.showHidden'
 const LS_HIDE_FILE_EXTENSIONS = 'stelix.hideFileExtensions'
+const LS_PANE_DRAG_MODE = 'stelix.paneDragMode'
 const LS_SIDEBAR_COLLAPSED = 'stelix.sidebarCollapsed'
 const LS_FONT_SIZE = 'stelix.fontSize'
 const LS_UI_FONT = 'stelix.uiFont'
@@ -164,6 +168,7 @@ const FONT_SIZE_DEF = 12
 const HIDE_PROTECTED_DEF = true
 const SHOW_HIDDEN_DEF = true
 const HIDE_FILE_EXTENSIONS_DEF = false
+const PANE_DRAG_MODE_DEF: PaneDragMode = 'move'
 
 function readFontSize(key = LS_FONT_SIZE, fallback = FONT_SIZE_DEF): number {
   try {
@@ -208,6 +213,14 @@ function readBool(key: string, fallback: boolean): boolean {
     return v === null ? fallback : v === '1'
   } catch {
     return fallback
+  }
+}
+
+function readPaneDragMode(): PaneDragMode {
+  try {
+    return localStorage.getItem(LS_PANE_DRAG_MODE) === 'copy' ? 'copy' : PANE_DRAG_MODE_DEF
+  } catch {
+    return PANE_DRAG_MODE_DEF
   }
 }
 
@@ -365,6 +378,8 @@ export const useUiStore = defineStore('ui', () => {
   /** 是否显示隐藏（FILE_ATTRIBUTE_HIDDEN）条目；关闭后连同受保护系统文件一起隐藏。 */
   const showHidden = ref(readBool(LS_SHOW_HIDDEN, SHOW_HIDDEN_DEF))
   const hideFileExtensions = ref(readBool(LS_HIDE_FILE_EXTENSIONS, HIDE_FILE_EXTENSIONS_DEF))
+  /** 在两个窗格之间拖动文件时的默认操作（默认移动，可改为复制）。 */
+  const paneDragMode = ref<PaneDragMode>(readPaneDragMode())
   /** 详细视图列宽（表头拖动后持久化） */
   const detailColumnWidths = ref<DetailColumnWidths>(readDetailColumnWidths())
   /** 回收站列宽（表头拖动后持久化） */
@@ -688,7 +703,16 @@ export const useUiStore = defineStore('ui', () => {
     }
   }
 
-  /** 恢复「视图 / 快捷键」相关设置的默认值（不含索引根目录 / 开机自启动等系统级设置） */
+  function setPaneDragMode(value: PaneDragMode) {
+    paneDragMode.value = value
+    try {
+      localStorage.setItem(LS_PANE_DRAG_MODE, value)
+    } catch {
+      /* ignore */
+    }
+  }
+
+  /** 恢复「视图 / 操作 / 快捷键」相关设置的默认值（不含索引根目录 / 开机自启动等系统级设置） */
   function resetViewDefaults() {
     try {
       localStorage.removeItem(LS_FONT_SIZE)
@@ -700,6 +724,7 @@ export const useUiStore = defineStore('ui', () => {
       localStorage.removeItem(LS_HIDE_PROTECTED)
       localStorage.removeItem(LS_SHOW_HIDDEN)
       localStorage.removeItem(LS_HIDE_FILE_EXTENSIONS)
+      localStorage.removeItem(LS_PANE_DRAG_MODE)
       localStorage.removeItem(LS_DETAIL_COLUMNS)
       localStorage.removeItem(LS_TRASH_COLUMNS)
     } catch {
@@ -714,6 +739,7 @@ export const useUiStore = defineStore('ui', () => {
     hideProtected.value = HIDE_PROTECTED_DEF
     showHidden.value = SHOW_HIDDEN_DEF
     hideFileExtensions.value = HIDE_FILE_EXTENSIONS_DEF
+    paneDragMode.value = PANE_DRAG_MODE_DEF
     detailColumnWidths.value = { ...DETAIL_COL_DEF }
     trashColumnWidths.value = { ...TRASH_COL_DEF }
     applyFontSize(fontSize.value)
@@ -796,6 +822,8 @@ export const useUiStore = defineStore('ui', () => {
     setShowHidden,
     toggleShowHidden,
     hideFileExtensions,
+    paneDragMode,
+    setPaneDragMode,
     activePanel,
     searchScope,
     searchCurrentRequest,

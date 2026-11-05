@@ -384,6 +384,26 @@ onMounted(() => {
         </div>
       </section>
 
+      <section v-show="ui.settingsTab === 'general'" class="card">
+        <header class="card-head">操作</header>
+        <div class="card-body tight">
+          <label class="row">
+            <span class="row-label">拖动文件到另一窗格</span>
+            <select
+              class="setting-select"
+              :value="ui.paneDragMode"
+              aria-label="拖动文件到另一窗格的行为"
+              @change="ui.setPaneDragMode(($event.target as HTMLSelectElement).value as 'move' | 'copy')"
+            >
+              <option value="move">移动</option>
+              <option value="copy">复制</option>
+            </select>
+          </label>
+          <p class="row-hint">Ctrl 拖动复制，Shift 拖动移动；同一窗格内需按住其中一个键才会执行</p>
+          <p class="row-hint">远程传输始终复制</p>
+        </div>
+      </section>
+
       <section v-show="ui.settingsTab === 'about'" class="card">
         <header class="card-head">Stelix File Manager 星索</header>
         <div class="card-body"><p class="about-text">版本 {{ appVersion }}</p><p class="about-text">Commit {{ commitId }}</p></div>
