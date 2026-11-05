@@ -150,10 +150,7 @@ watch(
   () => {
     // 切换标签 / 窗格 / 范围时清掉旧的目录过滤，避免串台；新的过滤等「搜索」/Enter 再应用
     paneStore.panes.forEach((pane) =>
-      pane.tabs.forEach((tab) => {
-        tab.filter = ''
-        tab.typeFilter = null
-      }),
+      pane.tabs.forEach((tab) => paneStore.clearTabFilter(tab)),
     )
     closeTypeMenu()
   },
@@ -188,7 +185,9 @@ async function setType(key: string) {
   search.setType(next)
   if (!changed) return
   if (scope.value === 'current') {
-    if (activeTab.value) activeTab.value.typeFilter = next
+    if (activeTab.value) {
+      paneStore.setSimpleFilter(activeTab.value, activeTab.value.filter, next)
+    }
     return
   }
   if (!next && !text.value.trim()) {
@@ -216,8 +215,7 @@ function clearAll() {
   search.setType(null)
   closeTypeMenu()
   if (scope.value === 'current' && activeTab.value) {
-    activeTab.value.filter = ''
-    activeTab.value.typeFilter = null
+    paneStore.clearTabFilter(activeTab.value)
   }
   search.clear()
   // 清空后保持焦点，方便直接输入下一次关键词
@@ -232,10 +230,7 @@ function setScope(next: 'global' | 'current') {
   closeTypeMenu()
   search.clear()
   paneStore.panes.forEach((pane) =>
-    pane.tabs.forEach((tab) => {
-      tab.filter = ''
-      tab.typeFilter = null
-    }),
+    pane.tabs.forEach((tab) => paneStore.clearTabFilter(tab)),
   )
   open.value = false
 }
@@ -249,8 +244,7 @@ watch(
     setScope('current')
     // 已经在「当前目录」范围时 setScope 会提前返回，这里补一次过滤清理
     if (activeTab.value) {
-      activeTab.value.filter = ''
-      activeTab.value.typeFilter = null
+      paneStore.clearTabFilter(activeTab.value)
     }
     consumeFocusRequest()
   },
@@ -284,8 +278,7 @@ async function submit() {
   if (scope.value === 'current') {
     requestId += 1
     if (activeTab.value) {
-      activeTab.value.filter = text.value
-      activeTab.value.typeFilter = search.typeKey
+      paneStore.setSimpleFilter(activeTab.value, text.value, search.typeKey)
     }
     search.clear()
     return

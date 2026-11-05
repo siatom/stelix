@@ -85,6 +85,16 @@ pub struct SearchHit {
     pub score: i32,
 }
 
+/// 目录递归筛选结果。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DirFilterResult {
+    /// 命中条目（顺序由前端再排序）
+    pub entries: Vec<FileEntry>,
+    /// 命中数超过上限，结果被截断
+    pub truncated: bool,
+}
+
 /// 索引状态
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

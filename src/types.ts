@@ -20,6 +20,34 @@ export interface DirListing {
   entries: FileEntry[]
 }
 
+/** 递归筛选结果；`truncated` 表示命中数超过上限，只返回了前一部分。 */
+export interface DirFilterResult {
+  entries: FileEntry[]
+  truncated: boolean
+}
+
+/**
+ * 文件窗格的高级筛选规则。
+ *
+ * `text` / `type` 与 `TabState.filter` / `typeFilter` 保持同步，便于搜索栏与
+ * 文件列表复用同一份关键词、类型条件；其余条件只存在于本对象里。
+ */
+export interface FileFilterRule {
+  /** 文件名关键词（空格分隔，多个关键词取 AND） */
+  text: string
+  /** searchFilters 分类 key；null = 全部类型 */
+  type: string | null
+  /** 自定义扩展名（小写、不含点）；非空时优先于类型筛选 */
+  exts: string[]
+  /** 最小 / 最大字节数；null = 不限 */
+  minSize: number | null
+  maxSize: number | null
+  /** 仅保留最近 N 天修改的条目；null = 不限 */
+  modifiedWithinDays: number | null
+  /** 是否递归扫描子文件夹（仅本地目录支持） */
+  recursive: boolean
+}
+
 export interface DriveInfo {
   name: string
   mount: string
@@ -407,6 +435,10 @@ export interface TabState {
   filter: string
   /** 当前目录内的类型筛选（searchFilters 分类 key；null/缺省 = 全部） */
   typeFilter?: string | null
+  /** 高级筛选的附加条件（大小 / 修改时间 / 自定义扩展名 / 递归） */
+  filterRule?: FileFilterRule | null
+  /** 递归筛选命中数超过上限，列表已截断 */
+  filterTruncated?: boolean
   sortKey: 'name' | 'path' | 'size' | 'modified' | 'ext'
   sortAsc: boolean
   selected: string[]

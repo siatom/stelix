@@ -3,10 +3,10 @@ import { computed, ref, watch } from 'vue'
 import { homeDir } from '@tauri-apps/api/path'
 import { open as openDialog } from '@tauri-apps/plugin-dialog'
 import { api } from '../api'
-import type { ConflictItem, ConflictPolicy, DirListing, FileEntry, FsOp, FsOpResult, FsProgress, PaneState, RemoteLocation, RemoteTransferItem, RemoteTransferResult, SearchHit, TabState, TrashEntry, ViewMode } from '../types'
+import type { ConflictItem, ConflictPolicy, DirListing, FileEntry, FileFilterRule, FsOp, FsOpResult, FsProgress, PaneState, RemoteLocation, RemoteTransferItem, RemoteTransferResult, SearchHit, SearchQuery, TabState, TrashEntry, ViewMode } from '../types'
 import { useUiStore } from './ui'
 import { basename, dirname, joinPath } from '../components/Pane/utils'
-import { matchesTypeFilter } from '../searchFilters'
+import { categoryOf, matchesTypeFilter } from '../searchFilters'
 import { normalizePath, setWatchSource } from '../shell/dirWatch'
 import { normalizeRemotePath, remoteDirname, resolveRemoteAuth } from '../shell/remote'
 import { compareNames } from '../naturalSort'
@@ -29,6 +29,9 @@ const DIR_SIZE_RETRY_MS = 800
 const HISTORY_LIMIT = 200
 /** 已结束的文件操作在队列里保留的时长（供进度面板提示「已完成 / 失败」）。 */
 const FS_QUEUE_LINGER_MS = 2000
+/** 递归筛选最多返回的条目数（与后端上限保持一致）。 */
+const FILTER_RESULT_LIMIT = 5000
+const DAY_MS = 24 * 60 * 60 * 1000
 
 /** 目录在前、同类按名称自然排序（与文件列表保持一致）。 */
 function sortEntries(entries: FileEntry[]): FileEntry[] {
@@ -615,11 +618,22 @@ export const usePaneStore = defineStore('pane', () => {
     tab.searchQuery = undefined
     tab.remote = undefined
     // 进入其它目录：折叠该标签内原地展开的子树（展开态属于旧目录）。
-    if (tab.path !== path) clearExpand(tab.id)
+    if (tab.path !== path) {
+      clearExpand(tab.id)
+      // 递归筛选结果是旧目录树的快照，跨目录后已失效；关键词 / 类型等简单条件也一并清掉，
+      // 避免出现「筛选文字还在、递归结果却已换成普通目录」的错位状态。
+      if (tab.filterRule?.recursive) {
+        tab.filter = ''
+        tab.typeFilter = null
+        tab.filterRule = null
+        tab.filterTruncated = false
+      }
+    }
     tab.path = path
     rememberLocalPath(paneId, path)
     if (pushHistory) recordHistory(tab)
-    await load(tab)
+    if (tab.filterRule?.recursive) await runFilterQuery(tab)
+    else await load(tab)
   }
 
   /**
@@ -756,6 +770,13 @@ export const usePaneStore = defineStore('pane', () => {
     tab.remote = location
     tab.title = location.label
     tab.searchQuery = undefined
+    // 递归筛选只针对本地目录树，切到远程前清掉，避免条件残留。
+    if (tab.filterRule?.recursive) {
+      tab.filter = ''
+      tab.typeFilter = null
+      tab.filterRule = null
+      tab.filterTruncated = false
+    }
     tab.path = path
     if (pushHistory) recordHistory(tab)
     await load(tab)
@@ -774,6 +795,10 @@ export const usePaneStore = defineStore('pane', () => {
       tab.selected = []
       tab.loading = false
       tab.error = null
+      tab.filter = ''
+      tab.typeFilter = null
+      tab.filterRule = null
+      tab.filterTruncated = false
       return
     }
     if (item.kind === 'remote' && item.remote) {
@@ -863,6 +888,12 @@ export const usePaneStore = defineStore('pane', () => {
       refreshTrashIcon()
       return
     }
+    // 递归筛选的结果来自后端遍历；刷新时重新执行筛选，而不是把根目录列表塞回去。
+    if (tab.filterRule?.recursive && (tab.kind ?? 'files') === 'files') {
+      await runFilterQuery(tab)
+      if (!tab.error) invalidateDirSizes([tab.path])
+      return
+    }
     // 已有内容的目录走静默重列：`load` 会把 `loading` 置为 true，文件列表因此被
     // 「正在读取…」状态页替换并卸载重建，滚动位置也随之回到顶部。用户删除 / 重命名
     // 等操作后只是内容变化，没必要整页重来。首次加载、上次出错或正在加载时才走完整 load。
@@ -899,6 +930,7 @@ export const usePaneStore = defineStore('pane', () => {
       return false
     }
     let listing: DirListing
+    if (tab.filterRule?.recursive) return runFilterQuery(tab, true)
     try {
       listing = await api.listDir(tab.path)
     } catch {
@@ -1178,7 +1210,12 @@ export const usePaneStore = defineStore('pane', () => {
     // 只复用普通本地目录标签：搜索结果标签的 `path` 是搜索发起目录、远程标签的 `path`
     // 是远端路径，复用会把它们的命中 / 远端列表当成该路径的本地内容。
     const loaded = pane.tabs.find(
-      (item) => item.path === base && (item.kind ?? 'files') === 'files' && !item.loading && !item.error,
+      (item) =>
+        item.path === base &&
+        (item.kind ?? 'files') === 'files' &&
+        !item.filterRule?.recursive &&
+        !item.loading &&
+        !item.error,
     )
     if (loaded) tab.entries = loaded.entries
     pane.tabs.push(tab)
@@ -1209,6 +1246,10 @@ export const usePaneStore = defineStore('pane', () => {
       existing.loading = false
       existing.error = null
       existing.selected = []
+      existing.filter = ''
+      existing.typeFilter = null
+      existing.filterRule = null
+      existing.filterTruncated = false
       pane.activeTabId = existing.id
       // 复用的搜索结果标签页重新作为起点：重建历史，避免后退落到旧目录。
       resetHistory(existing)
@@ -1263,13 +1304,20 @@ export const usePaneStore = defineStore('pane', () => {
     tab.remote = src.remote
     tab.filter = src.filter
     tab.typeFilter = src.typeFilter
+    tab.filterRule = src.filterRule
+      ? { ...src.filterRule, exts: [...src.filterRule.exts] }
+      : null
+    tab.filterTruncated = src.filterTruncated
     tab.sortKey = src.sortKey
     tab.sortAsc = src.sortAsc
     if (!src.loading && !src.error) tab.entries = src.entries
     pane.tabs.splice(srcIdx + 1, 0, tab)
     pane.activeTabId = tab.id
     recordHistory(tab)
-    if (src.loading || src.error) {
+    if (src.filterRule?.recursive) {
+      const reactiveTab = pane.tabs.find((item) => item.id === tab.id)
+      if (reactiveTab) void runFilterQuery(reactiveTab)
+    } else if (src.loading || src.error) {
       const reactiveTab = pane.tabs.find((item) => item.id === tab.id)
       if (reactiveTab) void load(reactiveTab)
     }
@@ -1311,7 +1359,11 @@ export const usePaneStore = defineStore('pane', () => {
   }
 
   /**
-   * 本地过滤 + 排序（目录始终在前）
+   * 本地过滤 + 排序（目录始终在前）。
+   *
+   * `tab.filter` / `tab.typeFilter` 是搜索栏与筛选面板共用的简单条件；
+   * `tab.filterRule` 里还有大小、修改时间、自定义扩展名等附加条件。
+   * 递归筛选时 `tab.entries` 已经是后端返回的命中项，这里的过滤是幂等的。
    *
    * 性能：`localeCompare(other, locale, options)` 每次调用都会重新解析 locale/options
    * 并构造比较器；上万条目的排序会因此慢一个数量级（实测 20k 条：约 1.5s vs 70ms）。
@@ -1319,10 +1371,38 @@ export const usePaneStore = defineStore('pane', () => {
    * 避免比较器内为每次比较重复分配路径前缀。
    */
   function entriesFor(tab: TabState): FileEntry[] {
-    const q = tab.filter.trim().toLowerCase()
-    const list = tab.entries.filter(
-      (e) => (!q || e.name.toLowerCase().includes(q)) && matchesTypeFilter(e, tab.typeFilter),
-    )
+    const terms = tab.filter
+      .trim()
+      .toLowerCase()
+      .split(/\s+/)
+      .filter(Boolean)
+    const rule = tab.filterRule
+    const exts = rule?.exts?.length ? new Set(rule.exts) : null
+    const sizeFiltered = !!rule && (rule.minSize !== null || rule.maxSize !== null)
+    const modifiedAfter =
+      rule?.modifiedWithinDays != null ? Date.now() - rule.modifiedWithinDays * DAY_MS : null
+    const list = tab.entries.filter((entry) => {
+      if (terms.length) {
+        const name = entry.name.toLowerCase()
+        if (!terms.every((term) => name.includes(term))) return false
+      }
+      // 自定义扩展名优先于类型分类（面板里有对应提示）。
+      if (exts) {
+        if (entry.isDir) return false
+        const ext = (entry.ext ?? '').toLowerCase()
+        if (!exts.has(ext)) return false
+      } else if (!matchesTypeFilter(entry, tab.typeFilter)) {
+        return false
+      }
+      if (sizeFiltered) {
+        // 目录大小为 0，参与大小筛选会让「小于 X」意外命中所有目录。
+        if (entry.isDir) return false
+        if (rule?.minSize != null && entry.size < rule.minSize) return false
+        if (rule?.maxSize != null && entry.size > rule.maxSize) return false
+      }
+      if (modifiedAfter != null && entry.modified < modifiedAfter) return false
+      return true
+    })
     const dir = tab.sortAsc ? 1 : -1
     const dirOf =
       tab.sortKey === 'path' ? new Map(list.map((entry) => [entry.path, dirname(entry.path)])) : null
@@ -1350,6 +1430,163 @@ export const usePaneStore = defineStore('pane', () => {
       return cmp * dir
     })
     return list
+  }
+
+  /** 当前标签是否启用了任何筛选条件（用于空状态与按钮高亮）。 */
+  function hasTabFilter(tab: TabState): boolean {
+    return !!tab.filter.trim() || !!tab.typeFilter || !!tab.filterRule
+  }
+
+  /** 规则本身是否包含至少一个有效条件（仅递归也算有效）。 */
+  function hasFilterCriteria(rule: FileFilterRule): boolean {
+    return (
+      rule.recursive ||
+      !!rule.text.trim() ||
+      !!rule.type ||
+      rule.exts.length > 0 ||
+      rule.minSize !== null ||
+      rule.maxSize !== null ||
+      rule.modifiedWithinDays !== null
+    )
+  }
+
+  /** 把当前筛选规则翻译成后端筛选查询。 */
+  function buildFilterQuery(tab: TabState): SearchQuery {
+    const rule = tab.filterRule
+    // 自定义扩展名优先；否则把类型分类翻译成扩展名白名单或「仅目录」。
+    const category = rule?.exts.length ? undefined : categoryOf(tab.typeFilter)
+    const ext = rule?.exts.length ? rule.exts : (category?.exts ?? [])
+    return {
+      text: tab.filter,
+      isDir: category?.isDir ? true : null,
+      ext,
+      minSize: rule?.minSize ?? null,
+      maxSize: rule?.maxSize ?? null,
+      modifiedAfter:
+        rule?.modifiedWithinDays != null
+          ? Date.now() - rule.modifiedWithinDays * DAY_MS
+          : null,
+      limit: FILTER_RESULT_LIMIT,
+    }
+  }
+
+  /**
+   * 递归筛选：由后端遍历当前目录树并按条件返回命中项。
+   *
+   * `quiet` 为真时用于目录变更后的静默刷新（不显示 loading、失败不打断）。
+   * @returns 是否成功完成并应用了结果。
+   */
+  async function runFilterQuery(tab: TabState, quiet = false): Promise<boolean> {
+    if ((tab.kind ?? 'files') !== 'files') return false
+    const token = (loadTokens.get(tab.id) ?? 0) + 1
+    loadTokens.set(tab.id, token)
+    const requestPath = tab.path
+    if (!quiet) {
+      tab.loading = true
+      tab.error = null
+    }
+    try {
+      const result = await api.filterDir({
+        path: requestPath,
+        query: buildFilterQuery(tab),
+        recursive: true,
+      })
+      if (loadTokens.get(tab.id) !== token || tab.path !== requestPath) return false
+      tab.filterTruncated = result.truncated
+      if (!quiet || !sameEntries(tab.entries, result.entries)) {
+        tab.entries = result.entries
+        const alive = new Set(result.entries.map((entry) => entry.path))
+        tab.selected = tab.selected.filter((path) => alive.has(path))
+      }
+      tab.error = null
+      if (!quiet) {
+        setStatus(
+          result.truncated
+            ? `筛选到 ${result.entries.length} 项（结果过多，已截断）`
+            : `筛选到 ${result.entries.length} 项`,
+        )
+      }
+      return true
+    } catch (error) {
+      if (loadTokens.get(tab.id) !== token) return false
+      if (!quiet) {
+        tab.error = String(error)
+        tab.entries = []
+        setStatus(`筛选失败：${String(error)}`)
+      }
+      return false
+    } finally {
+      if (loadTokens.get(tab.id) === token && !quiet) tab.loading = false
+    }
+  }
+
+  /**
+   * 应用筛选面板的规则。
+   *
+   * 非递归筛选完全在前端完成（`entriesFor`），不重新读盘；
+   * 递归筛选需要后端遍历，结果直接替换 `tab.entries`。
+   */
+  async function applyTabFilter(tab: TabState, rule: FileFilterRule) {
+    const previousRecursive = !!tab.filterRule?.recursive
+    const local = (tab.kind ?? 'files') === 'files'
+    const exts = Array.from(
+      new Set(
+        rule.exts
+          .map((ext) => ext.trim().replace(/^\./, '').toLowerCase())
+          .filter(Boolean),
+      ),
+    )
+    const normalized: FileFilterRule = {
+      text: rule.text.trim(),
+      // 自定义扩展名优先于类型分类；写下扩展名后类型条件不再参与匹配。
+      type: exts.length ? null : rule.type || null,
+      exts,
+      minSize: rule.minSize,
+      maxSize: rule.maxSize,
+      modifiedWithinDays: rule.modifiedWithinDays,
+      recursive: rule.recursive && local,
+    }
+    tab.filter = normalized.text
+    tab.typeFilter = normalized.type
+    tab.filterRule = hasFilterCriteria(normalized) ? normalized : null
+    tab.filterTruncated = false
+    tab.selected = []
+    if (!local) {
+      setStatus(tab.filterRule ? `筛选到 ${entriesFor(tab).length} 项` : '已清除筛选')
+      return
+    }
+    if (normalized.recursive) {
+      // 递归结果已经是一张扁平清单，旧的原地展开态不再适用。
+      clearExpand(tab.id)
+      await runFilterQuery(tab)
+      return
+    }
+    // 从递归结果切回普通目录：需要重新读取根目录，恢复未筛选的完整列表。
+    if (previousRecursive) {
+      await load(tab)
+      return
+    }
+    setStatus(tab.filterRule ? `筛选到 ${entriesFor(tab).length} 项` : '已清除筛选')
+  }
+
+  /** 清除某个标签的全部筛选条件（搜索栏 / 筛选面板 / 导航时共用）。 */
+  function clearTabFilter(tab: TabState) {
+    const wasRecursive = !!tab.filterRule?.recursive
+    tab.filter = ''
+    tab.typeFilter = null
+    tab.filterRule = null
+    tab.filterTruncated = false
+    if (wasRecursive && (tab.kind ?? 'files') === 'files') void load(tab)
+  }
+
+  /** 搜索栏「当前目录」只设置关键词与类型，清掉筛选面板里的附加条件。 */
+  function setSimpleFilter(tab: TabState, text: string, type: string | null) {
+    const wasRecursive = !!tab.filterRule?.recursive
+    tab.filter = text
+    tab.typeFilter = type
+    tab.filterRule = null
+    tab.filterTruncated = false
+    if (wasRecursive && (tab.kind ?? 'files') === 'files') void load(tab)
   }
 
   // ---- 选择 ----
@@ -2500,6 +2737,10 @@ export const usePaneStore = defineStore('pane', () => {
     setSinglePane,
     toggleSort,
     entriesFor,
+    hasTabFilter,
+    applyTabFilter,
+    clearTabFilter,
+    setSimpleFilter,
     select,
     toggleSelect,
     clearSelection,

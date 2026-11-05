@@ -14,6 +14,7 @@ import type {
   CloudAccountInfo,
   ConflictItem,
   DirListing,
+  DirFilterResult,
   DriveInfo,
   FsOp,
   FsOpResult,
@@ -48,6 +49,9 @@ import type {
 /** 后端 command 封装（与 src-tauri/src/lib.rs 注册表一一对应） */
 export const api = {
   listDir: (path: string) => invoke<DirListing>('list_dir', { path }),
+  /** 在目录内按条件筛选条目（`recursive` 时遍历整个子树）。 */
+  filterDir: (request: { path: string; query: SearchQuery; recursive: boolean }) =>
+    invoke<DirFilterResult>('filter_dir', request),
   getRoots: () => invoke<DriveInfo[]>('get_roots'),
   /** 列出 FTP / SFTP 目录，条目带类型 / 大小 / 修改时间。 */
   listRemoteDir: (request: {

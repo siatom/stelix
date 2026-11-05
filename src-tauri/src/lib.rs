@@ -8,6 +8,7 @@ mod app_core;
 mod clipboard;
 mod cloud;
 mod credentials;
+mod dir_filter;
 mod dir_size;
 #[cfg(windows)]
 mod drive_monitor;
@@ -61,6 +62,18 @@ async fn list_dir(path: String) -> Result<DirListing, String> {
 #[tauri::command]
 fn get_roots() -> Vec<DriveInfo> {
     fs_core::get_roots()
+}
+
+/// 在指定目录内按条件筛选条目（可递归），不依赖全局索引。
+#[tauri::command]
+async fn filter_dir(
+    path: String,
+    query: SearchQuery,
+    recursive: bool,
+) -> Result<DirFilterResult, String> {
+    tauri::async_runtime::spawn_blocking(move || dir_filter::filter_dir(&path, &query, recursive))
+        .await
+        .map_err(|error| format!("筛选任务失败: {error}"))?
 }
 
 /// 列出 FTP / SFTP 目录，条目带类型 / 大小 / 修改时间。
@@ -1102,6 +1115,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             list_dir,
             get_roots,
+            filter_dir,
             list_remote_dir,
             remote_transfer,
             discover_smb_neighbors,

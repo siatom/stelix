@@ -53,14 +53,14 @@ const columnWidths = computed(() => ui.detailColumnWidths)
 const columnTemplate = computed(() => {
   const w = columnWidths.value
   const cols = [w.name === null ? `minmax(${NAME_COL_MIN}px, 1fr)` : `${w.name}px`]
-  if (isSearch.value) cols.push(`${w.path}px`)
+  if (showPathColumn.value) cols.push(`${w.path}px`)
   cols.push(`${w.size}px`, `${w.time}px`, `${w.type}px`)
   return cols.join(' ')
 })
 /** 各列宽度之和：内容超出窗格时出现横向滚动，而不是挤压列宽。 */
 const tableWidth = computed(() => {
   const w = columnWidths.value
-  return (w.name ?? NAME_COL_MIN) + (isSearch.value ? w.path : 0) + w.size + w.time + w.type
+  return (w.name ?? NAME_COL_MIN) + (showPathColumn.value ? w.path : 0) + w.size + w.time + w.type
 })
 const tableMinWidth = computed(() => `${tableWidth.value + TABLE_PAD_LEFT}px`)
 /**
@@ -166,6 +166,10 @@ const canFileOp = computed(() => !isRemote.value)
 /** 远程与本地之间可以通过复制 / 剪切 / 拖拽传输（搜索结果命中项是本地文件，也可上传）。 */
 /** 搜索结果标签：命中项散落在各目录，需要「打开所在文件夹」这类定位操作。 */
 const isSearch = computed(() => props.tab.kind === 'search')
+/** 递归筛选的结果同样来自不同子目录，需要展示路径列与「打开所在文件夹」。 */
+const showPathColumn = computed(() => isSearch.value || !!props.tab.filterRule?.recursive)
+/** 当前标签是否启用了筛选（关键词 / 类型 / 高级条件）。 */
+const filterActive = computed(() => paneStore.hasTabFilter(props.tab))
 // 先取 store 的过滤+排序结果，再按「显示隐藏文件 / 隐藏受保护的系统文件」剔除。
 const allRows = computed(() => paneStore.entriesFor(props.tab))
 /** 隐藏策略：关闭「显示隐藏文件」时隐藏全部隐藏项；开启时仍可单独隐藏系统文件。 */
@@ -1121,7 +1125,7 @@ function contextMenuItems(): { id: string; label: string }[] {
     items.push({ id: 'move-to', label: '移动到…' })
   }
   if (selected >= 2) items.push({ id: 'batch-rename', label: '批量重命名…' })
-  if (isSearch.value) items.push({ id: 'open-containing', label: '打开所在文件夹' })
+  if (showPathColumn.value) items.push({ id: 'open-containing', label: '打开所在文件夹' })
   return items
 }
 
@@ -1401,21 +1405,17 @@ watch(viewMode, () => {
 })
 
 const hasEntries = computed(() => props.tab.entries.length > 0)
-// 因隐藏设置而被清空的目录（无文本过滤与类型筛选时）
+// 因隐藏设置而被清空的目录（无筛选时）
 const emptyByHidden = computed(
   () =>
     hasEntries.value &&
     rows.value.length === 0 &&
-    !props.tab.filter.trim() &&
-    !props.tab.typeFilter &&
+    !filterActive.value &&
     (!ui.showHidden || ui.hideProtected),
 )
-// 因过滤词 / 类型筛选而被清空的目录
+// 因筛选条件而被清空（关键词 / 类型 / 大小 / 时间 / 递归）
 const emptyByFilter = computed(
-  () =>
-    hasEntries.value &&
-    rows.value.length === 0 &&
-    (!!props.tab.filter.trim() || !!props.tab.typeFilter),
+  () => rows.value.length === 0 && filterActive.value,
 )
 const emptyText = computed(() =>
   props.tab.kind === 'search'
@@ -1423,6 +1423,13 @@ const emptyText = computed(() =>
     : isRemote.value
       ? '远程目录为空（右键可上传文件）'
       : '此目录为空',
+)
+const emptyFilterText = computed(() =>
+  props.tab.filter.trim()
+    ? `没有匹配「${props.tab.filter}」的条目`
+    : props.tab.filterRule?.recursive
+      ? '没有符合筛选条件的条目（已包含子文件夹）'
+      : '没有符合筛选条件的条目',
 )
 
 // ---- 详情视图：文件夹大小按需统计（仅可见行） ----
@@ -1692,7 +1699,7 @@ function onDrop(ev: DragEvent) {
     </div>
 
     <!-- 空目录 / 无匹配 -->
-    <div v-else-if="!hasEntries && !editingCreate" class="state">
+    <div v-else-if="!hasEntries && !filterActive && !editingCreate" class="state">
       <Icon name="folder-open" :size="30" class="big-ico" />
       <p>{{ emptyText }}</p>
     </div>
@@ -1702,7 +1709,7 @@ function onDrop(ev: DragEvent) {
     </div>
     <div v-else-if="emptyByFilter && !editingCreate" class="state">
       <Icon name="search" :size="30" class="big-ico" />
-      <p>{{ tab.filter.trim() ? `没有匹配「${tab.filter}」的条目` : '没有符合类型筛选的条目' }}</p>
+      <p>{{ emptyFilterText }}</p>
     </div>
 
     <!-- 详细 / 列表视图（虚拟滚动） -->
@@ -1722,7 +1729,7 @@ function onDrop(ev: DragEvent) {
               @dblclick.stop="ui.resetDetailColumnWidth('name')"
             />
           </button>
-          <button v-if="isSearch" class="col path" data-col="path" @click="paneStore.toggleSort(tab, 'path')">
+          <button v-if="showPathColumn" class="col path" data-col="path" @click="paneStore.toggleSort(tab, 'path')">
             路径 <Icon v-if="tab.sortKey === 'path'" :name="tab.sortAsc ? 'chevron-up' : 'chevron-down'" :size="11" />
             <span
               class="col-resizer"
@@ -1837,7 +1844,7 @@ function onDrop(ev: DragEvent) {
             <span class="name-cell">
               <span v-if="vr.row.depth" class="indent" :style="{ width: `${vr.row.depth * 10}px` }" />
               <button
-                v-if="vr.row.entry.isDir && !isRemote"
+                v-if="vr.row.entry.isDir && !isRemote && !tab.filterRule?.recursive"
                 class="twisty"
                 :class="{ expanded: vr.row.expanded }"
                 :title="vr.row.expanded ? '折叠' : '展开'"
@@ -1873,7 +1880,7 @@ function onDrop(ev: DragEvent) {
               <span v-else class="nm" :title="vr.row.entry.path">{{ ui.displayFileName(vr.row.entry.name, vr.row.entry.isDir) }}</span>
             </span>
             <template v-if="viewMode === 'details'">
-              <span v-if="isSearch" class="path" :title="dirname(vr.row.entry.path)">
+              <span v-if="showPathColumn" class="path" :title="dirname(vr.row.entry.path)">
                 {{ dirname(vr.row.entry.path) }}
               </span>
               <span class="size">{{ sizeText(vr.row.entry) }}</span>

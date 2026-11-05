@@ -5,6 +5,7 @@ import type { TabState } from '../../types'
 import { usePaneStore } from '../../stores/pane'
 import { dirname, joinPath } from './utils'
 import Icon from '../icons/Icon.vue'
+import FilterPanel from './FilterPanel.vue'
 import { addFavorite, FAVORITES_CHANGED_EVENT, loadFavorites } from '../Sidebar/shared'
 import { useUiStore } from '../../stores/ui'
 import { api } from '../../api'
@@ -346,6 +347,7 @@ watch(
     >
       <Icon name="star" :size="15" />
     </button>
+    <FilterPanel :tab="tab" />
   </div>
 </template>
 
