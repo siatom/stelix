@@ -50,8 +50,14 @@ import type {
 export const api = {
   listDir: (path: string) => invoke<DirListing>('list_dir', { path }),
   /** 在目录内按条件筛选条目（`recursive` 时遍历整个子树）。 */
-  filterDir: (request: { path: string; query: SearchQuery; recursive: boolean }) =>
-    invoke<DirFilterResult>('filter_dir', request),
+  filterDir: (request: {
+    path: string
+    query: SearchQuery
+    recursive: boolean
+    cancelKey?: string
+  }) => invoke<DirFilterResult>('filter_dir', request),
+  /** 取消某个标签仍在执行的递归筛选。 */
+  cancelFilter: (cancelKey: string) => invoke<void>('cancel_filter', { cancelKey }),
   getRoots: () => invoke<DriveInfo[]>('get_roots'),
   /** 列出 FTP / SFTP 目录，条目带类型 / 大小 / 修改时间。 */
   listRemoteDir: (request: {

@@ -64,16 +64,36 @@ fn get_roots() -> Vec<DriveInfo> {
     fs_core::get_roots()
 }
 
-/// 在指定目录内按条件筛选条目（可递归），不依赖全局索引。
+/// 在指定目录内按条件筛选条目（可递归）。
+///
+/// Windows 上优先使用 Everything 索引（百万级条目毫秒级返回），
+/// Everything 未运行 / 未索引该路径时回退到实时目录遍历。
 #[tauri::command]
 async fn filter_dir(
+    state: State<'_, AppState>,
     path: String,
     query: SearchQuery,
     recursive: bool,
+    cancel_key: Option<String>,
 ) -> Result<DirFilterResult, String> {
-    tauri::async_runtime::spawn_blocking(move || dir_filter::filter_dir(&path, &query, recursive))
-        .await
-        .map_err(|error| format!("筛选任务失败: {error}"))?
+    let index = Arc::clone(&state.index);
+    tauri::async_runtime::spawn_blocking(move || {
+        dir_filter::filter_dir_with_index(
+            index.as_ref(),
+            &path,
+            &query,
+            recursive,
+            cancel_key.as_deref(),
+        )
+    })
+    .await
+    .map_err(|error| format!("筛选任务失败: {error}"))?
+}
+
+/// 取消某个标签仍在执行的递归筛选。
+#[tauri::command]
+fn cancel_filter(cancel_key: String) {
+    dir_filter::cancel_filter(&cancel_key);
 }
 
 /// 列出 FTP / SFTP 目录，条目带类型 / 大小 / 修改时间。
@@ -1116,6 +1136,7 @@ pub fn run() {
             list_dir,
             get_roots,
             filter_dir,
+            cancel_filter,
             list_remote_dir,
             remote_transfer,
             discover_smb_neighbors,

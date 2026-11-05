@@ -325,6 +325,27 @@ impl IndexStore {
         self.search_with_events(None, query)
     }
 
+    /// 只走 Everything 索引检索；未运行 / IPC 不可用时返回 `None`。
+    ///
+    /// 与 `search_with_events` 的区别：这里**不会**回退到 Stelix 自己的内存索引。
+    /// 窗格筛选需要「结果完整」而不是「有结果就行」——内存索引只覆盖配置的根目录，
+    /// 拿它当任意文件夹的筛选数据源会静默漏掉文件。
+    #[cfg(windows)]
+    pub fn search_everything(&self, query: &SearchQuery) -> Option<Vec<SearchHit>> {
+        match everything_search(&self.everything_client, query) {
+            EverythingSearch::Hits(hits) => Some(hits),
+            EverythingSearch::Unavailable => {
+                self.mark_everything_unavailable(None);
+                None
+            }
+        }
+    }
+
+    #[cfg(not(windows))]
+    pub fn search_everything(&self, _query: &SearchQuery) -> Option<Vec<SearchHit>> {
+        None
+    }
+
     /// 检索索引；调用方提供 AppHandle 时，Everything 断开会同步更新前端状态。
     pub fn search_with_events(&self, app: Option<&AppHandle>, query: &SearchQuery) -> Vec<SearchHit> {
         #[cfg(windows)]
@@ -458,15 +479,16 @@ fn everything_search(
         | RequestFlags::Size
         | RequestFlags::DateModified
         | RequestFlags::Attributes;
-    // Everything 已按文件名建立索引。用原始关键词缩小候选集，Stelix 的路径、
-    // 类型、大小与时间筛选仍复用本地语义，保证现有查询契约不变。
-    let search = query.text.trim();
+    // 把结构化条件尽量下推给 Everything：路径范围、类型、扩展名、大小与修改时间
+    // 都能在索引内部完成过滤，避免先取回海量候选再在本地丢弃。
+    // 文件名关键词仍然逐个加引号，确保按字面量匹配（不做 Everything 语法解析）。
+    let search = everything_query_string(query);
     let result = {
         let Some(client) = client.as_ref() else {
             return EverythingSearch::Unavailable;
         };
         client
-            .query_wait(search)
+            .query_wait(&search)
             .request_flags(request_flags)
             .max_results(query.limit.max(1) as u32)
             .call()
@@ -492,6 +514,74 @@ fn everything_search(
         })
     });
     EverythingSearch::Hits(hits)
+}
+
+#[cfg(windows)]
+fn everything_query_string(query: &SearchQuery) -> String {
+    let mut parts: Vec<String> = Vec::new();
+
+    // 路径范围：补尾部分隔符，让 `path:` 只命中该目录及其子目录。
+    if let Some(scope) = query.scope.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        let mut path = scope.replace('/', "\\");
+        if !path.ends_with('\\') {
+            path.push('\\');
+        }
+        parts.push(format!("path:\"{path}\""));
+    }
+
+    match query.is_dir {
+        Some(true) => parts.push("folder:".into()),
+        Some(false) => parts.push("file:".into()),
+        None => {}
+    }
+
+    let exts: Vec<String> = query
+        .ext
+        .iter()
+        .map(|ext| ext.trim().trim_start_matches('.').to_lowercase())
+        .filter(|ext| !ext.is_empty() && ext.chars().all(|c| c.is_ascii_alphanumeric()))
+        .collect();
+    if !exts.is_empty() {
+        parts.push(format!("ext:{}", exts.join(";")));
+    }
+
+    if let Some(min) = query.min_size {
+        parts.push(format!("size:>={min}"));
+    }
+    if let Some(max) = query.max_size {
+        parts.push(format!("size:<={max}"));
+    }
+    if let Some(after) = query.modified_after {
+        if let Some(date) = everything_date(after) {
+            parts.push(format!("dm:>={date}"));
+        }
+    }
+
+    // 路径范围存在（窗格筛选）时关键词按字面量匹配：用户输入 `ext:pdf` 时也应搜索
+    // 这个字符串本身，而不是被 Everything 当成语法。Windows 文件名不允许双引号，
+    // 直接剔除即可。全局搜索保持原先的原始输入，继续支持 Everything 通配符。
+    if query.scope.is_some() {
+        for term in query.text.split_whitespace() {
+            let cleaned = term.replace('"', "");
+            if !cleaned.is_empty() {
+                parts.push(format!("\"{cleaned}\""));
+            }
+        }
+    } else if !query.text.trim().is_empty() {
+        parts.push(query.text.trim().to_string());
+    }
+
+    parts.join(" ")
+}
+
+#[cfg(windows)]
+fn everything_date(unix_millis: i64) -> Option<String> {
+    let utc = chrono::DateTime::from_timestamp_millis(unix_millis)?;
+    Some(
+        utc.with_timezone(&chrono::Local)
+            .format("%Y-%m-%d")
+            .to_string(),
+    )
 }
 
 #[cfg(windows)]
@@ -872,5 +962,42 @@ mod tests {
         );
         assert_eq!(store.snapshot().len(), 1);
         assert_eq!(store.status().total, 1);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn everything_query_pushes_scope_and_filters() {
+        let query = SearchQuery {
+            text: "report 2024".into(),
+            scope: Some(r"C:\Users\Ann".into()),
+            is_dir: Some(false),
+            ext: vec!["pdf".into()],
+            min_size: Some(1024),
+            max_size: Some(2048),
+            modified_after: Some(0),
+            limit: 10,
+        };
+        let text = everything_query_string(&query);
+        assert!(text.contains(r#"path:"C:\Users\Ann\""#), "{text}");
+        assert!(text.contains("file:"), "{text}");
+        assert!(text.contains("ext:pdf"), "{text}");
+        assert!(text.contains("size:>=1024"), "{text}");
+        assert!(text.contains("size:<=2048"), "{text}");
+        assert!(text.contains("dm:>="), "{text}");
+        assert!(text.contains("\"report\""), "{text}");
+        assert!(text.contains("\"2024\""), "{text}");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn everything_query_treats_keywords_as_literals() {
+        let query = SearchQuery {
+            text: "ext:pdf \"quoted\"".into(),
+            scope: Some(r"C:\Users\Ann".into()),
+            ..Default::default()
+        };
+        let text = everything_query_string(&query);
+        assert!(text.contains("\"ext:pdf\""), "{text}");
+        assert!(text.contains("\"quoted\""), "{text}");
     }
 }

@@ -623,6 +623,7 @@ export const usePaneStore = defineStore('pane', () => {
       // 递归筛选结果是旧目录树的快照，跨目录后已失效；关键词 / 类型等简单条件也一并清掉，
       // 避免出现「筛选文字还在、递归结果却已换成普通目录」的错位状态。
       if (tab.filterRule?.recursive) {
+        cancelFilterQuery(tab.id)
         tab.filter = ''
         tab.typeFilter = null
         tab.filterRule = null
@@ -772,6 +773,7 @@ export const usePaneStore = defineStore('pane', () => {
     tab.searchQuery = undefined
     // 递归筛选只针对本地目录树，切到远程前清掉，避免条件残留。
     if (tab.filterRule?.recursive) {
+      cancelFilterQuery(tab.id)
       tab.filter = ''
       tab.typeFilter = null
       tab.filterRule = null
@@ -1273,6 +1275,7 @@ export const usePaneStore = defineStore('pane', () => {
     const idx = pane.tabs.findIndex((t) => t.id === tabId)
     if (idx < 0) return
     const closing = pane.tabs[idx]
+    cancelFilterQuery(tabId)
     pane.tabs.splice(idx, 1)
     // 终端标签关闭时同步回收 SSH 会话（连接中的会话由 store 延迟回收）。
     if (closing.kind === 'terminal' && closing.terminalId) {
@@ -1490,6 +1493,7 @@ export const usePaneStore = defineStore('pane', () => {
         path: requestPath,
         query: buildFilterQuery(tab),
         recursive: true,
+        cancelKey: tab.id,
       })
       if (loadTokens.get(tab.id) !== token || tab.path !== requestPath) return false
       tab.filterTruncated = result.truncated
@@ -1520,6 +1524,11 @@ export const usePaneStore = defineStore('pane', () => {
     }
   }
 
+  /** 停止某个标签仍在执行的后台筛选遍历（导航 / 清除筛选 / 关闭标签时调用）。 */
+  function cancelFilterQuery(tabId: string) {
+    void api.cancelFilter(tabId).catch(() => {})
+  }
+
   /**
    * 应用筛选面板的规则。
    *
@@ -1528,6 +1537,7 @@ export const usePaneStore = defineStore('pane', () => {
    */
   async function applyTabFilter(tab: TabState, rule: FileFilterRule) {
     const previousRecursive = !!tab.filterRule?.recursive
+    if (previousRecursive) cancelFilterQuery(tab.id)
     const local = (tab.kind ?? 'files') === 'files'
     const exts = Array.from(
       new Set(
@@ -1576,7 +1586,10 @@ export const usePaneStore = defineStore('pane', () => {
     tab.typeFilter = null
     tab.filterRule = null
     tab.filterTruncated = false
-    if (wasRecursive && (tab.kind ?? 'files') === 'files') void load(tab)
+    if (wasRecursive && (tab.kind ?? 'files') === 'files') {
+      cancelFilterQuery(tab.id)
+      void load(tab)
+    }
   }
 
   /** 搜索栏「当前目录」只设置关键词与类型，清掉筛选面板里的附加条件。 */
@@ -1586,7 +1599,10 @@ export const usePaneStore = defineStore('pane', () => {
     tab.typeFilter = type
     tab.filterRule = null
     tab.filterTruncated = false
-    if (wasRecursive && (tab.kind ?? 'files') === 'files') void load(tab)
+    if (wasRecursive && (tab.kind ?? 'files') === 'files') {
+      cancelFilterQuery(tab.id)
+      void load(tab)
+    }
   }
 
   // ---- 选择 ----
