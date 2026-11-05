@@ -17,6 +17,8 @@ import type { TextPreview } from '../types'
 import type { Cell as ExcelCell, Color as ExcelColor, Workbook as ExcelWorkbook } from 'exceljs'
 import { renderMarkdown } from './ai/markdown'
 import Icon from './icons/Icon.vue'
+import MacWindowLights from './MacWindowLights.vue'
+import { IS_MACOS } from '../utils/platform'
 import type { IconName } from './icons/paths'
 import { formatSize, formatTime } from './Pane/utils'
 
@@ -735,6 +737,7 @@ onBeforeUnmount(() => {
   <div v-if="store.open && item" class="mask" @mousedown.self="store.close()">
     <section class="preview-card" role="dialog" aria-modal="true" :aria-label="`预览 ${item.name}`">
       <header class="pv-head">
+        <MacWindowLights class="pv-lights" :close-only="true" @close="store.close()" />
         <div class="pv-title">
           <Icon :name="kindIcon" :size="15" class="pv-kind-icon" />
           <span class="pv-name" :title="item.path">{{ item.name }}</span>
@@ -760,7 +763,7 @@ onBeforeUnmount(() => {
           <button type="button" class="pv-text-btn" title="用默认应用打开" @click="openExternal">
             <Icon name="external-link" :size="13" /><span>打开</span>
           </button>
-          <button type="button" class="pv-close" title="关闭（Esc）" aria-label="关闭预览" @click="store.close()">
+          <button v-if="!IS_MACOS" type="button" class="pv-close" title="关闭（Esc）" aria-label="关闭预览" @click="store.close()">
             <Icon name="x" :size="15" />
           </button>
         </div>
@@ -978,6 +981,9 @@ onBeforeUnmount(() => {
   padding: 0 10px 0 14px;
   border-bottom: 1px solid var(--border);
   background: var(--bg-panel);
+}
+.pv-lights {
+  margin-right: 2px;
 }
 
 .pv-title {

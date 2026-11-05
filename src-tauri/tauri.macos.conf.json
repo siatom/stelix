@@ -1,0 +1,25 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Stelix File Manager 星索",
+        "width": 1100,
+        "height": 700,
+        "minWidth": 1024,
+        "minHeight": 640,
+        "center": true,
+        "maximized": true,
+        "visible": false,
+        "decorations": true,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "trafficLightPosition": { "x": 14, "y": 22 },
+        "transparent": true,
+        "devtools": false,
+        "dragDropEnabled": true
+      }
+    ]
+  }
+}

@@ -145,11 +145,62 @@ fn extract(
     {
         extract_windows(path, is_dir, use_path_icon, trash, trash_empty)
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    {
+        extract_macos(path, is_dir, use_path_icon, trash, trash_empty)
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
     {
         let _ = (path, is_dir, use_path_icon, trash, trash_empty);
         None
     }
+}
+
+/// Ask macOS Launch Services for the same file and folder icons Finder uses.
+#[cfg(target_os = "macos")]
+fn extract_macos(
+    path: &str,
+    is_dir: bool,
+    use_path_icon: bool,
+    trash: TrashIcon,
+    trash_empty: bool,
+) -> Option<String> {
+    use base64::{engine::general_purpose::STANDARD, Engine as _};
+    use objc2_app_kit::{
+        NSBitmapImageFileType, NSBitmapImageRep, NSImage, NSImageNameFolder,
+        NSImageNameTrashEmpty, NSImageNameTrashFull, NSWorkspace,
+    };
+    use objc2_foundation::{NSDictionary, NSString};
+    use std::ffi::c_void;
+    use std::ptr::NonNull;
+
+    let image = match trash {
+        TrashIcon::Empty => unsafe { NSImage::imageNamed(NSImageNameTrashEmpty) },
+        TrashIcon::State if trash_empty => unsafe { NSImage::imageNamed(NSImageNameTrashEmpty) },
+        TrashIcon::State => unsafe { NSImage::imageNamed(NSImageNameTrashFull) },
+        TrashIcon::None if is_dir && !use_path_icon => unsafe { NSImage::imageNamed(NSImageNameFolder) },
+        TrashIcon::None => {
+            let ns_path = NSString::from_str(path);
+            Some(NSWorkspace::sharedWorkspace().iconForFile(&ns_path))
+        }
+    }?;
+    let tiff = image.TIFFRepresentation()?;
+    let bitmap = NSBitmapImageRep::imageRepWithData(&tiff)?;
+    let properties = NSDictionary::new();
+    let png = unsafe {
+        bitmap.representationUsingType_properties(NSBitmapImageFileType::PNG, &properties)
+    }?;
+    let mut bytes = vec![0u8; png.length()];
+    if bytes.is_empty() {
+        return None;
+    }
+    unsafe {
+        png.getBytes_length(
+            NonNull::new(bytes.as_mut_ptr().cast::<c_void>())?,
+            bytes.len(),
+        );
+    }
+    Some(format!("data:image/png;base64,{}", STANDARD.encode(bytes)))
 }
 
 #[cfg(windows)]

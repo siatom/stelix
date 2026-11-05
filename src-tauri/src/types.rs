@@ -44,6 +44,8 @@ pub struct DriveInfo {
     pub mount: String,
     pub total: u64,
     pub free: u64,
+    #[serde(default)]
+    pub ejectable: bool,
 }
 
 /// 检索查询（由搜索框或 AI 工具调用构造）

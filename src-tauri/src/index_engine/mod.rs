@@ -94,13 +94,33 @@ const SKIPPED_DIR_NAMES: &[&str] = &[
     "perflogs",
 ];
 
+/// macOS 专属跳过项：用户库缓存 / 废纸篓 / 系统索引目录。
+#[cfg(target_os = "macos")]
+const MACOS_SKIPPED_DIR_NAMES: &[&str] = &[
+    "library",
+    ".trash",
+    ".spotlight-v100",
+    ".fseventsd",
+    ".documentrevisions-v100",
+];
+
+#[cfg(target_os = "macos")]
+fn platform_skip_dir(name: &str) -> bool {
+    MACOS_SKIPPED_DIR_NAMES.contains(&name)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn platform_skip_dir(_name: &str) -> bool {
+    false
+}
+
 /// 是否跳过该目录：只按目录名判断（同名文件不受影响），根目录本身永不跳过。
 fn skip_dir(entry: &walkdir::DirEntry) -> bool {
     if entry.depth() == 0 || !entry.file_type().is_dir() {
         return false;
     }
     let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
-    SKIPPED_DIR_NAMES.contains(&name.as_str())
+    SKIPPED_DIR_NAMES.contains(&name.as_str()) || platform_skip_dir(&name)
 }
 
 impl IndexSource for WalkDirSource {
@@ -347,6 +367,7 @@ impl IndexStore {
     }
 
     /// 检索索引；调用方提供 AppHandle 时，Everything 断开会同步更新前端状态。
+    #[cfg_attr(not(windows), allow(unused_variables))]
     pub fn search_with_events(&self, app: Option<&AppHandle>, query: &SearchQuery) -> Vec<SearchHit> {
         #[cfg(windows)]
         match everything_search(&self.everything_client, query) {

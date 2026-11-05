@@ -26,6 +26,16 @@ pnpm tauri dev
 pnpm dev
 ```
 
+### macOS
+
+macOS 需要先安装 Xcode Command Line Tools（提供编译 Tauri 应用所需的 clang / SDK）：
+
+```bash
+xcode-select --install
+```
+
+macOS 上 Everything 搜索、UAC 提权、Shell 图标与 WSL 等 Windows 专属功能会自动禁用或回退；文件操作、右键菜单、废纸篓和终端集成使用 macOS 原生实现。
+
 ## 构建
 
 ```bash

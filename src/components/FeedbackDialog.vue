@@ -6,6 +6,8 @@ import { openUrl } from '@tauri-apps/plugin-opener'
 import { api } from '../api'
 import { useUiStore } from '../stores/ui'
 import Icon from './icons/Icon.vue'
+import MacWindowLights from './MacWindowLights.vue'
+import { IS_MACOS } from '../utils/platform'
 import type { FeedbackAuth, FeedbackCreated } from '../types'
 
 type FeedbackKind = 'Bug' | '功能建议' | '其它'
@@ -111,11 +113,21 @@ async function copyLink() {
     <div v-if="ui.feedbackOpen" class="feedback-backdrop" @mousedown.self="ui.closeFeedback()">
       <section class="feedback-dialog" role="dialog" aria-modal="true" aria-labelledby="feedback-title">
         <header class="dialog-head">
-          <div>
-            <h2 id="feedback-title">意见反馈</h2>
-            <p>经本机 GitHub CLI (gh) 直接创建 issue，提交到 siatom/stelix</p>
+          <div class="dialog-head-main">
+            <MacWindowLights class="dialog-lights" close-only @close="ui.closeFeedback()" />
+            <div>
+              <h2 id="feedback-title">意见反馈</h2>
+              <p>经本机 GitHub CLI (gh) 直接创建 issue，提交到 siatom/stelix</p>
+            </div>
           </div>
-          <button type="button" class="close-btn" title="关闭" aria-label="关闭反馈" @click="ui.closeFeedback()">
+          <button
+            v-if="!IS_MACOS"
+            type="button"
+            class="close-btn"
+            title="关闭"
+            aria-label="关闭反馈"
+            @click="ui.closeFeedback()"
+          >
             <Icon name="x" :size="16" />
           </button>
         </header>
@@ -243,6 +255,12 @@ async function copyLink() {
   justify-content: space-between;
   padding: 16px 20px;
   border-bottom: 1px solid var(--border);
+}
+.dialog-head-main {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
 }
 .dialog-head h2 {
   margin: 0;

@@ -17,16 +17,22 @@ export function basename(p: string): string {
   return parts.length ? parts[parts.length - 1] : p
 }
 
-/** 取父目录（Windows 风格；根返回自身） */
+/** 取父目录（兼容 Windows 与 POSIX；根返回自身） */
 export function dirname(p: string): string {
   const norm = trimTrailing(p)
+  if (!norm) return p
+  // POSIX 根：/ 以及 /Volumes/X 这类顶层卷
+  if (norm === '/') return '/'
   const shareRoot = norm.match(/^(\\\\[^\\/]+[\\/][^\\/]+)/)
   if (shareRoot && norm.length <= shareRoot[1].length) return shareRoot[1]
-  const idx = Math.max(norm.lastIndexOf('\\'), norm.lastIndexOf('/'))
+  const posix = norm.lastIndexOf('/')
+  const win = norm.lastIndexOf('\\')
+  const idx = Math.max(posix, win)
   if (idx < 0) return p
   // C:\foo -> C:\
   if (idx === 2 && norm[1] === ':') return norm.slice(0, 3)
   const head = norm.slice(0, idx)
+  if (!head) return '/'
   if (head.length <= 2 && head[1] === ':') return `${head}\\`
   return head
 }
@@ -34,7 +40,8 @@ export function dirname(p: string): string {
 /** 拼接子路径（自动选择分隔符） */
 export function joinPath(dir: string, name: string): string {
   if (!dir) return name
-  const sep = /^[A-Za-z]:/.test(dir) || dir.includes('\\') ? '\\' : '/'
+  if (dir === '/') return `/${name}`
+  const sep = /^[A-Za-z]:/.test(dir) || dir.startsWith('\\\\') ? '\\' : '/'
   const trimmed = dir.replace(/[\\/]+$/, '')
   if (!trimmed) return name
   return `${trimmed}${sep}${name}`

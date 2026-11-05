@@ -8,18 +8,21 @@ import type { TreeNodeData } from './shared'
 import { clearWatchSource, FS_CHANGED_EVENT, normalizePath, setWatchSource } from '../../shell/dirWatch'
 import { compareNames } from '../../naturalSort'
 import Icon from '../icons/Icon.vue'
+import type { IconName } from '../icons/paths'
 import FileIcon from '../icons/FileIcon.vue'
 import { folderIcon } from '../Pane/utils'
+import { IS_MACOS } from '../../utils/platform'
 
-const props = defineProps<{ node: TreeNodeData; depth: number }>()
+const props = defineProps<{ node: TreeNodeData; depth: number; ejectable?: boolean; icon?: IconName }>()
 const emit = defineEmits<{
   (e: 'navigate', path: string): void
   (e: 'contextmenu', event: MouseEvent, path: string): void
+  (e: 'eject', path: string): void
 }>()
 
 const ui = useUiStore()
 
-const isDrive = props.depth === 0 && /^[A-Za-z]:[\\/]?$/.test(props.node.path)
+const isDrive = props.depth === 0 && (/^[A-Za-z]:[\\/]?$/.test(props.node.path) || props.node.path === '/' || props.node.path.startsWith('/Volumes/'))
 
 const expanded = ref(false)
 const loaded = ref(false)
@@ -109,8 +112,9 @@ const childPad = (d: number) => `${d * 12 + 22}px`
         <Icon name="chevron-right" :size="11" />
       </span>
       <span class="ico">
+        <Icon v-if="icon" :name="icon" :size="18" />
         <FileIcon
-          v-if="isDrive"
+          v-else-if="isDrive"
           :path="node.path"
           :is-dir="false"
           :is-drive="true"
@@ -123,12 +127,15 @@ const childPad = (d: number) => `${d * 12 + 22}px`
           :path="node.path"
           :is-dir="true"
           :ext="null"
-          :use-path-icon="true"
+          :use-path-icon="!IS_MACOS"
           :fallback="folderIcon(expanded)"
           :size="18"
         />
       </span>
       <span class="label">{{ node.name }}</span>
+      <button v-if="depth === 0 && ejectable" class="eject" title="弹出此驱动器" aria-label="弹出此驱动器" @click.stop="emit('eject', node.path)">
+        <Icon name="eject" :size="14" />
+      </button>
     </div>
 
     <div v-if="expanded">
@@ -145,6 +152,7 @@ const childPad = (d: number) => `${d * 12 + 22}px`
         :depth="depth + 1"
         @navigate="emit('navigate', $event)"
         @contextmenu="forwardContextMenu"
+        @eject="emit('eject', $event)"
       />
     </div>
   </div>
@@ -165,6 +173,22 @@ const childPad = (d: number) => `${d * 12 + 22}px`
 .row:hover {
   background: var(--bg-hover);
 }
+.eject {
+  width: 22px;
+  height: 22px;
+  flex: none;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--fg-muted);
+  background: transparent;
+  cursor: pointer;
+}
+.row:hover .eject, .eject:focus-visible { display: flex; }
+.eject:hover { color: var(--fg); background: var(--bg-active); }
 .twist {
   width: 12px;
   flex: none;

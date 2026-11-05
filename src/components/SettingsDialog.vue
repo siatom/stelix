@@ -2,7 +2,9 @@
 import { onMounted, onUnmounted } from 'vue'
 import { useUiStore } from '../stores/ui'
 import Icon from './icons/Icon.vue'
+import MacWindowLights from './MacWindowLights.vue'
 import SettingsPanel from './Sidebar/SettingsPanel.vue'
+import { IS_MACOS } from '../utils/platform'
 
 const ui = useUiStore()
 
@@ -19,11 +21,21 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
     <div v-if="ui.settingsOpen" class="settings-backdrop" @mousedown.self="ui.closeSettings()">
       <section class="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title">
         <header class="dialog-head">
-          <div>
-            <h2 id="settings-title">设置</h2>
-            <p>管理界面、文件索引与 AI 大模型接入</p>
+          <div class="dialog-head-main">
+            <MacWindowLights class="dialog-lights" close-only @close="ui.closeSettings()" />
+            <div>
+              <h2 id="settings-title">设置</h2>
+              <p>管理界面、文件索引与 AI 大模型接入</p>
+            </div>
           </div>
-          <button type="button" class="close-btn" title="关闭设置" aria-label="关闭设置" @click="ui.closeSettings()">
+          <button
+            v-if="!IS_MACOS"
+            type="button"
+            class="close-btn"
+            title="关闭设置"
+            aria-label="关闭设置"
+            @click="ui.closeSettings()"
+          >
             <Icon name="x" :size="16" />
           </button>
         </header>
@@ -64,6 +76,12 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   justify-content: space-between;
   padding: 18px 22px;
   border-bottom: 1px solid var(--border);
+}
+.dialog-head-main {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
 }
 .dialog-head h2 {
   margin: 0;

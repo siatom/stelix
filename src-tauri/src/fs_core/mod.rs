@@ -25,16 +25,23 @@ pub fn path_id(path: &str) -> u64 {
     use std::collections::hash_map::DefaultHasher;
     use std::hash::{Hash, Hasher};
     let mut h = DefaultHasher::new();
-    path.to_lowercase().hash(&mut h);
+    // Windows 路径大小写不敏感；macOS / Linux 可能是大小写敏感卷，保留原始大小写。
+    if cfg!(windows) {
+        path.to_lowercase().hash(&mut h);
+    } else {
+        path.hash(&mut h);
+    }
     h.finish()
 }
 
-/// 读取 Windows 文件属性中的「隐藏 / 系统」标志。
+/// 读取隐藏 / 系统标志。
 ///
-/// 非 Windows 平台恒返回 `(false, false)`，保持契约字段可用。
-fn file_flags(meta: &fs::Metadata) -> (bool, bool) {
+/// Windows 读取文件属性中的 HIDDEN / SYSTEM 位；类 Unix 平台按「文件名以点开头」
+/// 判定隐藏项（Finder 的隐藏约定），系统标志恒为 false。
+fn file_flags(path: &Path, meta: &fs::Metadata) -> (bool, bool) {
     #[cfg(windows)]
     {
+        let _ = path;
         use std::os::windows::fs::MetadataExt;
         const FILE_ATTRIBUTE_HIDDEN: u32 = 0x2;
         const FILE_ATTRIBUTE_SYSTEM: u32 = 0x4;
@@ -47,7 +54,11 @@ fn file_flags(meta: &fs::Metadata) -> (bool, bool) {
     #[cfg(not(windows))]
     {
         let _ = meta;
-        (false, false)
+        let hidden = path
+            .file_name()
+            .map(|name| name.to_string_lossy().starts_with('.'))
+            .unwrap_or(false);
+        (hidden, false)
     }
 }
 
@@ -69,7 +80,7 @@ pub fn to_entry(path: &Path, meta: &fs::Metadata) -> FileEntry {
         .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
         .map(|d| d.as_millis() as i64)
         .unwrap_or(0);
-    let (hidden, system) = file_flags(meta);
+    let (hidden, system) = file_flags(path, meta);
     FileEntry {
         id: path_id(&path_str),
         name,
@@ -109,12 +120,12 @@ pub fn list_dir(path: &str) -> Result<DirListing, String> {
 
 /// 展开用户在地址栏输入的路径文本。
 ///
-/// 支持 Windows 命令行的常见写法，让 `%APPDATA%`、`~\Downloads` 这类输入
+/// 支持各平台命令行的常见写法，让 `%APPDATA%`、`$HOME`、`~/Downloads` 这类输入
 /// 能直接导航：
-/// - 环境变量：`%APPDATA%`、`%USERPROFILE%\Downloads`（未知变量保持原样）；
-/// - 主目录简写：`~`、`~\Downloads`、`~/Downloads`；
-/// - 资源管理器「复制为路径」带上的成对引号；
-/// - 统一路径分隔符为 `\`（Windows）。
+/// - 环境变量：Windows `%APPDATA%`、类 Unix `$HOME` / `${HOME}`（未知变量保持原样）；
+/// - 主目录简写：`~`、`~\\Downloads`、`~/Downloads`；
+/// - 资源管理器 / Finder「复制为路径」带上的成对引号；
+/// - Windows 上统一路径分隔符为 `\`，macOS / Linux 保持 `/`。
 ///
 /// 不做 `canonicalize`：目标可能尚不存在，且调用方需要保留用户输入的大小写。
 pub fn expand_path(input: &str) -> String {
@@ -122,7 +133,15 @@ pub fn expand_path(input: &str) -> String {
     if value.is_empty() {
         return value;
     }
-    expand_home(expand_env_vars(&value)).replace('/', "\\")
+    let expanded = expand_home(expand_env_vars(&value));
+    #[cfg(windows)]
+    {
+        expanded.replace('/', "\\")
+    }
+    #[cfg(not(windows))]
+    {
+        expanded
+    }
 }
 
 /// 去掉首尾成对的单 / 双引号（资源管理器复制路径会带上）。
@@ -179,6 +198,50 @@ fn expand_env_vars_once(input: &str) -> String {
         }
     }
     out.push_str(rest);
+    // 类 Unix 的 `$HOME` / `${HOME}` 写法（Windows 上通常不会出现，也无副作用）。
+    expand_dollar_vars(&out)
+}
+
+/// 展开 `$NAME` / `${NAME}`；未定义或名称为空时保持原样。
+fn expand_dollar_vars(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    let mut rest = input;
+    while let Some(pos) = rest.find('$') {
+        out.push_str(&rest[..pos]);
+        let after = &rest[pos + 1..];
+        let (name, consumed) = if let Some(braced) = after.strip_prefix('{') {
+            match braced.find('}') {
+                Some(end) => (&braced[..end], 2 + end + 1),
+                None => {
+                    out.push('$');
+                    rest = after;
+                    continue;
+                }
+            }
+        } else {
+            let end = after
+                .char_indices()
+                .take_while(|(_, c)| c.is_ascii_alphanumeric() || *c == '_')
+                .map(|(i, c)| i + c.len_utf8())
+                .last()
+                .unwrap_or(0);
+            if end == 0 {
+                out.push('$');
+                rest = after;
+                continue;
+            }
+            (&after[..end], 1 + end)
+        };
+        match std::env::var(name) {
+            Ok(value) if !value.is_empty() => out.push_str(&value),
+            _ => {
+                out.push('$');
+                out.push_str(name);
+            }
+        }
+        rest = &rest[pos + consumed..];
+    }
+    out.push_str(rest);
     out
 }
 
@@ -231,8 +294,24 @@ pub fn collect_entries(root: &str, max_depth: usize, limit: usize) -> Vec<FileEn
     out
 }
 
-/// 枚举本机驱动器
+/// 枚举本机驱动器 / 挂载卷。
 pub fn get_roots() -> Vec<DriveInfo> {
+    #[cfg(windows)]
+    {
+        windows_roots()
+    }
+    #[cfg(target_os = "macos")]
+    {
+        macos_roots()
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        unix_roots()
+    }
+}
+
+#[cfg(windows)]
+fn windows_roots() -> Vec<DriveInfo> {
     let mut out = Vec::new();
     let mask = unsafe { windows_sys::Win32::Storage::FileSystem::GetLogicalDrives() };
     for i in 0..26u32 {
@@ -250,11 +329,87 @@ pub fn get_roots() -> Vec<DriveInfo> {
             mount,
             total,
             free,
+            ejectable: unsafe {
+                windows_sys::Win32::Storage::FileSystem::GetDriveTypeW(
+                    format!("{letter}:\\\\").encode_utf16().chain(std::iter::once(0)).collect::<Vec<_>>().as_ptr(),
+                ) == windows_sys::Win32::Storage::FileSystem::DRIVE_REMOVABLE
+                    || windows_sys::Win32::Storage::FileSystem::GetDriveTypeW(
+                        format!("{letter}:\\\\").encode_utf16().chain(std::iter::once(0)).collect::<Vec<_>>().as_ptr(),
+                    ) == windows_sys::Win32::Storage::FileSystem::DRIVE_CDROM
+            },
         });
     }
     out
 }
 
+/// macOS：根卷 + `/Volumes` 下的外接 / 网络卷（Finder 的「位置」列表）。
+#[cfg(target_os = "macos")]
+fn macos_roots() -> Vec<DriveInfo> {
+    use std::os::unix::fs::MetadataExt;
+
+    let system_volume = fs::metadata("/").ok().map(|metadata| metadata.dev());
+    let mut out = vec![DriveInfo {
+        name: "Macintosh HD".to_string(),
+        mount: "/".to_string(),
+        total: drive_space("/").0,
+        free: drive_space("/").1,
+        ejectable: false,
+    }];
+    if let Ok(entries) = fs::read_dir("/Volumes") {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let Ok(metadata) = fs::metadata(&path) else {
+                continue;
+            };
+            // 根卷可能会以别名再次出现在 /Volumes；用设备号识别同一卷，
+            // 同时保留同一物理盘上的其他 APFS 卷（它们有不同设备号）。
+            if system_volume == Some(metadata.dev()) || !metadata.is_dir() {
+                continue;
+            }
+            let mount = path.to_string_lossy().to_string();
+            let name = path
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| mount.clone());
+            let (total, free) = drive_space(&mount);
+            let ejectable = mount.starts_with("/Volumes/") && name != "Macintosh HD";
+            out.push(DriveInfo {
+                name,
+                mount,
+                total,
+                free,
+                ejectable,
+            });
+        }
+    }
+    out
+}
+
+/// 其他类 Unix 平台的最小实现：根卷 + 用户主目录。
+#[cfg(all(unix, not(target_os = "macos")))]
+fn unix_roots() -> Vec<DriveInfo> {
+    let mut out = vec![DriveInfo {
+        name: "根目录".to_string(),
+        mount: "/".to_string(),
+        total: drive_space("/").0,
+        free: drive_space("/").1,
+        ejectable: false,
+    }];
+    if let Some(home) = dirs::home_dir() {
+        let mount = home.to_string_lossy().to_string();
+        let (total, free) = drive_space(&mount);
+        out.push(DriveInfo {
+            name: "主目录".to_string(),
+            mount,
+            total,
+            free,
+            ejectable: false,
+        });
+    }
+    out
+}
+
+#[cfg(windows)]
 fn drive_space(root: &str) -> (u64, u64) {
     let wide: Vec<u16> = root.encode_utf16().chain(std::iter::once(0)).collect();
     let mut free_to_caller: u64 = 0;
@@ -273,6 +428,27 @@ fn drive_space(root: &str) -> (u64, u64) {
     } else {
         (0, 0)
     }
+}
+
+#[cfg(unix)]
+fn drive_space(root: &str) -> (u64, u64) {
+    use std::ffi::CString;
+    let Ok(path) = CString::new(root) else {
+        return (0, 0);
+    };
+    let mut stat: libc::statvfs = unsafe { std::mem::zeroed() };
+    if unsafe { libc::statvfs(path.as_ptr(), &mut stat) } != 0 {
+        return (0, 0);
+    }
+    let block_size = if stat.f_frsize != 0 {
+        stat.f_frsize as u64
+    } else {
+        stat.f_bsize as u64
+    };
+    (
+        (stat.f_blocks as u64).saturating_mul(block_size),
+        (stat.f_bavail as u64).saturating_mul(block_size),
+    )
 }
 
 // ---------------------------------------------------------------- 文件操作
@@ -994,7 +1170,15 @@ fn move_undo(dest: &Path, parent: &str) -> FsOp {
 /// 文件被占用 ERROR_SHARING_VIOLATION(32)、目录非空 ERROR_DIR_NOT_EMPTY(145)、
 /// 权限不足 ERROR_PRIVILEGE_NOT_HELD(1314)、网络拒绝 WSAEACCES(10013)。
 fn is_access_denied(e: &std::io::Error) -> bool {
-    e.raw_os_error() == Some(5)
+    #[cfg(windows)]
+    {
+        e.raw_os_error() == Some(5)
+    }
+    #[cfg(not(windows))]
+    {
+        // EACCES / EPERM
+        matches!(e.raw_os_error(), Some(1) | Some(13))
+    }
 }
 
 /// 「文件被占用」的提示后缀，形如 `（被 a.exe、b.exe 占用）`。
@@ -1275,6 +1459,7 @@ mod tests {
     }
 
     /// 地址栏输入：%VAR% / ~ / 引号 / 正斜杠都要能落到真实路径。
+    #[cfg(windows)]
     #[test]
     fn expand_path_handles_env_vars_home_and_quotes() {
         std::env::set_var("STELIX_TEST_EXPAND_DIR", r"D:\StelixTestDir");
@@ -1292,6 +1477,29 @@ mod tests {
         assert_eq!(expand_path(""), "");
     }
 
+    /// 类 Unix：`$VAR` / `${VAR}` / `~` / 成对引号，且保留正斜杠。
+    #[cfg(not(windows))]
+    #[test]
+    fn expand_path_handles_env_vars_home_and_quotes() {
+        std::env::set_var("STELIX_TEST_EXPAND_DIR", "/tmp/StelixTestDir");
+        assert_eq!(
+            expand_path("$STELIX_TEST_EXPAND_DIR/src"),
+            "/tmp/StelixTestDir/src"
+        );
+        assert_eq!(
+            expand_path("${STELIX_TEST_EXPAND_DIR}/src"),
+            "/tmp/StelixTestDir/src"
+        );
+        // 未定义的变量保持原样，避免把用户输入静默改写。
+        assert_eq!(
+            expand_path("/tmp/$STELIX_NO_SUCH_VAR/a"),
+            "/tmp/$STELIX_NO_SUCH_VAR/a"
+        );
+        // 成对引号会被去掉，正斜杠保持不变。
+        assert_eq!(expand_path("  \"/tmp/a/b\"  "), "/tmp/a/b");
+        assert_eq!(expand_path(""), "");
+    }
+
     #[test]
     fn expand_path_expands_home_dir() {
         let home = std::env::var("USERPROFILE")
@@ -1301,11 +1509,18 @@ mod tests {
         let Some(home) = home else {
             return;
         };
-        let home = home.replace('/', "\\");
-        let home = home.trim_end_matches('\\');
+        let home = if cfg!(windows) {
+            home.replace('/', "\\").trim_end_matches('\\').to_string()
+        } else {
+            home.trim_end_matches('/').to_string()
+        };
+        let sep = if cfg!(windows) { '\\' } else { '/' };
         assert_eq!(expand_path("~"), home);
-        assert_eq!(expand_path(r"~\Downloads"), format!(r"{home}\Downloads"));
-        assert_eq!(expand_path("~/Downloads"), format!(r"{home}\Downloads"));
+        assert_eq!(
+            expand_path(&format!("~{sep}Downloads")),
+            format!("{home}{sep}Downloads")
+        );
+        assert_eq!(expand_path("~/Downloads"), format!("{home}{sep}Downloads"));
         // ~ 只在路径开头且后面紧跟分隔符时才是主目录。
         assert_eq!(expand_path("~foo"), "~foo");
     }
@@ -1454,9 +1669,18 @@ mod tests {
 
     #[test]
     fn only_access_denied_counts_as_elevatable() {
-        // 只有 ERROR_ACCESS_DENIED(5) 值得提权重试。
-        assert!(is_access_denied(&std::io::Error::from_raw_os_error(5)));
-        // 文件被占用 / 目录非空 / 权限不足 / 网络拒绝：都不该触发提权。
+        #[cfg(windows)]
+        {
+            // 只有 ERROR_ACCESS_DENIED(5) 值得提权重试。
+            assert!(is_access_denied(&std::io::Error::from_raw_os_error(5)));
+        }
+        #[cfg(not(windows))]
+        {
+            // 类 Unix：EACCES(13) / EPERM(1) 属于权限不足。
+            assert!(is_access_denied(&std::io::Error::from_raw_os_error(1)));
+            assert!(is_access_denied(&std::io::Error::from_raw_os_error(13)));
+        }
+        // 文件被占用 / 目录非空 / 其他错误：都不该触发提权。
         for code in [32, 145, 1314, 10013] {
             assert!(
                 !is_access_denied(&std::io::Error::from_raw_os_error(code)),

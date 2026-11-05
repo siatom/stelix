@@ -2,6 +2,7 @@
 // 文件列表：虚拟滚动 + 详细/列表/图标三视图 + 选择 + 右键菜单（WS-D）
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useVirtualizer } from '@tanstack/vue-virtual'
+import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { openPath } from '@tauri-apps/plugin-opener'
 import { startDrag } from '@crabnebula/tauri-plugin-drag'
 import type { FileEntry, FsOp, RemoteLocation, RemoteTransferItem, TabState } from '../../types'
@@ -35,6 +36,8 @@ const paneStore = usePaneStore()
 const previewStore = usePreviewStore()
 const ui = useUiStore()
 
+/** Windows 走真实 Shell 菜单（自带标准文件项）；其它平台需要自行构建。 */
+const isWindows = typeof navigator !== 'undefined' && /Windows/i.test(navigator.userAgent)
 const ICON_CAP = 600
 const DRAG_TYPE = 'application/x-stelix-items'
 const DRAG_FALLBACK_TYPE = 'text/plain'
@@ -1138,19 +1141,56 @@ function togglePreview(): boolean {
 }
 
 /**
+ * macOS / Linux 的标准文件操作项。
+ *
+ * Windows 上这些项由系统 Shell 菜单提供；其它平台用 Tauri 原生菜单只渲染应用传入的条目，
+ * 因此需要在这里补齐常用的打开 / 剪切 / 删除等操作。
+ */
+function standardContextMenuItems(entry: FileEntry): { id: string; label: string }[] {
+  // currentDirEntry() 以 id = -1 标记「在空白处右键」。
+  const blank = entry.id === -1
+  const items: { id: string; label: string }[] = []
+  if (props.tab.kind === 'trash') {
+    if (!blank) items.push({ id: 'open', label: '打开' }, { id: 'properties', label: '属性' })
+    items.push({ id: 'refresh', label: '刷新' })
+    return items
+  }
+  if (blank) {
+    items.push(
+      { id: 'paste', label: '粘贴' },
+      { id: 'new-folder', label: '新建文件夹' },
+      { id: 'new-file', label: '新建文件' },
+      { id: 'refresh', label: '刷新' },
+      { id: 'select-all', label: '全选' },
+    )
+    return items
+  }
+  items.push({ id: 'open', label: '打开' })
+  if (!entry.isDir) {
+    items.push({ id: 'open-with', label: '打开方式…' }, { id: 'preview', label: '预览' })
+  }
+  items.push({ id: 'copy', label: '复制' }, { id: 'cut', label: '剪切' })
+  if (props.tab.selected.length === 1) items.push({ id: 'rename', label: '重命名' })
+  items.push({ id: 'delete', label: '删除' }, { id: 'delete-permanent', label: '永久删除' })
+  items.push({ id: 'terminal', label: entry.isDir ? '在终端中打开' : '在终端中显示' })
+  items.push({ id: 'properties', label: '属性' })
+  return items
+}
+
+/**
  * 系统菜单末尾追加的应用扩展项（顺序固定）。
  * 回收站标签不追加任何应用项；远程标签不会走到这里。
  */
-function contextMenuItems(): { id: string; label: string }[] {
-  if (props.tab.kind === 'trash') return []
+function contextMenuItems(entry: FileEntry): { id: string; label: string }[] {
+  const items = isWindows ? [] : standardContextMenuItems(entry)
+  if (props.tab.kind === 'trash') return items
   const selected = props.tab.selected.length
-  const items: { id: string; label: string }[] = [
-    { id: 'undo', label: paneStore.canUndo ? `撤销${paneStore.undoLabel}` : '撤销上一步' },
-  ]
+  items.push({ id: 'undo', label: paneStore.canUndo ? `撤销${paneStore.undoLabel}` : '撤销上一步' })
   // 单选文件时把「预览」放在最前：这是最常用的一项。
   const single =
     selected === 1 ? props.tab.entries.find((entry) => entry.path === props.tab.selected[0]) : undefined
-  if (single && !single.isDir) items.unshift({ id: 'preview', label: '预览' })
+  // 非 Windows 的标准项里已经有「预览」，不要重复添加。
+  if (isWindows && single && !single.isDir) items.unshift({ id: 'preview', label: '预览' })
   // 重做只在撤销栈里确实有可重做项时出现（系统菜单不支持禁用项）。
   if (paneStore.canRedo) items.push({ id: 'redo', label: `重做${paneStore.redoLabel}` })
   if (selected) {
@@ -1183,6 +1223,74 @@ function copySelectedText(kind: 'name' | 'path') {
 /** 分发系统菜单里被选中的应用扩展项（目标一律取当前选中集，而非可能已过期的 entry）。 */
 function handleCtxAction(id: string, entry: FileEntry) {
   switch (id) {
+    case 'open':
+      void openEntry(entry, true)
+      return
+    case 'open-with':
+      void api.showOpenWith(entry.path).catch((error) => {
+        ui.setStatusText(`无法打开「打开方式」：${String(error)}`)
+      })
+      return
+    case 'terminal':
+      void api.openInTerminal(entry.isDir ? entry.path : dirname(entry.path)).catch((error) => {
+        ui.setStatusText(`无法打开终端：${String(error)}`)
+      })
+      return
+    case 'properties':
+      void api.showItemProperties(entry.path).catch((error) => {
+        ui.setStatusText(`无法查看属性：${String(error)}`)
+      })
+      return
+    case 'copy':
+    case 'cut': {
+      const sel = [...props.tab.selected]
+      if (!sel.length) return
+      const location = props.tab.remote
+      if (location) {
+        paneStore.setClipboard(
+          id === 'copy' ? 'copy' : 'move',
+          sel,
+          location,
+          transferItemsFor(sel),
+        )
+      } else {
+        paneStore.setClipboard(id === 'copy' ? 'copy' : 'move', sel)
+      }
+      return
+    }
+    case 'paste':
+      if (!isLocal.value && !isRemote.value) return
+      void paneStore.pasteInto(props.paneId, props.tab.path)
+      return
+    case 'rename':
+      if (!canFileOp.value) return
+      if (props.tab.selected.length > 1) batchRenameOpen.value = true
+      else if (props.tab.selected.length === 1) startRename(props.tab.selected[0])
+      return
+    case 'delete':
+    case 'delete-permanent':
+      if (!canFileOp.value) return
+      if (props.tab.selected.length) {
+        emit('delete', [...props.tab.selected], id === 'delete-permanent')
+      }
+      return
+    case 'new-folder':
+      startCreate('mkdir')
+      return
+    case 'new-file':
+      startCreate('createFile')
+      return
+    case 'refresh':
+      void paneStore.refresh(props.paneId)
+      return
+    case 'select-all': {
+      const items = navItems()
+      if (!items.length) return
+      props.tab.selected = items.map((item) => item.path)
+      anchor = 0
+      navCursor = items.length - 1
+      return
+    }
     case 'preview':
       openPreview(entry)
       return
@@ -1225,9 +1333,27 @@ function handleCtxAction(id: string, entry: FileEntry) {
   }
 }
 
+/**
+ * 非 Windows 平台弹出的原生菜单是异步的：命令立即返回，选中项稍后通过
+ * `shell-menu:action` 事件回传。这里记住发起菜单的条目，事件到达时再分发。
+ */
+let pendingCtxEntry: FileEntry | null = null
+
+function onShellMenuAction(event: { payload: string }) {
+  const entry = pendingCtxEntry
+  pendingCtxEntry = null
+  if (!entry) return
+  handleCtxAction(event.payload, entry)
+}
+
 async function showNativeCtx(event: MouseEvent, entry: FileEntry) {
   cancelPendingRename()
-  if (!props.tab.selected.includes(entry.path)) props.tab.selected = [entry.path]
+  // currentDirEntry() 以 id = -1 表示「在空白处右键」：此时不要把当前目录本身
+  // 写进选中集，否则复制 / 移动 / 复制副本等应用项会误作用于整个目录。
+  if (entry.id !== -1 && !props.tab.selected.includes(entry.path)) {
+    props.tab.selected = [entry.path]
+  }
+  if (!isWindows) pendingCtxEntry = entry
   try {
     const picked = await api.showNativeShellMenu(
       entry.path,
@@ -1236,10 +1362,14 @@ async function showNativeCtx(event: MouseEvent, entry: FileEntry) {
         y: event.clientY,
         scale: window.devicePixelRatio || 1,
       },
-      contextMenuItems(),
+      contextMenuItems(entry),
     )
-    if (picked) handleCtxAction(picked, entry)
+    if (picked) {
+      pendingCtxEntry = null
+      handleCtxAction(picked, entry)
+    }
   } catch (error) {
+    pendingCtxEntry = null
     ui.setStatusText(`无法打开系统菜单：${String(error)}`)
   }
 }
@@ -1375,12 +1505,23 @@ function onGlobalKey(ev: KeyboardEvent) {
   }
 }
 
+let unlistenShellMenu: UnlistenFn | null = null
+let shellMenuListenerDisposed = false
+
 onMounted(() => {
   window.addEventListener('keydown', onGlobalKey)
   window.addEventListener('stelix:batch-rename', onBatchRenameRequest)
+  // macOS / Linux 的原生菜单选中项通过事件回传（Windows 由命令直接返回）。
+  void listen<string>('shell-menu:action', onShellMenuAction).then((off) => {
+    if (shellMenuListenerDisposed) off()
+    else unlistenShellMenu = off
+  })
 })
 
 onBeforeUnmount(() => {
+  shellMenuListenerDisposed = true
+  unlistenShellMenu?.()
+  unlistenShellMenu = null
   stopColumnResize()
   scrollPortObserver?.disconnect()
   scrollPortObserver = null

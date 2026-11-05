@@ -64,6 +64,7 @@ export interface DriveInfo {
   mount: string
   total: number
   free: number
+  ejectable?: boolean
 }
 
 export interface SearchQuery {

@@ -14,6 +14,7 @@ const CIRCLE = (cx: number, cy: number, r: number) =>
   `M${cx - r} ${cy}a${r} ${r} 0 1 0 ${r * 2} 0a${r} ${r} 0 1 0 ${-r * 2} 0`
 
 export const ICONS = {
+  eject: ['M5 18h14', 'M5 15l7-10 7 10H5z'],
   // ---------------------------------------------------------------- 导航箭头
   'chevron-right': ['M9.5 6l6 6-6 6'],
   'chevron-down': ['M6 9.5l6 6 6-6'],

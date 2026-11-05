@@ -109,17 +109,17 @@ button:disabled {
   background: var(--accent-soft);
 }
 
-/* ---- 根布局：左侧图标栏 | 侧栏面板 | 主区 ---- */
+/* ---- 根布局：通栏标题栏 | 左侧图标栏 | 侧栏面板 | 主区 ---- */
 .app-root {
   display: grid;
   grid-template-columns: auto auto 1fr;
   /* 侧栏与主区之间不留间隙，改用背景深浅区分（见 --sidebar-bg） */
   column-gap: 0;
-  /* 首行与侧栏品牌带同高（40px）；图标栏与侧栏上下贯通，标题栏只覆盖右侧主区。
+  /* 标题栏横向拉通整个窗口；图标栏与侧栏从标题栏下方开始。
      minmax(0, 1fr)：内容行不允许被内容撑高（否则文件多时会把状态栏顶出视口） */
   grid-template-rows: 40px minmax(0, 1fr);
   grid-template-areas:
-    'activity sidebar titlebar'
+    'titlebar titlebar titlebar'
     'activity sidebar main';
   height: 100%;
   width: 100%;
@@ -132,7 +132,7 @@ button:disabled {
 .area-sidebar {
   grid-area: sidebar;
   min-height: 0;
-  padding: 40px 0 8px;
+  padding: 0 0 8px;
 }
 .area-main {
   grid-area: main;

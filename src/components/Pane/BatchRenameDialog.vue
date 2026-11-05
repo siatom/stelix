@@ -4,6 +4,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import type { FileEntry } from '../../types'
 import { dirname, joinPath } from './utils'
 import Icon from '../icons/Icon.vue'
+import MacWindowLights from '../MacWindowLights.vue'
 
 const props = defineProps<{
   /** 当前选中的条目。 */
@@ -22,8 +23,10 @@ const start = ref(1)
 const width = ref(2)
 const inputEl = ref<HTMLInputElement | null>(null)
 
-/** Windows 文件名不允许的字符 / 保留名称（与后端校验保持一致）。 */
-const INVALID_CHARS = /[\\/:*?"<>|\u0000-\u001f]/
+/** 平台文件名限制（Windows 更严格；POSIX 只禁止 / 与 NUL）。 */
+const IS_WINDOWS =
+  typeof navigator !== 'undefined' && /Windows/i.test(navigator.userAgent)
+const INVALID_CHARS = IS_WINDOWS ? /[\\/:*?"<>|\u0000-\u001f]/ : /[/:\u0000]/
 const RESERVED_NAMES = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i
 
 interface Plan {
@@ -67,8 +70,8 @@ const plans = computed<Plan[]>(() => {
     if (!newName.trim()) error = '名称不能为空'
     else if (newName.length > 255) error = '名称过长'
     else if (INVALID_CHARS.test(newName)) error = '包含非法字符'
-    else if (newName.endsWith('.') || newName.endsWith(' ')) error = '不能以句点或空格结尾'
-    else if (RESERVED_NAMES.test(newName)) error = 'Windows 保留名称'
+    else if (IS_WINDOWS && (newName.endsWith('.') || newName.endsWith(' '))) error = '不能以句点或空格结尾'
+    else if (IS_WINDOWS && RESERVED_NAMES.test(newName)) error = 'Windows 保留名称'
     else if (changed && siblingNames.value.has(newName.toLowerCase())) error = '已存在同名项'
     return { entry, oldName: entry.name, newName, changed, error }
   })
@@ -131,7 +134,10 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown, true))
   <div class="mask" @mousedown.stop @click.self="emit('cancel')">
     <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="batch-rename-title">
       <header class="dialog-head">
-        <h3 id="batch-rename-title">批量重命名</h3>
+        <div class="dialog-head-main">
+          <MacWindowLights @close="emit('cancel')" />
+          <h3 id="batch-rename-title">批量重命名</h3>
+        </div>
         <span class="count">{{ entries.length }} 项</span>
       </header>
 
@@ -205,9 +211,15 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown, true))
 }
 .dialog-head {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: 8px;
+}
+.dialog-head-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
 }
 .dialog-head h3 {
   margin: 0;

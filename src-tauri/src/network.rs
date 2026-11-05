@@ -207,7 +207,8 @@ fn build_remote_url(
 fn curl_program() -> PathBuf {
     match std::env::var("STELIX_CURL") {
         Ok(custom) if !custom.trim().is_empty() => PathBuf::from(custom.trim()),
-        _ => PathBuf::from("curl.exe"),
+        // Windows 自带的是 curl.exe；macOS / Linux 使用 PATH 中的 curl。
+        _ => PathBuf::from(if cfg!(windows) { "curl.exe" } else { "curl" }),
     }
 }
 

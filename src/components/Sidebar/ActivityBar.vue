@@ -7,7 +7,6 @@ import Icon from '../icons/Icon.vue'
 import type { IconName } from '../icons/paths'
 
 const ui = useUiStore()
-const isDev = import.meta.env.DEV
 
 const items: { key: PanelKey; icon: IconName; title: string }[] = [
   { key: 'files', icon: 'folder', title: '文件导航' },
@@ -25,13 +24,6 @@ function titleOf(item: { key: PanelKey; title: string }): string {
 
 <template>
   <nav class="activity-bar" aria-label="主工具栏">
-    <div class="brand" :class="{ collapsed: ui.sidebarCollapsed }" aria-label="Stelix 星索">
-      <img v-if="ui.sidebarCollapsed" class="brand-logo" src="/brand-mark.svg" alt="" />
-      <span v-else class="brand-title">
-        Stelix
-        <span v-if="isDev" class="dev-badge">dev</span>
-      </span>
-    </div>
     <button
       v-for="it in items"
       :key="it.key"
@@ -104,52 +96,8 @@ function titleOf(item: { key: PanelKey; title: string }): string {
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 48px 0 6px;
+  padding: 10px 0 6px;
   gap: 2px;
-}
-.brand {
-  position: absolute;
-  z-index: 3;
-  top: 0;
-  left: 0;
-  width: calc(var(--activity-bar-w) + var(--sidebar-w));
-  /* 高度与侧栏顶部留白一致，避免露出底色形成横线 */
-  height: 40px;
-  padding: 0 16px;
-  display: flex;
-  align-items: center;
-  color: var(--fg);
-  font-size: 1.8333rem;
-  font-weight: 700;
-  white-space: nowrap;
-  background: var(--sidebar-bg);
-}
-.brand.collapsed {
-  width: var(--activity-bar-w);
-  justify-content: center;
-  padding: 0;
-}
-.brand-logo {
-  width: 30px;
-  height: 30px;
-  object-fit: contain;
-}
-.brand-title {
-  position: relative;
-}
-.dev-badge {
-  position: absolute;
-  top: -5px;
-  left: calc(100% + 5px);
-  padding: 2px 4px;
-  border-radius: 4px;
-  background: var(--bg-active);
-  color: var(--fg-muted);
-  font-size: 0.75rem;
-  font-weight: 600;
-  line-height: 1;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
 }
 .activity-btn {
   width: 38px;

@@ -18,6 +18,7 @@ export interface RecentDirectory extends QuickLocation {
 export interface TreeNodeData {
   name: string
   path: string
+  ejectable?: boolean
 }
 
 export const FAVORITES_KEY = 'stelix.favorites'
@@ -33,11 +34,18 @@ interface FileOpenEvent {
 }
 
 /** 系统路径不可用时的兜底常用位置 */
-const FALLBACK_LOCATIONS: QuickLocation[] = [
-  { label: 'C 盘根目录', icon: 'drive', path: 'C:\\' },
-  { label: '公共用户', icon: 'user', path: 'C:\\Users\\Public' },
-  { label: 'Windows', icon: 'windows', path: 'C:\\Windows' },
-]
+const FALLBACK_LOCATIONS: QuickLocation[] =
+  typeof navigator !== 'undefined' && /Windows/i.test(navigator.userAgent)
+    ? [
+        { label: 'C 盘根目录', icon: 'drive', path: 'C:\\' },
+        { label: '公共用户', icon: 'user', path: 'C:\\Users\\Public' },
+        { label: 'Windows', icon: 'windows', path: 'C:\\Windows' },
+      ]
+    : [
+        { label: '根目录', icon: 'drive', path: '/' },
+        { label: '用户主目录', icon: 'home', path: '/Users' },
+        { label: '应用程序', icon: 'executable', path: '/Applications' },
+      ]
 
 /**
  * 解析用户主目录 / 桌面 / 下载 / 文档 / 图片。

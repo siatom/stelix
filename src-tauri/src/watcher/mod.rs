@@ -147,13 +147,22 @@ fn affected_dir(path: &Path) -> Option<String> {
     Some(parent.to_string_lossy().to_string())
 }
 
-/// 只监听本地盘符目录（`X:\` 开头且确实存在）。
+/// 只监听本地绝对目录（Windows 上限定 `X:\` 盘符，类 Unix 上接受 `/` 开头的目录）。
 fn is_watchable(path: &Path) -> bool {
-    let text = path.to_string_lossy();
-    let bytes = text.as_bytes();
-    let drive_root = bytes.len() >= 3
-        && bytes[0].is_ascii_alphabetic()
-        && bytes[1] == b':'
-        && (bytes[2] == b'\\' || bytes[2] == b'/');
-    drive_root && path.is_dir()
+    if !path.is_absolute() || !path.is_dir() {
+        return false;
+    }
+    #[cfg(windows)]
+    {
+        let text = path.to_string_lossy();
+        let bytes = text.as_bytes();
+        bytes.len() >= 3
+            && bytes[0].is_ascii_alphabetic()
+            && bytes[1] == b':'
+            && (bytes[2] == b'\\' || bytes[2] == b'/')
+    }
+    #[cfg(not(windows))]
+    {
+        true
+    }
 }

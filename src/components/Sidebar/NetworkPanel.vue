@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { nextTick, ref, watch } from 'vue'
+import { nextTick, onMounted, ref, watch } from 'vue'
 import { open as openFileDialog } from '@tauri-apps/plugin-dialog'
+import { homeDir, join } from '@tauri-apps/api/path'
 import { api } from '../../api'
 import { usePaneStore } from '../../stores/pane'
 import { resolveRemoteAuth, setRemoteKeyPassphrase, setRemotePassword } from '../../shell/remote'
@@ -9,6 +10,8 @@ import TreeNode from './TreeNode.vue'
 import RemoteTreeNode from './RemoteTreeNode.vue'
 import CloudAccounts from './CloudAccounts.vue'
 import Icon from '../icons/Icon.vue'
+import MacWindowLights from '../MacWindowLights.vue'
+import { IS_MACOS } from '../../utils/platform'
 
 type RemoteAuthMethod = 'password' | 'key'
 
@@ -76,6 +79,7 @@ function toLocation(item: RemoteHost) {
 }
 
 const pane = usePaneStore()
+const iCloudPath = ref('')
 const shares = ref(readShares())
 const neighbors = ref<SmbNeighbor[]>([])
 const expandedServers = ref<Record<string, boolean>>({})
@@ -88,6 +92,15 @@ const hosts = ref(readHosts())
 const openHostMenuId = ref<string | null>(null)
 const sections = ref({ smb: false, remote: false, cloud: false })
 const cloudRef = ref<InstanceType<typeof CloudAccounts> | null>(null)
+
+onMounted(async () => {
+  if (!IS_MACOS) return
+  try {
+    iCloudPath.value = await join(await homeDir(), 'Library', 'Mobile Documents', 'com~apple~CloudDocs')
+  } catch {
+    iCloudPath.value = ''
+  }
+})
 
 /** 云存储的「+」在分类行：展开分区后把添加账号弹窗交给子组件。 */
 async function openCloudLogin() {
@@ -495,6 +508,14 @@ function toggleHost(item: RemoteHost) {
 
 <template>
   <div class="network-tree">
+    <section v-if="IS_MACOS && iCloudPath">
+      <TreeNode
+        :node="{ name: 'iCloud Drive', path: iCloudPath }"
+        :depth="0"
+        icon="cloud"
+        @navigate="pane.navigate($event)"
+      />
+    </section>
     <section>
       <div class="tree-row category">
         <button class="row-main" @click="toggleSmb">
@@ -591,7 +612,10 @@ function toggleHost(item: RemoteHost) {
     <Teleport to="body">
       <div v-if="showSmbForm" class="dialog-backdrop" tabindex="-1" @keydown.esc.prevent.stop>
         <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="smb-dialog-title">
-          <h2 id="smb-dialog-title">添加 SMB 共享</h2>
+          <header class="dialog-head">
+            <MacWindowLights @close="closeSmbForm" />
+            <h2 id="smb-dialog-title">添加 SMB 共享</h2>
+          </header>
           <form class="dialog-form" @submit.prevent="saveShare">
             <label>共享路径<input v-model="smbDraft" autofocus placeholder="\\服务器\共享名" aria-label="SMB 共享路径" /></label>
             <p v-if="error" class="dialog-error">{{ error }}</p>
@@ -605,7 +629,10 @@ function toggleHost(item: RemoteHost) {
 
       <div v-if="showHostForm" class="dialog-backdrop" tabindex="-1" @keydown.esc.prevent.stop>
         <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="host-dialog-title">
-          <h2 id="host-dialog-title">{{ editingHostId ? '编辑远程主机' : '添加远程主机' }}</h2>
+          <header class="dialog-head">
+            <MacWindowLights @close="closeHostForm" />
+            <h2 id="host-dialog-title">{{ editingHostId ? '编辑远程主机' : '添加远程主机' }}</h2>
+          </header>
           <form class="dialog-form" @submit.prevent="saveHost">
             <label>协议
               <select v-model="protocol" aria-label="协议" @change="onProtocolChange">
@@ -696,6 +723,8 @@ function toggleHost(item: RemoteHost) {
 .dialog-backdrop { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 20px; background: rgb(0 0 0 / 45%); }
 .dialog { width: min(420px, 100%); max-height: min(85vh, 720px); overflow: auto; padding: 18px; border: 1px solid var(--border-strong); border-radius: 10px; background: var(--bg-panel); box-shadow: var(--shadow-lg); }
 .dialog h2 { margin: 0 0 16px; color: var(--fg); font-size: 1.1667em; font-weight: 600; }
+.dialog-head { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+.dialog-head h2 { margin: 0; }
 .dialog-form { display: flex; flex-direction: column; gap: 12px; }
 .dialog-form label { display: flex; flex-direction: column; gap: 5px; color: var(--fg-muted); font-size: 0.9167em; }
 .dialog-form input, .dialog-form select { min-width: 0; width: 100%; padding: 7px 8px; border: 1px solid var(--border-strong); border-radius: var(--radius); background: var(--bg-input); color: var(--fg); font: inherit; font-size: 1em; }

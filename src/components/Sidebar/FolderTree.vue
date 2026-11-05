@@ -76,6 +76,7 @@ async function loadRoots() {
     roots.value = drives.map((d) => ({
       name: d.name || d.mount,
       path: d.mount,
+      ejectable: d.ejectable,
     }))
   } catch (e) {
     error.value = String(e)
@@ -89,13 +90,23 @@ async function refreshRootsIfChanged() {
   if (loading.value) return
   try {
     const drives = await api.getRoots()
-    const nextRoots = drives.map((d) => ({ name: d.name || d.mount, path: d.mount }))
+    const nextRoots = drives.map((d) => ({ name: d.name || d.mount, path: d.mount, ejectable: d.ejectable }))
     if (nextRoots.length !== roots.value.length || nextRoots.some((root, i) => root.path !== roots.value[i]?.path)) {
       roots.value = nextRoots
       error.value = null
     }
   } catch {
     // 临时枚举失败时保留当前列表，避免打断导航。
+  }
+}
+
+async function ejectDrive(path: string) {
+  try {
+    await api.ejectDrive(path)
+    ui.setStatusText(`已弹出 ${path}`)
+    window.setTimeout(() => void refreshRootsIfChanged(), 800)
+  } catch (cause) {
+    ui.setStatusText(`无法弹出 ${path}：${String(cause)}`)
   }
 }
 
@@ -458,8 +469,10 @@ onBeforeUnmount(() => {
           :key="root.path"
           :node="root"
           :depth="0"
+          :ejectable="Boolean(root.ejectable)"
           @navigate="go"
           @contextmenu="onLocationContextMenu"
+          @eject="ejectDrive"
         />
         <div v-if="wslDistros.length" class="wsl-tree">
           <button class="wsl-row" :title="`Linux（${wslDistros.length} 个 WSL 实例）`" @click="wslExpanded = !wslExpanded">

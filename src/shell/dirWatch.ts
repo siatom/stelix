@@ -12,12 +12,13 @@ import { api } from '../api'
 /** 广播给目录树等组件的变更事件（`detail` = 内容变化的目录列表）。 */
 export const FS_CHANGED_EVENT = 'stelix:fs-changed'
 
-/** 本地盘符路径才值得挂 watcher（网络 / 远程目录不适用本地 watcher）。 */
-const LOCAL_PATH_RE = /^[A-Za-z]:[\\/]/
+/** 本地绝对路径才值得挂 watcher（Windows 盘符 / UNC、macOS / Linux 的 / 开头路径）。 */
+const LOCAL_PATH_RE = /^(?:[A-Za-z]:[\\/]|\\\\|\/)/
 
-/** 归一化路径用于比较：统一分隔符、去掉尾部分隔符、小写（Windows 大小写不敏感）。 */
+/** 归一化路径用于比较：统一分隔符、去掉尾部分隔符、小写。 */
 export function normalizePath(path: string): string {
-  return path.replace(/\//g, '\\').replace(/\\+$/, '').toLowerCase()
+  const sep = /^[A-Za-z]:/.test(path) || path.startsWith('\\\\') ? '\\' : '/'
+  return path.replace(/[\\/]+$/, '').replace(/\\/g, sep).toLowerCase()
 }
 
 const sources = new Map<string, Set<string>>()

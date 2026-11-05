@@ -33,6 +33,9 @@ const FS_QUEUE_LINGER_MS = 2000
 const FILTER_RESULT_LIMIT = 5000
 const DAY_MS = 24 * 60 * 60 * 1000
 
+/** UAC 提权只在 Windows 可用；其它平台把权限错误直接当作普通失败。 */
+const IS_WINDOWS = typeof navigator !== 'undefined' && /Windows/i.test(navigator.userAgent)
+
 /** 目录在前、同类按名称自然排序（与文件列表保持一致）。 */
 function sortEntries(entries: FileEntry[]): FileEntry[] {
   return [...entries].sort((a, b) => {
@@ -259,7 +262,8 @@ export interface FsQueueItem {
 export type PaneActionKind = 'mkdir' | 'createFile' | 'mkdirMove' | 'delete'
 
 export const usePaneStore = defineStore('pane', () => {
-  let fallbackHome = 'C:\\'
+  const isWindows = typeof navigator !== 'undefined' && /Windows/i.test(navigator.userAgent)
+  let fallbackHome = isWindows ? 'C:\\' : '/'
   const savedLayout = readPaneLayout()
 
   const panes = ref<PaneState[]>([makePane('left', fallbackHome), makePane('right', fallbackHome)])
@@ -1870,7 +1874,7 @@ export const usePaneStore = defineStore('pane', () => {
       result = await api.fsOperation(op, opId)
       undo = [...(result.undo ?? [])]
       const denied = result.denied
-      if (!result.ok && denied?.length) {
+      if (IS_WINDOWS && !result.ok && denied?.length) {
         // 权限不足 → 向系统发起 UAC 提权，以管理员身份只重试失败的那部分。
         setStatus('需要管理员权限，正在请求提权…')
         try {
@@ -2240,8 +2244,10 @@ export const usePaneStore = defineStore('pane', () => {
     await runFs(paneId, { op, sources: [...tab.selected], target })
   }
 
-  /** Windows 文件名不允许的字符（含控制字符）。 */
-  const INVALID_FOLDER_NAME_CHARS = /[\\/:*?"<>|\u0000-\u001f]/
+  /** 文件名不允许的字符（Windows 限制更多；POSIX 只禁止 / 与 NUL）。 */
+  const INVALID_FOLDER_NAME_CHARS = isWindows
+    ? /[\\/:*?"<>|\u0000-\u001f]/
+    : /[/:\u0000-\u001f]/
   /** Windows 保留设备名，带扩展名同样不可用（如 `CON.txt`）。 */
   const RESERVED_FOLDER_NAMES = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i
 
@@ -2249,9 +2255,13 @@ export const usePaneStore = defineStore('pane', () => {
   function folderNameError(name: string): string | null {
     if (name.length > 255) return '名称过长（最多 255 个字符）'
     if (name === '.' || name === '..') return '名称不能是 "." 或 ".."'
-    if (INVALID_FOLDER_NAME_CHARS.test(name)) return '名称不能包含 \\ / : * ? " < > | 等字符'
-    if (name.endsWith('.')) return '名称不能以句点结尾'
-    if (RESERVED_FOLDER_NAMES.test(name)) return '这是 Windows 保留名称'
+    if (INVALID_FOLDER_NAME_CHARS.test(name)) {
+      return isWindows
+        ? '名称不能包含 \\ / : * ? " < > | 等字符'
+        : '名称不能包含 / 或 : 字符'
+    }
+    if (isWindows && name.endsWith('.')) return '名称不能以句点结尾'
+    if (isWindows && RESERVED_FOLDER_NAMES.test(name)) return '这是 Windows 保留名称'
     return null
   }
 
@@ -2339,7 +2349,7 @@ export const usePaneStore = defineStore('pane', () => {
         const result = await api.fsOperation({ op: 'mkdir', targets: [item.path] })
         if (result.ok) {
           created.push(item.name)
-        } else if (result.denied?.length) {
+        } else if (IS_WINDOWS && result.denied?.length) {
           denied.push(item)
         } else {
           failures.push({
@@ -2615,8 +2625,10 @@ export const usePaneStore = defineStore('pane', () => {
     }
 
     const internal = clipboard.value
-    // 远程剪贴板无法用系统剪贴板表达，必须优先；其余情况系统剪贴板更新更及时。
-    const clip = internal?.remote ? internal : (systemClip ?? internal)
+    // 远程剪贴板无法用系统剪贴板表达，必须优先；macOS 的系统剪贴板也无法表达
+    // 「剪切」标记，因此应用内剪切优先，避免粘贴时被系统剪贴板降级成复制。
+    const preferInternal = internal?.remote || (!IS_WINDOWS && internal?.op === 'move')
+    const clip = preferInternal ? internal : (systemClip ?? internal)
     if (!clip || !clip.paths.length) {
       setStatus('剪贴板为空')
       return

@@ -2508,10 +2508,12 @@ mod tests {
     #[test]
     fn offline_move_needs_confirm() {
         let index = IndexStore::new();
-        let reply = offline_reply(&user("把 a.txt 移动到 D:\\归档"), &ctx("C:\\tmp"), &index);
+        let target = if cfg!(windows) { "D:\\归档" } else { "/tmp/归档" };
+        let prompt = format!("把 a.txt 移动到 {target}");
+        let reply = offline_reply(&user(&prompt), &ctx("C:\\tmp"), &index);
         let op = reply.pending_confirm.expect("应生成待确认操作");
         assert!(matches!(&op, FsOp::Move { .. }));
-        assert_eq!(op.target(), Some("D:\\归档"));
+        assert_eq!(op.target(), Some(target));
     }
 
     #[test]

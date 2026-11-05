@@ -47,6 +47,16 @@ const segments = computed(() => {
     }
     return parts
   }
+  // POSIX 路径（macOS / Linux）：以 / 为根，逐段累加。
+  if (props.tab.path.startsWith('/')) {
+    const parts: { label: string; path: string }[] = [{ label: '/', path: '/' }]
+    let acc = ''
+    for (const seg of props.tab.path.split('/').filter(Boolean)) {
+      acc = `${acc}/${seg}`
+      parts.push({ label: seg, path: acc })
+    }
+    return parts
+  }
   const norm = props.tab.path.replace(/\//g, '\\')
   const share = norm.match(/^(\\\\[^\\]+\\[^\\]+)/)
   if (share) {
@@ -237,7 +247,7 @@ async function commit() {
   if (!value) return
 
   try {
-    // 支持 `%APPDATA%` / `~\Downloads` 这类输入；展开后再判断是文件还是目录。
+    // 支持 `%APPDATA%` / `$HOME` / `~\Downloads` 这类输入；展开后再判断是文件还是目录。
     const target = await api.expandPath(value)
     if (!target || target === props.tab.path) return
     if (await api.pathIsFile(target)) {
@@ -331,7 +341,7 @@ watch(
       v-model="draft"
       class="path-input"
       spellcheck="false"
-      title="支持 Windows 环境变量（如 %APPDATA%）与 ~ 主目录"
+      title="支持环境变量（%APPDATA% / $HOME）与 ~ 主目录"
       @keyup.enter="commit"
       @keyup.esc="cancel"
       @blur="commit"

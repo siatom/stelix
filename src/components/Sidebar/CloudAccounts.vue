@@ -9,6 +9,7 @@ import { compareNames } from '../../naturalSort'
 import type { CloudAccount, CloudProvider, RemoteLocation } from '../../types'
 import RemoteTreeNode from './RemoteTreeNode.vue'
 import Icon from '../icons/Icon.vue'
+import MacWindowLights from '../MacWindowLights.vue'
 
 const STORAGE_KEY = 'stelix.cloudAccounts'
 
@@ -306,7 +307,10 @@ defineExpose({ openLogin })
     <Teleport to="body">
       <div v-if="showForm" class="dialog-backdrop" tabindex="-1" @keydown.esc.prevent.stop="closeLogin">
         <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="cloud-dialog-title">
-          <h2 id="cloud-dialog-title">添加云存储账号</h2>
+          <header class="dialog-head">
+            <MacWindowLights :disabled="busy" @close="closeLogin" />
+            <h2 id="cloud-dialog-title">添加云存储账号</h2>
+          </header>
           <form class="dialog-form" @submit.prevent="submitLogin">
             <label>服务商
               <select v-model="provider" aria-label="云存储服务商" @change="formError = ''">
@@ -403,6 +407,8 @@ defineExpose({ openLogin })
 .dialog-backdrop { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 20px; background: rgb(0 0 0 / 45%); }
 .dialog { width: min(420px, 100%); max-height: min(85vh, 720px); overflow: auto; padding: 18px; border: 1px solid var(--border-strong); border-radius: 10px; background: var(--bg-panel); box-shadow: var(--shadow-lg); }
 .dialog h2 { margin: 0 0 16px; color: var(--fg); font-size: 1.1667em; font-weight: 600; }
+.dialog-head { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+.dialog-head h2 { margin: 0; }
 .dialog-form { display: flex; flex-direction: column; gap: 12px; }
 .dialog-form label { display: flex; flex-direction: column; gap: 5px; color: var(--fg-muted); font-size: 0.9167em; }
 .dialog-form input, .dialog-form select { min-width: 0; width: 100%; padding: 7px 8px; border: 1px solid var(--border-strong); border-radius: var(--radius); background: var(--bg-input); color: var(--fg); font: inherit; font-size: 1em; }

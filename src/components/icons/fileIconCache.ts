@@ -28,6 +28,10 @@ const PER_FILE_EXTS = new Set([
 
 const refs = new Map<string, Ref<string | null>>()
 
+/** Windows Shell 与 macOS Launch Services 提供系统图标；其他平台用内置矢量图标。 */
+const HAS_SYSTEM_ICONS =
+  typeof navigator !== 'undefined' && /Windows|Macintosh|Mac OS X/i.test(navigator.userAgent)
+
 /**
  * 回收站状态版本号。回收站内容变化（删除/还原/清空等）后递增，
  * 使「跟随回收站状态」的图标换用新 key 重新取图。
@@ -83,6 +87,7 @@ export function fileIconRef(
   emptyTrash = false,
   trashState = false,
 ): Ref<string | null> {
+  if (!HAS_SYSTEM_ICONS) return ref(null)
   const key = iconKey(path, isDir, isDrive, usePathIcon, emptyTrash, trashState)
   const existing = refs.get(key)
   if (existing) return existing

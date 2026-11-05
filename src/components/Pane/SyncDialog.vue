@@ -8,6 +8,8 @@ import { api, events } from '../../api'
 import { usePaneStore } from '../../stores/pane'
 import { useUiStore } from '../../stores/ui'
 import Icon from '../icons/Icon.vue'
+import MacWindowLights from '../MacWindowLights.vue'
+import { IS_MACOS } from '../../utils/platform'
 import { formatSize } from './utils'
 
 const pane = usePaneStore()
@@ -304,6 +306,7 @@ watch([mode, direction, compareHash], () => {
   <div class="mask" @click.self="close">
     <section class="sync-dialog" role="dialog" aria-modal="true" aria-labelledby="sync-title" @mousedown.stop>
       <header class="sd-head">
+        <MacWindowLights :disabled="running" @close="close" />
         <h3 id="sync-title">
           <Icon name="folder-sync" :size="15" class="head-icon" />
           文件夹同步
@@ -311,7 +314,7 @@ watch([mode, direction, compareHash], () => {
         <span v-if="plan" class="sd-total">
           {{ plan.stats.copy + plan.stats.delete + plan.stats.conflict }} 项差异
         </span>
-        <button class="sd-close" type="button" :disabled="running" aria-label="关闭" @click="close">
+        <button v-if="!IS_MACOS" class="sd-close" type="button" :disabled="running" aria-label="关闭" @click="close">
           <Icon name="x" :size="14" />
         </button>
       </header>

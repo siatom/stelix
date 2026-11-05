@@ -26,6 +26,7 @@ const ui = useUiStore()
 const paneStore = usePaneStore()
 const aiStore = useAiStore()
 const appWindow = getCurrentWindow()
+const isMacos = typeof navigator !== 'undefined' && /Mac/i.test(navigator.userAgent)
 const isMaximized = ref(false)
 const titlebarMenu = ref<{ x: number; y: number } | null>(null)
 const titlebarActionMode = ref<'move' | 'size' | null>(null)
@@ -81,17 +82,6 @@ function startWindowDrag(event: MouseEvent) {
 function toggleMaximizeFromTitlebar(event: MouseEvent) {
   if ((event.target as HTMLElement).closest('button')) return
   void toggleMaximize()
-}
-
-/** 左上角品牌带（侧栏顶部 logo 区）也算窗口拖动区，双击同样切换最大化。 */
-function startBrandDrag(event: MouseEvent) {
-  if (!(event.target as HTMLElement).closest('.brand')) return
-  startWindowDrag(event)
-}
-
-function toggleMaximizeFromBrand(event: MouseEvent) {
-  if (!(event.target as HTMLElement).closest('.brand')) return
-  toggleMaximizeFromTitlebar(event)
 }
 
 function openTitlebarMenu(event: MouseEvent) {
@@ -351,7 +341,7 @@ onBeforeUnmount(() => {
 <template>
   <div
     class="app-root"
-    :class="{ resizing: resizing !== null, 'ai-split': aiSplit }"
+    :class="{ resizing: resizing !== null, 'ai-split': aiSplit, macos: isMacos, 'sidebar-collapsed': ui.sidebarCollapsed }"
     :style="{ '--sidebar-w': `${effectiveSidebarWidth}px` }"
   >
     <img
@@ -367,18 +357,22 @@ onBeforeUnmount(() => {
       @dblclick="toggleMaximizeFromTitlebar"
       @contextmenu="openTitlebarMenu"
     >
-      <TitlebarActions />
-      <div class="titlebar-controls">
-        <button class="titlebar-button" type="button" aria-label="最小化" title="最小化" @click="appWindow.minimize()">
-          <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 6h8" /></svg>
-        </button>
-        <button class="titlebar-button" type="button" :aria-label="isMaximized ? '还原' : '最大化'" :title="isMaximized ? '还原' : '最大化'" @click="toggleMaximize()">
-          <svg v-if="isMaximized" viewBox="0 0 12 12" aria-hidden="true"><path d="M4 2.5h5.5V8M8 4H2.5v5.5H8z" /></svg>
-          <svg v-else viewBox="0 0 12 12" aria-hidden="true"><rect x="2.5" y="2.5" width="7" height="7" rx=".5" /></svg>
-        </button>
-        <button class="titlebar-button close-button" type="button" aria-label="关闭" title="关闭" @click="appWindow.close()">
-          <svg viewBox="0 0 12 12" aria-hidden="true"><path d="m3 3 6 6M9 3 3 9" /></svg>
-        </button>
+      <div class="titlebar-center">
+        <TitlebarActions />
+      </div>
+      <div class="titlebar-side titlebar-right">
+        <div v-if="!isMacos" class="titlebar-controls">
+          <button class="titlebar-button" type="button" aria-label="最小化" title="最小化" @click="appWindow.minimize()">
+            <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 6h8" /></svg>
+          </button>
+          <button class="titlebar-button" type="button" :aria-label="isMaximized ? '还原' : '最大化'" :title="isMaximized ? '还原' : '最大化'" @click="toggleMaximize()">
+            <svg v-if="isMaximized" viewBox="0 0 12 12" aria-hidden="true"><path d="M4 2.5h5.5V8M8 4H2.5v5.5H8z" /></svg>
+            <svg v-else viewBox="0 0 12 12" aria-hidden="true"><rect x="2.5" y="2.5" width="7" height="7" rx=".5" /></svg>
+          </button>
+          <button class="titlebar-button close-button" type="button" aria-label="关闭" title="关闭" @click="appWindow.close()">
+            <svg viewBox="0 0 12 12" aria-hidden="true"><path d="m3 3 6 6M9 3 3 9" /></svg>
+          </button>
+        </div>
       </div>
     </header>
     <div
@@ -402,11 +396,7 @@ onBeforeUnmount(() => {
       </button>
     </div>
     <div v-if="titlebarActionMode" class="titlebar-mode-hint" role="status">{{ titlebarModeHint }}</div>
-    <ActivityBar
-      class="area-activity"
-      @mousedown="startBrandDrag"
-      @dblclick="toggleMaximizeFromBrand"
-    />
+    <ActivityBar class="area-activity" />
     <SidebarPanel v-if="!ui.sidebarCollapsed" class="area-sidebar" />
     <div
       v-if="!ui.sidebarCollapsed"
@@ -456,23 +446,46 @@ onBeforeUnmount(() => {
 }
 .app-titlebar {
   grid-area: titlebar;
-  display: flex;
+  position: relative;
+  display: grid;
+  /* 与下方根布局保持同一套列宽：图标栏 | 侧栏 | 主区（两个文件窗格）。 */
+  grid-template-columns: var(--activity-bar-w) var(--sidebar-w) 1fr;
   align-items: center;
-  justify-content: space-between;
-  /* 与侧栏品牌带等高，顶部形成一条连续的横带 */
+  /* 通栏标题栏：品牌在左，工具按钮在主区居中，窗口控制在最右。 */
   height: 40px;
-  padding-left: 6px;
   font-family: 'Microsoft YaHei', '微软雅黑', sans-serif;
   color: var(--fg-muted);
   background: var(--bg-app);
   border-bottom: 1px solid var(--border);
   user-select: none;
 }
+/* 收起侧栏后第二列在根布局中消失，标题栏同步收窄，保持与文件窗格对齐。 */
+.app-root.sidebar-collapsed .app-titlebar {
+  grid-template-columns: var(--activity-bar-w) 0 1fr;
+}
+.titlebar-side {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.titlebar-center {
+  grid-column: 3;
+  justify-self: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.titlebar-right {
+  position: absolute;
+  top: 0;
+  right: 10px;
+  bottom: 0;
+  justify-content: flex-end;
+}
 .titlebar-controls {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 0 10px;
 }
 .titlebar-button {
   display: grid;
@@ -572,7 +585,7 @@ onBeforeUnmount(() => {
 .resize-handle {
   position: absolute;
   z-index: 20;
-  top: 0;
+  top: 40px;
   bottom: 0;
   width: 8px;
   cursor: col-resize;

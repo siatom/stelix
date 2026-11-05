@@ -65,6 +65,40 @@ fn get_roots() -> Vec<DriveInfo> {
     fs_core::get_roots()
 }
 
+#[tauri::command]
+async fn eject_drive(mount: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        #[cfg(windows)]
+        {
+            if !matches!(mount.as_bytes(), [letter, b':', b'\\'] if letter.is_ascii_alphabetic()) {
+                return Err("无效的驱动器路径".to_string());
+            }
+            let drive = &mount[..2];
+            let script = format!("$s=(New-Object -ComObject Shell.Application).Namespace(17); $i=$s.ParseName('{}'); if ($null -eq $i) {{ exit 1 }}; $i.InvokeVerb('Eject')", drive);
+            let status = std::process::Command::new("powershell.exe")
+                .args(["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", &script])
+                .status()
+                .map_err(|error| format!("无法弹出驱动器：{error}"))?;
+            if status.success() { Ok(()) } else { Err("系统未能弹出此驱动器".to_string()) }
+        }
+        #[cfg(target_os = "macos")]
+        {
+            if !mount.starts_with("/Volumes/") || mount.contains("..") {
+                return Err("此卷不可弹出".to_string());
+            }
+            let status = std::process::Command::new("/usr/sbin/diskutil")
+                .args(["eject", &mount])
+                .status()
+                .map_err(|error| format!("无法弹出卷：{error}"))?;
+            if status.success() { Ok(()) } else { Err("系统未能弹出此卷".to_string()) }
+        }
+        #[cfg(not(any(windows, target_os = "macos")))]
+        { let _ = mount; Err("当前平台不支持弹出卷".to_string()) }
+    })
+    .await
+    .map_err(|error| format!("弹出驱动器任务失败：{error}"))?
+}
+
 /// 在指定目录内按条件筛选条目（可递归）。
 ///
 /// Windows 上优先使用 Everything 索引（百万级条目毫秒级返回），
@@ -525,10 +559,31 @@ fn open_in_terminal(path: String) -> Result<(), String> {
             .map_err(|error| format!("无法启动 Windows Terminal（wt.exe）: {error}"))
     }
 
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
     {
-        let _ = directory;
-        Err("当前平台暂不支持打开系统默认终端".to_string())
+        // `open -a Terminal <dir>` 会让终端直接以该目录作为工作目录。
+        std::process::Command::new("open")
+            .arg("-a")
+            .arg("Terminal")
+            .arg(directory)
+            .spawn()
+            .map(|_| ())
+            .map_err(|error| format!("无法启动终端: {error}"))
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        for (program, args) in [
+            ("x-terminal-emulator", vec![directory.as_os_str()]),
+            ("gnome-terminal", vec![std::ffi::OsStr::new("--working-directory"), directory.as_os_str()]),
+            ("konsole", vec![std::ffi::OsStr::new("--workdir"), directory.as_os_str()]),
+            ("xterm", vec![directory.as_os_str()]),
+        ] {
+            if std::process::Command::new(program).args(args).spawn().is_ok() {
+                return Ok(());
+            }
+        }
+        Err("未找到可用的系统终端".to_string())
     }
 }
 
@@ -573,10 +628,38 @@ fn show_item_properties(path: String) -> Result<(), String> {
         }
     }
 
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    {
+        let script = r#"
+on run argv
+  tell application "Finder"
+    open information window of (POSIX file (item 1 of argv) as alias)
+    activate
+  end tell
+end run
+"#;
+        let output = std::process::Command::new("osascript")
+            .arg("-e")
+            .arg(script)
+            .arg(item)
+            .output()
+            .map_err(|error| format!("无法打开 Finder 简介窗口: {error}"))?;
+        if output.status.success() {
+            Ok(())
+        } else {
+            let message = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            Err(if message.is_empty() {
+                "无法打开 Finder 简介窗口".to_string()
+            } else {
+                message
+            })
+        }
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
     {
         let _ = item;
-        Err("当前平台不支持 Windows 属性窗口".to_string())
+        Err("当前平台暂不支持系统属性窗口".to_string())
     }
 }
 
@@ -598,10 +681,47 @@ async fn show_open_with(path: String) -> Result<(), String> {
             .map_err(|error| format!("打开方式任务失败: {error}"))?
     }
 
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    {
+        tauri::async_runtime::spawn_blocking(move || show_open_with_macos(&file))
+            .await
+            .map_err(|error| format!("打开方式任务失败: {error}"))?
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
     {
         let _ = file;
         Err("当前平台暂不支持系统「打开方式」窗口".to_string())
+    }
+}
+
+/// macOS「打开方式」：用 AppleScript 弹出应用选择器，再用 Finder 打开文件。
+#[cfg(target_os = "macos")]
+fn show_open_with_macos(file: &std::path::Path) -> Result<(), String> {
+    let script = r#"
+on run argv
+  set targetFile to POSIX file (item 1 of argv)
+  set chosenApp to choose application with prompt "选择用于打开此文件的应用"
+  tell application "Finder" to open targetFile using chosenApp
+end run
+"#;
+    let output = std::process::Command::new("osascript")
+        .arg("-e")
+        .arg(script)
+        .arg(file)
+        .output()
+        .map_err(|error| format!("无法打开应用选择器: {error}"))?;
+    if output.status.success() {
+        return Ok(());
+    }
+    let message = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    // 用户取消时 AppleScript 返回 -128，不是错误。
+    if message.contains("-128") || message.contains("User canceled") {
+        Ok(())
+    } else if message.is_empty() {
+        Err("无法打开应用选择器".to_string())
+    } else {
+        Err(message)
     }
 }
 
@@ -657,6 +777,7 @@ fn show_open_with_windows(file: &std::path::Path) -> Result<(), String> {
 /// （系统项由 Shell 自己执行，应用不需要介入）。
 #[tauri::command]
 fn show_native_shell_menu(
+    app: tauri::AppHandle,
     window: tauri::Window,
     path: String,
     anchor: Option<ShellMenuAnchor>,
@@ -664,6 +785,7 @@ fn show_native_shell_menu(
 ) -> Result<Option<String>, String> {
     #[cfg(windows)]
     {
+        let _ = &app;
         let hwnd = window
             .hwnd()
             .map_err(|error| format!("无法获取窗口句柄: {error}"))?;
@@ -687,10 +809,43 @@ fn show_native_shell_menu(
         )
     }
 
+    // macOS / Linux：用 Tauri 原生菜单弹出应用自定义项。
+    //
+    // 原生菜单是异步的：选中项通过 `shell-menu:action` 事件回传（见 `run()`），
+    // 因此这里返回 `Ok(None)`；前端收到事件后再执行对应动作。
     #[cfg(not(windows))]
     {
-        let _ = (window, path, anchor, items);
-        Err("当前平台暂不支持系统右键菜单".to_string())
+        use tauri::menu::{Menu, MenuItem};
+
+        let _ = window;
+        let _ = path;
+        let items = items.unwrap_or_default();
+        if items.is_empty() {
+            return Ok(None);
+        }
+        let menu = Menu::new(&app).map_err(|error| format!("无法创建菜单: {error}"))?;
+        for item in items {
+            let entry = MenuItem::with_id(
+                &app,
+                format!("ctx:{}", item.id),
+                item.label,
+                true,
+                None::<&str>,
+            )
+            .map_err(|error| format!("无法创建菜单项: {error}"))?;
+            menu.append(&entry)
+                .map_err(|error| format!("无法添加菜单项: {error}"))?;
+        }
+        let popup = match anchor {
+            Some(value) => {
+                use tauri::LogicalPosition;
+                // anchor 是 CSS 像素（逻辑坐标），直接使用即可。
+                window.popup_menu_at(&menu, LogicalPosition::new(value.x, value.y))
+            }
+            None => window.popup_menu(&menu),
+        };
+        popup.map_err(|error| format!("无法弹出系统菜单: {error}"))?;
+        Ok(None)
     }
 }
 
@@ -708,6 +863,8 @@ struct ShellMenuItemInput {
 struct ShellMenuAnchor {
     x: f64,
     y: f64,
+    /// Windows Shell 菜单需要 DPI 缩放；其它平台使用逻辑坐标。
+    #[cfg_attr(not(windows), allow(dead_code))]
     scale: f64,
 }
 
@@ -1023,6 +1180,51 @@ fn toggle_main_window(app: &tauri::AppHandle) {
     }
 }
 
+/// macOS 应用菜单：保留 App / 编辑 / 窗口菜单，但不注册默认菜单里的
+/// 「File > Close Window（⌘W）」，避免它抢走应用内「关闭标签页」快捷键。
+#[cfg(target_os = "macos")]
+fn setup_macos_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
+    use tauri::menu::{Menu, PredefinedMenuItem, Submenu};
+
+    let app_menu = Submenu::with_items(
+        app,
+        "Stelix",
+        true,
+        &[
+            &PredefinedMenuItem::about(app, None, None)?,
+            &PredefinedMenuItem::separator(app)?,
+            &PredefinedMenuItem::hide(app, None)?,
+            &PredefinedMenuItem::hide_others(app, None)?,
+            &PredefinedMenuItem::show_all(app, None)?,
+            &PredefinedMenuItem::separator(app)?,
+            &PredefinedMenuItem::quit(app, None)?,
+        ],
+    )?;
+    let edit_menu = Submenu::with_items(
+        app,
+        "编辑",
+        true,
+        &[
+            &PredefinedMenuItem::undo(app, None)?,
+            &PredefinedMenuItem::redo(app, None)?,
+            &PredefinedMenuItem::separator(app)?,
+            &PredefinedMenuItem::cut(app, None)?,
+            &PredefinedMenuItem::copy(app, None)?,
+            &PredefinedMenuItem::paste(app, None)?,
+            &PredefinedMenuItem::select_all(app, None)?,
+        ],
+    )?;
+    let window_menu = Submenu::with_items(
+        app,
+        "窗口",
+        true,
+        &[&PredefinedMenuItem::minimize(app, None)?],
+    )?;
+    let menu = Menu::with_items(app, &[&app_menu, &edit_menu, &window_menu])?;
+    app.set_menu(menu)?;
+    Ok(())
+}
+
 /// 构建系统托盘图标与菜单。
 ///
 /// 交互约定：
@@ -1083,6 +1285,9 @@ pub fn run() {
     persistence::init_dirs(&context.config().identifier);
 
     tauri::Builder::default()
+        // macOS 使用自定义菜单（见 setup_macos_menu）：默认菜单的 ⌘W 会与
+        // 应用内「关闭标签页」快捷键冲突。
+        .enable_macos_default_menu(false)
         // single-instance 必须最先注册：在其余插件与 setup 之前拦截第二个实例，
         // 并让回调在「已运行的那个实例」里执行（Windows 上它会先交接前台权，
         // 使 set_focus 生效）。重复启动时把隐藏于托盘的窗口重新唤到前台。
@@ -1102,6 +1307,8 @@ pub fn run() {
             #[cfg(windows)]
             drive_monitor::start(app.handle().clone());
             setup_tray(app.handle())?;
+            #[cfg(target_os = "macos")]
+            setup_macos_menu(app.handle())?;
             // 清扫提权临时目录里上次遗留的残留文件（进程被杀时可能留下）。
             elevate::sweep_stale_temp();
             // 窗口以 visible:false 创建：先切到最大化态再显示，
@@ -1136,6 +1343,14 @@ pub fn run() {
             watcher.start_flush_loop(app.handle().clone());
             Ok(())
         })
+        .on_menu_event(|app, event| {
+            // macOS / Linux 的上下文菜单是异步的：把选中项转成前端事件。
+            // 托盘菜单使用自己的回调，id 不带 ctx: 前缀，不会命中这里。
+            let id = event.id().as_ref();
+            if let Some(action) = id.strip_prefix("ctx:") {
+                let _ = app.emit("shell-menu:action", action.to_string());
+            }
+        })
         .on_window_event(|window, event| {
             // 关闭窗口默认最小化到系统托盘：阻止退出，改为隐藏窗口。
             // 真正退出走托盘菜单的「退出」（app.exit(0)），不走这里。
@@ -1147,6 +1362,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             list_dir,
             get_roots,
+            eject_drive,
             filter_dir,
             cancel_filter,
             list_remote_dir,

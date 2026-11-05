@@ -4,6 +4,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import type { ConflictItem, ConflictPolicy } from '../types'
 import Icon from './icons/Icon.vue'
+import MacWindowLights from './MacWindowLights.vue'
 import type { IconName } from './icons/paths'
 
 const props = defineProps<{
@@ -70,10 +71,13 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown, true))
   <div class="mask" @mousedown.stop @click.self="emit('resolve', 'cancel')">
     <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="conflict-title">
       <header class="dialog-head">
-        <h3 id="conflict-title">
-          <Icon name="alert-triangle" :size="14" class="head-icon" />
-          目标位置已存在同名项
-        </h3>
+        <div class="dialog-head-main">
+          <MacWindowLights @close="emit('resolve', 'cancel')" />
+          <h3 id="conflict-title">
+            <Icon name="alert-triangle" :size="14" class="head-icon" />
+            目标位置已存在同名项
+          </h3>
+        </div>
         <span class="count">{{ items.length }} 处冲突</span>
       </header>
 
@@ -143,9 +147,15 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown, true))
 }
 .dialog-head {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: 8px;
+}
+.dialog-head-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
 }
 .dialog-head h3 {
   display: flex;

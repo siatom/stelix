@@ -79,6 +79,7 @@ pub fn is_elevated() -> bool {
 }
 
 #[cfg(not(windows))]
+#[allow(dead_code)] // Windows 版在 run_elevated_fs_op 中使用
 pub fn is_elevated() -> bool {
     false
 }

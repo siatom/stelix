@@ -60,6 +60,7 @@ export const api = {
   /** 取消某个标签仍在执行的递归筛选。 */
   cancelFilter: (cancelKey: string) => invoke<void>('cancel_filter', { cancelKey }),
   getRoots: () => invoke<DriveInfo[]>('get_roots'),
+  ejectDrive: (mount: string) => invoke<void>('eject_drive', { mount }),
   /** 列出 FTP / SFTP 目录，条目带类型 / 大小 / 修改时间。 */
   listRemoteDir: (request: {
     protocol: RemoteProtocol

@@ -43,6 +43,9 @@ export const SHORTCUT_GROUP_LABELS: Record<ShortcutGroup, string> = {
 
 const LS_SHORTCUTS = 'stelix.shortcuts'
 
+/** macOS 用 ⌘ 作为主修饰键；键盘事件里表现为 metaKey（与 ctrl 等价处理）。 */
+const IS_MAC = typeof navigator !== 'undefined' && /Mac/i.test(navigator.userAgent)
+
 /** 快捷键定义表。新增可配置快捷键只需在此追加一条，再在对应组件里按 id 接线。 */
 export const SHORTCUT_DEFS: readonly ShortcutDef[] = [
   { id: 'new-tab', label: '新建标签页', group: 'tabs', default: { ctrl: true, key: 't' } },
@@ -58,8 +61,8 @@ export const SHORTCUT_DEFS: readonly ShortcutDef[] = [
   { id: 'redo', label: '重做', group: 'files', default: { ctrl: true, key: 'y' } },
   { id: 'duplicate', label: '复制副本', group: 'files', default: { ctrl: true, key: 'd' } },
   { id: 'rename', label: '重命名', group: 'files', default: { key: 'f2' } },
-  { id: 'delete', label: '删除（移到回收站）', group: 'files', default: { key: 'delete' } },
-  { id: 'delete-permanent', label: '永久删除（跳过回收站）', group: 'files', default: { shift: true, key: 'delete' } },
+  { id: 'delete', label: '删除（移到回收站）', group: 'files', default: IS_MAC ? { ctrl: true, key: 'backspace' } : { key: 'delete' } },
+  { id: 'delete-permanent', label: '永久删除（跳过回收站）', group: 'files', default: IS_MAC ? { ctrl: true, shift: true, key: 'backspace' } : { shift: true, key: 'delete' } },
   { id: 'preview', label: '预览文件', group: 'files', default: { key: ' ' } },
   { id: 'close-window', label: '关闭窗口', group: 'window', default: { alt: true, key: 'f4' } },
   { id: 'open-in-other-pane', label: '在另一栏打开当前文件夹', group: 'window', default: { ctrl: true, shift: true, key: 'o' } },
@@ -114,7 +117,7 @@ export function formatCombo(combo: KeyCombo | undefined): string {
   const c = normalize(combo)
   if (!c.key) return '未设置'
   const parts: string[] = []
-  if (c.ctrl) parts.push('Ctrl')
+  if (c.ctrl) parts.push(IS_MAC ? '⌘' : 'Ctrl')
   if (c.shift) parts.push('Shift')
   if (c.alt) parts.push('Alt')
   parts.push(labelOfKey(c.key))

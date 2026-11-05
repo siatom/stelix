@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 顶部标题栏的文件操作区：新建文件夹 / 新建文件 / 删除 + 视图切换。
+// 顶部标题栏的工具区，按「创建 → 删除 → 工具 → 视图」分组。
 // 全局唯一入口，始终作用于**当前活动窗格** —— 哪个窗格活动，这些按钮就控制哪个窗格。
 import { computed } from 'vue'
 import { api } from '../api'
@@ -48,8 +48,18 @@ async function openTerminalHere() {
 </script>
 
 <template>
-  <div class="titlebar-actions">
+  <div class="titlebar-actions" role="toolbar" aria-label="文件操作与视图">
+    <!-- 创建 -->
     <div class="group">
+      <button
+        type="button"
+        :title="`新建文件${scopeHint}`"
+        :aria-label="`新建文件${scopeHint}`"
+        :disabled="!paneStore.canCreateInActivePane"
+        @click="paneStore.requestAction('createFile')"
+      >
+        <Icon name="file-plus" :size="15" />
+      </button>
       <button
         type="button"
         :title="`新建文件夹${scopeHint}`"
@@ -68,15 +78,12 @@ async function openTerminalHere() {
       >
         <Icon name="folder-input" :size="15" />
       </button>
-      <button
-        type="button"
-        :title="`新建文件${scopeHint}`"
-        :aria-label="`新建文件${scopeHint}`"
-        :disabled="!paneStore.canCreateInActivePane"
-        @click="paneStore.requestAction('createFile')"
-      >
-        <Icon name="file-plus" :size="15" />
-      </button>
+    </div>
+
+    <span class="divider" aria-hidden="true" />
+
+    <!-- 删除：单独成组，和常规操作保持距离 -->
+    <div class="group">
       <button
         type="button"
         class="danger"
@@ -91,6 +98,7 @@ async function openTerminalHere() {
 
     <span class="divider" aria-hidden="true" />
 
+    <!-- 工具 -->
     <div class="group">
       <button
         type="button"
@@ -101,10 +109,20 @@ async function openTerminalHere() {
       >
         <Icon name="folder-sync" :size="15" />
       </button>
+      <button
+        type="button"
+        :title="`在当前文件夹打开系统终端${scopeHint}`"
+        :aria-label="`在当前文件夹打开系统终端${scopeHint}`"
+        :disabled="!canOpenTerminal"
+        @click="openTerminalHere"
+      >
+        <Icon name="terminal" :size="15" />
+      </button>
     </div>
 
     <span class="divider" aria-hidden="true" />
 
+    <!-- 视图 -->
     <div class="group">
       <button
         v-for="m in modes"
@@ -120,16 +138,6 @@ async function openTerminalHere() {
         <Icon :name="m.icon" :size="15" />
       </button>
     </div>
-
-    <button
-      type="button"
-      :title="`在当前文件夹打开系统终端${scopeHint}`"
-      :aria-label="`在当前文件夹打开系统终端${scopeHint}`"
-      :disabled="!canOpenTerminal"
-      @click="openTerminalHere"
-    >
-      <Icon name="terminal" :size="15" />
-    </button>
   </div>
 </template>
 
@@ -139,7 +147,6 @@ async function openTerminalHere() {
   align-items: center;
   gap: 4px;
   flex: none;
-  margin-right: auto;
 }
 .group {
   display: flex;

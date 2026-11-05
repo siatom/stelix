@@ -174,12 +174,97 @@ mod platform {
 #[cfg(windows)]
 pub use platform::{get_files, set_files};
 
-#[cfg(not(windows))]
-pub fn set_files(_: &[String], _: bool) -> Result<(), String> {
-    Err("文件剪贴板目前仅支持 Windows".into())
+/// macOS 文件剪贴板：通过 AppleScript 写入 / 读取 Finder 可识别的文件别名。
+///
+/// AppleScript 不区分「复制 / 剪切」标记，`move_files` 仅由应用内部剪切逻辑使用，
+/// 跨应用粘贴总按复制处理。
+#[cfg(target_os = "macos")]
+mod apple {
+    use std::process::Command;
+
+    const SET_SCRIPT: &str = r#"
+on run argv
+  set fileList to {}
+  repeat with p in argv
+    set end of fileList to (POSIX file (contents of p))
+  end repeat
+  set the clipboard to fileList
+end run
+"#;
+
+    const GET_SCRIPT: &str = r#"
+on run
+  set out to {}
+  try
+    set itemsList to the clipboard as list
+  on error
+    try
+      set itemsList to {the clipboard as alias}
+    on error
+      return ""
+    end try
+  end try
+  repeat with itemRef in itemsList
+    try
+      set end of out to POSIX path of (itemRef as alias)
+    end try
+  end repeat
+  set AppleScript's text item delimiters to linefeed
+  return out as text
+end run
+"#;
+
+    fn run(script: &str, args: &[String]) -> Result<String, String> {
+        let output = Command::new("osascript")
+            .arg("-e")
+            .arg(script)
+            .args(args)
+            .output()
+            .map_err(|error| format!("无法启动 osascript：{error}"))?;
+        if output.status.success() {
+            Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+        } else {
+            let message = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            Err(if message.is_empty() {
+                "AppleScript 执行失败".to_string()
+            } else {
+                message
+            })
+        }
+    }
+
+    pub fn set_files(paths: &[String], _move_files: bool) -> Result<(), String> {
+        if paths.is_empty() {
+            return Err("剪贴板没有文件路径".into());
+        }
+        run(SET_SCRIPT, paths).map(|_| ())
+    }
+
+    pub fn get_files() -> Result<Option<(Vec<String>, bool)>, String> {
+        let text = run(GET_SCRIPT, &[])?;
+        let paths: Vec<String> = text
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .map(str::to_string)
+            .collect();
+        Ok(if paths.is_empty() {
+            None
+        } else {
+            Some((paths, false))
+        })
+    }
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "macos")]
+pub use apple::{get_files, set_files};
+
+#[cfg(not(any(windows, target_os = "macos")))]
+pub fn set_files(_: &[String], _: bool) -> Result<(), String> {
+    Err("文件剪贴板目前仅支持 Windows / macOS".into())
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
 pub fn get_files() -> Result<Option<(Vec<String>, bool)>, String> {
     Ok(None)
 }

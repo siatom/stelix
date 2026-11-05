@@ -10,6 +10,7 @@ import ShortcutsSettings from './ShortcutsSettings.vue'
 
 const pane = usePaneStore()
 const ui = useUiStore()
+const isWindows = typeof navigator !== 'undefined' && /Windows/i.test(navigator.userAgent)
 const appVersion = __APP_VERSION__
 const commitId = __COMMIT_ID__
 const accentColors = [
@@ -249,18 +250,19 @@ onMounted(() => {
           </button>
 
           <p class="row-hint">
-            <template v-if="ui.usingEverything">正在使用本机 Everything 的实时索引。</template>
+            <template v-if="!isWindows">使用本地内存索引扫描上面配置的根目录（macOS / Linux）。</template>
+            <template v-else-if="ui.usingEverything">正在使用本机 Everything 的实时索引。</template>
             <template v-else-if="ui.waitingForEverything">正在等待 Everything 启动；Stelix 不会扫描本地目录。</template>
             <template v-else>Everything 未运行。可重试连接，或手动启用备用内存索引。</template>
           </p>
-          <div v-if="!ui.usingEverything && !ui.scanning" class="index-actions">
-            <button class="add-current" :disabled="busy" @click="retryEverything">
+          <div v-if="!ui.scanning" class="index-actions">
+            <button v-if="isWindows" class="add-current" :disabled="busy" @click="retryEverything">
               <Icon name="refresh" :size="13" />
               <span>重试连接 Everything</span>
             </button>
             <button class="add-current" :disabled="busy" @click="enableLocalIndex">
               <Icon name="folder" :size="13" />
-              <span>启用本地内存索引</span>
+              <span>{{ isWindows ? '启用本地内存索引' : '重新建立索引' }}</span>
             </button>
           </div>
         </div>
