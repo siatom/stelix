@@ -594,6 +594,7 @@ onBeforeUnmount(() => {
   gap: 7px;
   color: var(--fg-dim);
   font-size: 1em;
+  background: var(--bg-app);
 }
 .state {
   padding: 20px;
