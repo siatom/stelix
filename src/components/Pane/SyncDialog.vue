@@ -305,7 +305,7 @@ watch([mode, direction, compareHash], () => {
     <section class="sync-dialog" role="dialog" aria-modal="true" aria-labelledby="sync-title" @mousedown.stop>
       <header class="sd-head">
         <h3 id="sync-title">
-          <Icon name="sync" :size="15" class="head-icon" />
+          <Icon name="folder-sync" :size="15" class="head-icon" />
           文件夹同步
         </h3>
         <span v-if="plan" class="sd-total">
@@ -322,7 +322,7 @@ watch([mode, direction, compareHash], () => {
           <input v-model="left" spellcheck="false" :disabled="running" @change="scan" />
         </label>
         <button class="swap" type="button" title="交换左右" :disabled="running" @click="swap">
-          <Icon name="swap" :size="14" />
+          <Icon name="arrow-right-left" :size="14" />
         </button>
         <label class="dir">
           <span class="dir-label">右侧</span>

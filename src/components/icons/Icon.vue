@@ -43,6 +43,7 @@ const libraryIcons: Partial<Record<IconName, LucideIcon>> = {
   'panel-left-close': PanelLeftClose, 'panel-left-open': PanelLeftOpen,
   'panel-single': Square, columns: Columns2, 'pane-open-other': FolderOutput,
   'pane-swap': FolderSync, 'pane-move': ArrowRight, command: Command,
+  'folder-sync': FolderSync, 'arrow-right-left': ArrowLeftRight,
   bot: Bot, sparkles: Sparkles, send: Send, play: Play,
   'message-square': MessageSquare, 'alert-triangle': TriangleAlert,
   'alert-circle': CircleAlert, info: Info, 'check-circle': CheckCircle,

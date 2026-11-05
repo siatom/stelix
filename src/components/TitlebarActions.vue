@@ -99,7 +99,7 @@ async function openTerminalHere() {
         :disabled="!canSync"
         @click="ui.openSync()"
       >
-        <Icon name="sync" :size="15" />
+        <Icon name="folder-sync" :size="15" />
       </button>
     </div>
 

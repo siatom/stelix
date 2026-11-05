@@ -87,7 +87,7 @@ function onContext(ev: MouseEvent, tabId: string) {
       </button>
       <button :title="swapPanesTitle" :aria-label="swapPanesTitle" @click="paneStore.swapPanes()">
         <span class="directional-icon" :class="{ reversed: paneId === 'right' }">
-          <Icon name="pane-swap" :size="15" />
+          <Icon name="arrow-right-left" :size="15" />
         </span>
       </button>
       <button
