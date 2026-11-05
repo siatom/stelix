@@ -7,6 +7,7 @@ import { useUiStore } from '../stores/ui'
 import { formatCombo, match, combos, isCapturingShortcut } from '../stores/shortcuts'
 import { resolveSystemLocations } from './Sidebar/shared'
 import type { QuickLocation } from './Sidebar/shared'
+import { basename } from './Pane/utils'
 
 interface Command {
   id: string
@@ -62,6 +63,22 @@ async function reindex() {
   }
 }
 
+/** 复制当前活动窗格选中项的文件名或完整路径，每行一项。 */
+function copySelected(kind: 'name' | 'path') {
+  const tab = pane.activeTab
+  if (!tab || !tab.selected.length) {
+    ui.setStatusText(`请先选择要复制${kind === 'name' ? '文件名' : '路径'}的条目`)
+    return
+  }
+  const count = tab.selected.length
+  const text = tab.selected.map((path) => (kind === 'name' ? basename(path) : path)).join('\r\n')
+  const label = kind === 'name' ? '文件名' : '路径'
+  void navigator.clipboard.writeText(text).then(
+    () => ui.setStatusText(count > 1 ? `已复制 ${count} 个${label}` : `已复制${label}`),
+    (error) => ui.setStatusText(`复制${label}失败：${String(error)}`),
+  )
+}
+
 function buildCommands(locations: QuickLocation[]) {
   const list: Command[] = [
     {
@@ -84,6 +101,18 @@ function buildCommands(locations: QuickLocation[]) {
       label: '批量重命名…',
       hint: `多选后 ${formatCombo(combos.value.rename)}`,
       run: () => window.dispatchEvent(new CustomEvent('stelix:batch-rename')),
+    },
+    {
+      id: 'copy-name',
+      label: '复制所选文件名',
+      hint: '每行一项',
+      run: () => copySelected('name'),
+    },
+    {
+      id: 'copy-path',
+      label: '复制所选路径',
+      hint: formatCombo(combos.value['copy-path']),
+      run: () => copySelected('path'),
     },
     {
       id: 'undo',

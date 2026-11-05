@@ -1114,6 +1114,8 @@ function contextMenuItems(): { id: string; label: string }[] {
   // 重做只在撤销栈里确实有可重做项时出现（系统菜单不支持禁用项）。
   if (paneStore.canRedo) items.push({ id: 'redo', label: `重做${paneStore.redoLabel}` })
   if (selected) {
+    items.push({ id: 'copy-name', label: selected > 1 ? `复制文件名（${selected} 项）` : '复制文件名' })
+    items.push({ id: 'copy-path', label: selected > 1 ? `复制路径（${selected} 项）` : '复制路径' })
     items.push({ id: 'duplicate', label: '复制副本' })
     items.push({ id: 'copy-to', label: '复制到…' })
     items.push({ id: 'move-to', label: '移动到…' })
@@ -1123,9 +1125,30 @@ function contextMenuItems(): { id: string; label: string }[] {
   return items
 }
 
+/**
+ * 复制当前选中集的文件名或完整路径到剪贴板：每行一项，多选时按选择顺序追加。
+ * 右键菜单打开时会保留整个选中集，因此这里统一读取 `tab.selected`。
+ */
+function copySelectedText(kind: 'name' | 'path') {
+  const sel = props.tab.selected
+  if (!sel.length) return
+  const text = sel.map((path) => (kind === 'name' ? basename(path) : path)).join('\r\n')
+  const label = kind === 'name' ? '文件名' : '路径'
+  void navigator.clipboard.writeText(text).then(
+    () => ui.setStatusText(sel.length > 1 ? `已复制 ${sel.length} 个${label}` : `已复制${label}`),
+    (error) => ui.setStatusText(`复制${label}失败：${String(error)}`),
+  )
+}
+
 /** 分发系统菜单里被选中的应用扩展项（目标一律取当前选中集，而非可能已过期的 entry）。 */
 function handleCtxAction(id: string, entry: FileEntry) {
   switch (id) {
+    case 'copy-name':
+      copySelectedText('name')
+      return
+    case 'copy-path':
+      copySelectedText('path')
+      return
     case 'undo':
       void paneStore.undoLast()
       return
@@ -1252,18 +1275,16 @@ function onGlobalKey(ev: KeyboardEvent) {
       ev.preventDefault()
       void paneStore.pasteInto(props.paneId, props.tab.path)
       return
-    case 'copy-path': {
-      const sel = props.tab.selected
-      if (!sel.length) return
+    case 'copy-name':
+      if (!props.tab.selected.length) return
       ev.preventDefault()
-      // 与 Windows「复制为路径」一致：每行一个带引号的完整路径。
-      const text = sel.map((path) => `"${path}"`).join('\r\n')
-      void navigator.clipboard.writeText(text).then(
-        () => ui.setStatusText(sel.length > 1 ? `已复制 ${sel.length} 个路径` : '已复制路径'),
-        (error) => ui.setStatusText(`复制路径失败：${String(error)}`),
-      )
+      copySelectedText('name')
       return
-    }
+    case 'copy-path':
+      if (!props.tab.selected.length) return
+      ev.preventDefault()
+      copySelectedText('path')
+      return
     case 'copy-to':
       ev.preventDefault()
       void paneStore.copySelectedTo(props.paneId, 'copy')

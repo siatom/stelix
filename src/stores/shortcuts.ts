@@ -51,6 +51,7 @@ export const SHORTCUT_DEFS: readonly ShortcutDef[] = [
   { id: 'cut', label: '剪切', group: 'files', default: { ctrl: true, key: 'x' } },
   { id: 'paste', label: '粘贴', group: 'files', default: { ctrl: true, key: 'v' } },
   { id: 'copy-path', label: '复制路径', group: 'files', default: { ctrl: true, shift: true, key: 'c' } },
+  { id: 'copy-name', label: '复制文件名', group: 'files', default: { key: '' } },
   { id: 'copy-to', label: '复制到…', group: 'files', default: { ctrl: true, alt: true, key: 'c' } },
   { id: 'move-to', label: '移动到…', group: 'files', default: { ctrl: true, alt: true, key: 'm' } },
   { id: 'undo', label: '撤销上一步操作', group: 'files', default: { ctrl: true, key: 'z' } },
