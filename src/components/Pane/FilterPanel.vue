@@ -41,7 +41,7 @@ const form = reactive({
   maxSize: '',
   maxUnit: 'mb' as SizeUnit,
   modifiedDays: null as number | null,
-  recursive: false,
+  recursive: true,
 })
 
 const isLocal = computed(() => (props.tab.kind ?? 'files') === 'files')
@@ -119,7 +119,8 @@ function syncForm() {
   form.minSize = bytesToInput(rule?.minSize ?? null, minUnit)
   form.maxSize = bytesToInput(rule?.maxSize ?? null, maxUnit)
   form.modifiedDays = rule?.modifiedWithinDays ?? null
-  form.recursive = !!rule?.recursive
+  // 首次打开（没有已保存规则）默认递归，用户可手动关闭；远程目录不支持递归。
+  form.recursive = isLocal.value && (rule ? !!rule.recursive : true)
 }
 
 function resetForm() {
@@ -131,7 +132,7 @@ function resetForm() {
   form.minUnit = 'mb'
   form.maxUnit = 'mb'
   form.modifiedDays = null
-  form.recursive = false
+  form.recursive = true
 }
 
 /** 面板贴着按钮右下角展开；空间不足时向上翻转，并始终限制在窗口内。 */
