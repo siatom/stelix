@@ -112,6 +112,8 @@ onMounted(() => {
       if (sequence !== dragEventSequence) return
       const pointX = payload.position.x / scale
       const pointY = payload.position.y / scale
+      const dropElement = document.elementFromPoint(pointX, pointY)?.closest<HTMLElement>('[data-drop-path]')
+      const folderPath = dropElement?.dataset.dropDir === 'true' ? dropElement.dataset.dropPath : undefined
       const paneEl = [...(rootRef.value?.querySelectorAll<HTMLElement>('[data-pane-id]') ?? [])]
         .find((el) => {
           const rect = el.getBoundingClientRect()
@@ -131,8 +133,8 @@ onMounted(() => {
         dropTargetPaneId.value = null
         return
       }
-      // 同一窗格内默认不执行文件操作；按住 Ctrl / Shift 拖动才允许。
-      if (internal?.paneId === paneId && !internal.modifier) {
+      // 同窗格拖到空白处视为取消；拖到具体文件夹时按当前拖拽模式执行。
+      if (internal?.paneId === paneId && !folderPath && isDrop) {
         dropTargetPaneId.value = null
         return
       }
@@ -142,12 +144,13 @@ onMounted(() => {
       const op = {
         op: dragOperation ?? 'copy',
         sources: payload.paths,
-        target: tab.path,
+        target: folderPath ?? tab.path,
       }
       try {
         await paneStore.runFs(sourcePaneId, op)
         // runFs 只刷新发起操作的窗格；跨窗格拖拽时再刷新落点窗格。
         if (sourcePaneId !== paneId) await paneStore.refresh(paneId)
+        else if (folderPath) await paneStore.reloadByPath(folderPath)
       } finally {
         dropTargetPaneId.value = null
         internalDrag = null
