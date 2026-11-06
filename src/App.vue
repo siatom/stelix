@@ -27,6 +27,7 @@ const paneStore = usePaneStore()
 const aiStore = useAiStore()
 const appWindow = getCurrentWindow()
 const isMacos = typeof navigator !== 'undefined' && /Mac/i.test(navigator.userAgent)
+const isWindows = typeof navigator !== 'undefined' && /Windows/i.test(navigator.userAgent)
 const isMaximized = ref(false)
 const titlebarMenu = ref<{ x: number; y: number } | null>(null)
 const titlebarActionMode = ref<'move' | 'size' | null>(null)
@@ -357,6 +358,10 @@ onBeforeUnmount(() => {
       @dblclick="toggleMaximizeFromTitlebar"
       @contextmenu="openTitlebarMenu"
     >
+      <div v-if="isWindows" class="titlebar-brand">
+        <img src="/brand-mark.svg" alt="" draggable="false" />
+        <span>Stelix 星索</span>
+      </div>
       <div class="titlebar-center">
         <TitlebarActions />
       </div>
@@ -467,6 +472,21 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   min-width: 0;
+}
+.titlebar-brand {
+  position: absolute;
+  left: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--fg);
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.titlebar-brand img {
+  width: 22px;
+  height: 22px;
 }
 .titlebar-center {
   grid-column: 3;
