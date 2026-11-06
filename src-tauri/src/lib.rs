@@ -32,6 +32,7 @@ mod smb_discovery;
 mod ssh;
 mod state;
 mod types;
+mod updater;
 mod watcher;
 mod wsl;
 
@@ -1439,6 +1440,8 @@ pub fn run() {
             feedback_submit,
             autostart_get,
             autostart_set,
+            updater::updater_check,
+            updater::updater_download,
         ])
         .run(context)
         .expect("error while running tauri application");

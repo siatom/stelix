@@ -1,6 +1,8 @@
 <script setup lang="ts">
 // 左侧标签设置页：常规、文件索引、AI 大模型和关于。
 import { computed, onMounted, ref, watch } from 'vue'
+import { listen } from '@tauri-apps/api/event'
+import { openPath } from '@tauri-apps/plugin-opener'
 import { api } from '../../api'
 import { usePaneStore } from '../../stores/pane'
 import { DEFAULT_FONT_STACK, UI_FONT_PRESETS, useUiStore } from '../../stores/ui'
@@ -74,6 +76,53 @@ const busy = ref(false)
 const error = ref<string | null>(null)
 const autostart = ref(false)
 const autostartBusy = ref(false)
+const updateInfo = ref<Awaited<ReturnType<typeof api.updaterCheck>> | null>(null)
+const updateBusy = ref(false)
+const updateProgress = ref(0)
+const updateError = ref('')
+let stopUpdateProgress: (() => void) | undefined
+
+async function checkForUpdates() {
+  updateBusy.value = true
+  updateError.value = ''
+  try {
+    updateInfo.value = await api.updaterCheck()
+  } catch (cause) {
+    updateError.value = String(cause)
+  } finally {
+    updateBusy.value = false
+  }
+}
+
+async function downloadAndInstallUpdate() {
+  const info = updateInfo.value
+  if (!info?.assetName || !info.assetUrl) return
+  updateBusy.value = true
+  updateError.value = ''
+  updateProgress.value = 0
+  try {
+    stopUpdateProgress?.()
+    stopUpdateProgress = await listen<[number, number]>('updater:progress', (event) => {
+      const [done, total] = event.payload
+      updateProgress.value = total ? Math.min(100, Math.round(done / total * 100)) : 0
+    })
+    const path = await api.updaterDownload(info.assetUrl, info.assetName)
+    await openPath(path)
+    updateProgress.value = 100
+    ui.setStatusText('安装包已打开，请按系统提示完成更新')
+  } catch (cause) {
+    updateError.value = String(cause)
+  } finally {
+    stopUpdateProgress?.()
+    stopUpdateProgress = undefined
+    updateBusy.value = false
+  }
+}
+
+function formatUpdateSize(size: number | null) {
+  if (!size) return ''
+  return `${(size / 1024 / 1024).toFixed(1)} MB`
+}
 
 // 界面字体：支持 VS Code fontFamily 形式的字体列表，输入时预览、确认后应用
 const fontDraft = ref(ui.uiFont)
@@ -201,6 +250,10 @@ function restoreDefaults() {
 onMounted(() => {
   void ui.refreshIndexStatus()
   void refreshAutostart()
+})
+
+watch(() => ui.settingsTab, (tab) => {
+  if (tab === 'about' && !updateInfo.value && !updateBusy.value) void checkForUpdates()
 })
 </script>
 
@@ -408,7 +461,22 @@ onMounted(() => {
 
       <section v-show="ui.settingsTab === 'about'" class="card">
         <header class="card-head">Stelix File Manager 星索</header>
-        <div class="card-body"><p class="about-text">版本 {{ appVersion }}</p><p class="about-text">Commit {{ commitId }}</p></div>
+        <div class="card-body">
+          <p class="about-text">版本 {{ appVersion }}</p><p class="about-text">Commit {{ commitId }}</p>
+          <div class="update-row">
+            <div class="update-copy">
+              <strong>{{ updateInfo?.available ? `发现新版本 v${updateInfo.version}` : updateInfo ? `已是最新版本（v${appVersion}）` : '检查更新' }}</strong>
+              <span v-if="updateInfo?.available && updateInfo.assetName">{{ updateInfo.assetName }} · {{ formatUpdateSize(updateInfo.assetSize) }}</span>
+              <span v-else-if="updateInfo?.available">此版本没有适用于当前系统的安装包</span>
+              <span v-else>从 GitHub Releases 获取最新版本</span>
+            </div>
+            <button class="update-btn" :disabled="updateBusy" @click="updateInfo?.available ? downloadAndInstallUpdate() : checkForUpdates()">
+              {{ updateBusy ? (updateProgress ? `下载中 ${updateProgress}%` : '检查中…') : updateInfo?.available && updateInfo.assetUrl ? '下载并安装' : '检查更新' }}
+            </button>
+          </div>
+          <p v-if="updateError" class="update-error">{{ updateError }}</p>
+          <p v-if="updateInfo?.available && updateInfo.notes" class="update-notes">{{ updateInfo.notes }}</p>
+        </div>
       </section>
       <div v-if="error && (ui.settingsTab === 'general' || ui.settingsTab === 'appearance' || ui.settingsTab === 'index')" class="error">操作失败：{{ error }}</div>
     </div>
@@ -457,6 +525,14 @@ onMounted(() => {
 .settings-scroll { position: relative; z-index: 1; }
 .page-title { margin: 0 0 6px; font-size: 1.3333rem; font-weight: 600; }
 .about-text { margin: 4px; color: var(--fg-muted); }
+.update-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); }
+.update-copy { display: flex; min-width: 0; flex-direction: column; gap: 4px; }
+.update-copy strong { font-size: 0.95rem; font-weight: 600; }
+.update-copy span, .update-notes { color: var(--fg-dim); font-size: 0.85rem; }
+.update-btn { flex: none; padding: 7px 12px; border: 1px solid var(--accent); border-radius: var(--radius-sm); background: var(--accent); color: var(--accent-fg); font: inherit; font-size: 0.9rem; font-weight: 600; cursor: pointer; }
+.update-btn:disabled { opacity: 0.6; cursor: default; }
+.update-error { color: var(--danger); font-size: 0.85rem; }
+.update-notes { margin: 12px 4px 0; white-space: pre-wrap; line-height: 1.55; }
 .appearance-layout { display: flex; flex-direction: column; gap: 0; }
 .appearance-section { padding: 15px 2px; border-bottom: 1px solid var(--border); }
 .appearance-section:first-child { padding-top: 6px; }

@@ -49,6 +49,8 @@ import type {
 
 /** 后端 command 封装（与 src-tauri/src/lib.rs 注册表一一对应） */
 export const api = {
+  updaterCheck: () => invoke<{ currentVersion: string; version: string; available: boolean; title: string; notes: string; releaseUrl: string; assetName: string | null; assetUrl: string | null; assetSize: number | null }>('updater_check'),
+  updaterDownload: (url: string, name: string) => invoke<string>('updater_download', { url, name }),
   listDir: (path: string) => invoke<DirListing>('list_dir', { path }),
   /** 在目录内按条件筛选条目（`recursive` 时遍历整个子树）。 */
   filterDir: (request: {
