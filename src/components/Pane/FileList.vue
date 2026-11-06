@@ -1346,6 +1346,18 @@ function onShellMenuAction(event: { payload: string }) {
   handleCtxAction(event.payload, entry)
 }
 
+/**
+ * 系统菜单作用于**整个选中集**：Shell 扩展（7-Zip「添加到压缩包」等）要拿到全部
+ * 选中项，只传被右键的那一项会把多选退化成单项处理。
+ * 被右键项排首位：后端在多项菜单建不出来时按它退回单项菜单。
+ */
+function contextMenuPaths(entry: FileEntry): string[] {
+  // 空白处右键：只针对当前目录本身。
+  if (entry.id === -1) return [entry.path]
+  const rest = props.tab.selected.filter((path) => path !== entry.path)
+  return [entry.path, ...rest]
+}
+
 async function showNativeCtx(event: MouseEvent, entry: FileEntry) {
   cancelPendingRename()
   // currentDirEntry() 以 id = -1 表示「在空白处右键」：此时不要把当前目录本身
@@ -1356,7 +1368,7 @@ async function showNativeCtx(event: MouseEvent, entry: FileEntry) {
   if (!isWindows) pendingCtxEntry = entry
   try {
     const picked = await api.showNativeShellMenu(
-      entry.path,
+      contextMenuPaths(entry),
       {
         x: event.clientX,
         y: event.clientY,
