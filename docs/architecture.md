@@ -121,3 +121,4 @@ flowchart TB
 - Rust 通过 `AppState` 持有索引、AI、任务、监听和目录大小等长生命周期服务。
 - 文件系统变更、索引进度、AI 流式输出和远程传输进度采用 Tauri 事件回传前端。
 - AI 写操作会先经过只读预检，再由前端逐项确认后才进入 `fs_core`；待审批的 Agent run 保存在后端内存中，执行结果继续回灌模型。配置、历史和索引缓存由 `persistence` 负责落盘，AI 写操作审计追加到 `ai-audit.jsonl`。
+- Windows 原生右键菜单按**整份选中集**创建（`shell_menu` 多选走 `IShellItemArray`，单选走父 `IShellFolder` + 子 PIDL）：7-Zip「添加到压缩包」、系统压缩、复制 / 剪切 / 删除 / 属性等系统项都作用于全部选中项，多选不得退化成「只处理被右键的那一项」。菜单末尾的应用自定义项仍由前端按 `tab.selected` 分发。
