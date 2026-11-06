@@ -10,13 +10,14 @@ use windows::core::{Interface, PCSTR, PCWSTR};
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, WPARAM};
 use windows::Win32::Graphics::Gdi::ClientToScreen;
 use windows::Win32::System::Com::{
-    CoInitializeEx, CoTaskMemFree, CoUninitialize, COINIT_APARTMENTTHREADED,
+    CoInitializeEx, CoTaskMemFree, CoUninitialize, IBindCtx, COINIT_APARTMENTTHREADED,
 };
 use windows::Win32::UI::Shell::Common::ITEMIDLIST;
 use windows::Win32::UI::Shell::{
-    DefSubclassProc, IContextMenu, IContextMenu2, IContextMenu3, IShellFolder,
-    RemoveWindowSubclass, SHBindToParent, SHParseDisplayName, SetWindowSubclass, CMF_EXPLORE,
-    CMF_NORMAL, CMIC_MASK_PTINVOKE, CMINVOKECOMMANDINFO, CMINVOKECOMMANDINFOEX,
+    BHID_SFUIObject, DefSubclassProc, IContextMenu, IContextMenu2, IContextMenu3, IShellFolder,
+    IShellItemArray, RemoveWindowSubclass, SHBindToParent, SHCreateShellItemArrayFromIDLists,
+    SHParseDisplayName, SetWindowSubclass, CMF_EXPLORE, CMF_NORMAL, CMIC_MASK_PTINVOKE,
+    CMINVOKECOMMANDINFO, CMINVOKECOMMANDINFOEX,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CreatePopupMenu, DestroyMenu, GetCursorPos, GetMenuItemCount, PostMessageW,
@@ -55,23 +56,29 @@ pub struct MenuItem {
 /// 应用自定义命令 ID 的起始值：与 Shell 的 [ID_CMD_FIRST, ID_CMD_LAST] 不重叠。
 const APP_CMD_FIRST: u32 = 0x8000;
 
-/// 在 `hwnd` 中显示 Windows Shell 为指定路径提供的完整原生菜单。
+/// 在 `hwnd` 中显示 Windows Shell 为**整个选中集**提供的完整原生菜单。
+///
+/// `paths` 是选中集（至少一项，被右键项排在最前）：Shell 扩展和系统项看到的是整份选中集，
+/// 所以 7-Zip 的「添加到压缩包」会把所有条目打进同一个包。
 ///
 /// `items` 会作为「应用扩展段」追加在系统菜单末尾；用户选中其中一项时返回它的 id，
 /// 选中系统菜单项或取消时返回 `None`（系统项由 Shell 自己执行）。
 pub fn show_native(
     hwnd: HWND,
-    path: &str,
+    paths: &[String],
     anchor: Option<Anchor>,
     items: &[MenuItem],
 ) -> Result<Option<String>, String> {
     if hwnd.is_invalid() {
         return Err("窗口句柄无效".to_string());
     }
+    if paths.is_empty() {
+        return Err("没有可操作的路径".to_string());
+    }
     let _com = ComInit::new()?;
     let menu = unsafe { CreatePopupMenu() }.map_err(|error| format!("创建菜单失败: {error}"))?;
     let menu = MenuGuard(menu);
-    let context_menu = unsafe { create_context_menu(hwnd, path)? };
+    let context_menu = unsafe { create_context_menu(hwnd, paths)? };
     let hr = unsafe {
         context_menu.QueryContextMenu(
             menu.0,
@@ -199,37 +206,81 @@ fn to_native_path(path: &str) -> String {
     path.replace('/', "\\")
 }
 
-/// 通过 `SHParseDisplayName` + `IShellFolder::GetUIObjectOf` 取文件的 `IContextMenu`。
-unsafe fn create_context_menu(hwnd: HWND, path: &str) -> Result<IContextMenu, String> {
-    let native = to_native_path(path);
-    let path_wide: Vec<u16> = native.encode_utf16().chain(std::iter::once(0)).collect();
-    let mut pidl: *mut ITEMIDLIST = std::ptr::null_mut();
-    SHParseDisplayName(PCWSTR(path_wide.as_ptr()), None, &mut pidl, 0, None)
-        .map_err(|error| format!("无法解析文件路径: {error}"))?;
-    if pidl.is_null() {
-        return Err("无法解析文件路径：Shell 返回了空 PIDL".to_string());
-    }
-
-    let mut child: *mut ITEMIDLIST = std::ptr::null_mut();
-    let folder = match SHBindToParent::<IShellFolder>(pidl, Some(&mut child)) {
-        Ok(folder) => folder,
-        Err(error) => {
-            CoTaskMemFree(Some(pidl as *const _));
-            return Err(format!("无法绑定文件所在文件夹: {error}"));
+/// 为整个选中集取 `IContextMenu`。
+///
+/// 多选走 `IShellItemArray`：选中项可以散落在不同目录（搜索标签页），而单选实现里
+/// 「父 `IShellFolder` + 子 PIDL」的表达方式只能覆盖同一目录下的兄弟项。
+unsafe fn create_context_menu(hwnd: HWND, paths: &[String]) -> Result<IContextMenu, String> {
+    if paths.len() > 1 {
+        // 非常规选中项（回收站条目、已消失的路径）建不出多项菜单时，退回只处理
+        // 被右键的那一项：行为不劣于修复前，也不会让整个菜单打不开。
+        if let Ok(menu) = create_multi_context_menu(paths) {
+            return Ok(menu);
         }
-    };
+    }
+    create_single_context_menu(hwnd, &paths[0])
+}
+
+/// 多选：`SHParseDisplayName` → `IShellItemArray` → `BindToHandler(BHID_SFUIObject)`。
+unsafe fn create_multi_context_menu(paths: &[String]) -> Result<IContextMenu, String> {
+    let pidls = parse_pidls(paths)?;
+    let array = shell_item_array(&pidls)?;
+    array
+        .BindToHandler(None::<&IBindCtx>, &BHID_SFUIObject)
+        .map_err(|error| format!("无法读取系统右键菜单: {error}"))
+}
+
+/// 单选：`SHParseDisplayName` + `IShellFolder::GetUIObjectOf`。
+unsafe fn create_single_context_menu(hwnd: HWND, path: &str) -> Result<IContextMenu, String> {
+    let pidl = OwnedPidl::parse(path)?;
+    let mut child: *mut ITEMIDLIST = std::ptr::null_mut();
+    let folder = SHBindToParent::<IShellFolder>(pidl.as_ptr(), Some(&mut child))
+        .map_err(|error| format!("无法绑定文件所在文件夹: {error}"))?;
 
     let child: *const ITEMIDLIST = child;
-    let context_menu = match folder.GetUIObjectOf::<IContextMenu>(hwnd, &[child], None) {
-        Ok(menu) => menu,
-        Err(error) => {
-            CoTaskMemFree(Some(pidl as *const _));
-            return Err(format!("无法读取系统右键菜单: {error}"));
-        }
-    };
+    folder
+        .GetUIObjectOf::<IContextMenu>(hwnd, &[child], None)
+        .map_err(|error| format!("无法读取系统右键菜单: {error}"))
+}
 
-    CoTaskMemFree(Some(pidl as *const _));
-    Ok(context_menu)
+/// 多个路径 → 绝对 PIDL 列表，保持传入顺序。
+unsafe fn parse_pidls(paths: &[String]) -> Result<Vec<OwnedPidl>, String> {
+    paths.iter().map(|path| OwnedPidl::parse(path)).collect()
+}
+
+/// 选中集的 `IShellItemArray`（`SHCreateShellItemArrayFromIDLists` 的封装）。
+unsafe fn shell_item_array(pidls: &[OwnedPidl]) -> Result<IShellItemArray, String> {
+    let absolute: Vec<*const ITEMIDLIST> = pidls.iter().map(OwnedPidl::as_ptr).collect();
+    SHCreateShellItemArrayFromIDLists(&absolute).map_err(|error| format!("无法构造选中集: {error}"))
+}
+
+/// `SHParseDisplayName` 分配的绝对 PIDL，离开作用域时用 `CoTaskMemFree` 释放。
+struct OwnedPidl(*const ITEMIDLIST);
+
+impl OwnedPidl {
+    unsafe fn parse(path: &str) -> Result<Self, String> {
+        let native = to_native_path(path);
+        let path_wide: Vec<u16> = native.encode_utf16().chain(std::iter::once(0)).collect();
+        let mut pidl: *mut ITEMIDLIST = std::ptr::null_mut();
+        SHParseDisplayName(PCWSTR(path_wide.as_ptr()), None, &mut pidl, 0, None)
+            .map_err(|error| format!("无法解析文件路径: {error}"))?;
+        if pidl.is_null() {
+            return Err("无法解析文件路径：Shell 返回了空 PIDL".to_string());
+        }
+        Ok(Self(pidl))
+    }
+
+    fn as_ptr(&self) -> *const ITEMIDLIST {
+        self.0
+    }
+}
+
+impl Drop for OwnedPidl {
+    fn drop(&mut self) {
+        if !self.0.is_null() {
+            unsafe { CoTaskMemFree(Some(self.0 as *const _)) };
+        }
+    }
 }
 
 // ---------------------------------------------------------------- 消息转发
@@ -352,11 +403,98 @@ impl Drop for ComInit {
 
 #[cfg(test)]
 mod tests {
-    use super::to_native_path;
+    use super::*;
+
+    /// 临时目录：`Drop` 时递归删除。
+    struct TempDir(std::path::PathBuf);
+
+    impl TempDir {
+        fn new(tag: &str) -> Self {
+            let path = std::env::temp_dir()
+                .join(format!("stelix-shell-menu-{tag}-{}", uuid::Uuid::new_v4()));
+            std::fs::create_dir_all(&path).expect("创建临时目录");
+            Self(path)
+        }
+
+        /// 写入一个文件（相对路径可带子目录），返回它的完整路径。
+        fn write(&self, relative: &str) -> String {
+            let path = self.0.join(relative);
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent).expect("创建子目录");
+            }
+            std::fs::write(&path, b"x").expect("写入临时文件");
+            path.to_string_lossy().into_owned()
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
 
     #[test]
     fn normalizes_forward_slashes_for_shell_parsing() {
         assert_eq!(to_native_path("D:/a/b.txt"), "D:\\a\\b.txt");
         assert_eq!(to_native_path("D:\\a\\b.txt"), "D:\\a\\b.txt");
+    }
+
+    /// 多选必须把**全部**选中项放进 `IShellItemArray`：7-Zip 这类 Shell 扩展正是从这个
+    /// 选中集里取文件列表，少一项就会少打包一个文件（本缺陷的回归测试）。
+    #[test]
+    fn multi_selection_builds_item_array_for_all_paths() {
+        let dir = TempDir::new("array");
+        let sibling = dir.write("sibling.txt");
+        let nested = dir.write("nested/deep.txt");
+        let _com = ComInit::new().expect("初始化 COM");
+
+        // 同目录兄弟项与跨目录选中项走同一条路径，都必须得到完整的 2 项。
+        let selections = [
+            vec![sibling.clone(), dir.write("second.txt")],
+            vec![sibling, nested],
+        ];
+        for paths in selections {
+            let pidls = unsafe { parse_pidls(&paths) }.expect("解析 PIDL");
+            let array = unsafe { shell_item_array(&pidls) }.expect("构造选中集");
+            let count = unsafe { array.GetCount() }.expect("读取选中集条目数");
+            assert_eq!(count, paths.len() as u32);
+        }
+    }
+
+    #[test]
+    fn missing_path_is_rejected() {
+        let dir = TempDir::new("missing");
+        let absent = dir.0.join("absent.txt").to_string_lossy().into_owned();
+        let _com = ComInit::new().expect("初始化 COM");
+        assert!(unsafe { parse_pidls(&[absent]) }.is_err());
+    }
+
+    /// 真实创建多项 `IContextMenu` 并 `QueryContextMenu`。需要带桌面的 Windows 会话，
+    /// 不进 CI（无桌面 runner 上会 flaky）：
+    /// `cargo test --manifest-path src-tauri/Cargo.toml -- --ignored`。
+    #[test]
+    #[ignore = "需要带桌面的 Windows 会话"]
+    fn multi_selection_context_menu_has_commands() {
+        let dir = TempDir::new("menu");
+        let paths = vec![dir.write("a.txt"), dir.write("b.txt")];
+        let _com = ComInit::new().expect("初始化 COM");
+        let hwnd = HWND(std::ptr::null_mut());
+        let context_menu = unsafe { create_context_menu(hwnd, &paths) }.expect("创建系统菜单");
+
+        let popup = MenuGuard(unsafe { CreatePopupMenu() }.expect("创建弹出菜单"));
+        let hr = unsafe {
+            context_menu.QueryContextMenu(
+                popup.0,
+                0,
+                ID_CMD_FIRST,
+                ID_CMD_LAST,
+                CMF_NORMAL | CMF_EXPLORE,
+            )
+        };
+        assert!(hr.is_ok(), "QueryContextMenu 失败：{hr:?}");
+        assert!(
+            unsafe { GetMenuItemCount(Some(popup.0)) } > 0,
+            "多项菜单没有任何条目"
+        );
     }
 }

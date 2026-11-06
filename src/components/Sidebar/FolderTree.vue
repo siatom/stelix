@@ -151,7 +151,7 @@ async function onLocationContextMenu(event: MouseEvent, path: string) {
   event.preventDefault()
   event.stopPropagation()
   try {
-    const shown = await api.showNativeShellMenu(path, {
+    const shown = await api.showNativeShellMenu([path], {
       x: event.clientX,
       y: event.clientY,
       scale: window.devicePixelRatio || 1,

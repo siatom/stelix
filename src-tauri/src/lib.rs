@@ -773,13 +773,16 @@ fn show_open_with_windows(file: &std::path::Path) -> Result<(), String> {
 
 /// 弹出 Windows Shell 菜单，并在末尾追加应用自定义操作。
 ///
+/// `paths` 是整个选中集（被右键项排在首位）：系统项与 Shell 扩展作用于全部选中项，
+/// 例如 7-Zip 的「添加到压缩包」会把所有条目打进同一个包。
+///
 /// 返回被选中的应用项 id（如 duplicate / copy-to）；选中系统项或取消时返回 null
 /// （系统项由 Shell 自己执行，应用不需要介入）。
 #[tauri::command]
 fn show_native_shell_menu(
     app: tauri::AppHandle,
     window: tauri::Window,
-    path: String,
+    paths: Vec<String>,
     anchor: Option<ShellMenuAnchor>,
     items: Option<Vec<ShellMenuItemInput>>,
 ) -> Result<Option<String>, String> {
@@ -799,7 +802,7 @@ fn show_native_shell_menu(
             .collect();
         shell_menu::show_native(
             hwnd,
-            &path,
+            &paths,
             anchor.map(|value| shell_menu::Anchor {
                 x: value.x,
                 y: value.y,
@@ -818,7 +821,7 @@ fn show_native_shell_menu(
         use tauri::menu::{Menu, MenuItem};
 
         let _ = window;
-        let _ = path;
+        let _ = paths;
         let items = items.unwrap_or_default();
         if items.is_empty() {
             return Ok(None);

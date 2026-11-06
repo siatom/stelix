@@ -166,15 +166,16 @@ export const api = {
   showOpenWith: (path: string) => invoke<void>('show_open_with', { path }),
   /**
    * 弹出 Windows Shell 菜单，并在末尾追加应用自定义操作。
+   * `paths` 是整个选中集（被右键项排首位）：系统项与 Shell 扩展作用于全部选中项。
    * 返回被选中的应用项 id（如 duplicate / copy-to）；选中系统项或取消时返回 null。
    */
   showNativeShellMenu: (
-    path: string,
+    paths: string[],
     anchor?: { x: number; y: number; scale: number } | null,
     items?: { id: string; label: string }[] | null,
   ) =>
     invoke<string | null>('show_native_shell_menu', {
-      path,
+      paths,
       anchor: anchor ?? null,
       items: items ?? null,
     }),
