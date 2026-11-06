@@ -1789,12 +1789,6 @@ async function onEntryDrop(ev: DragEvent, entry: FileEntry) {
   const payload = readDragPayload(ev)
   if (!payload) return
 
-  // 同一窗格内默认不执行文件操作，避免拖动时误移动 / 复制；按住 Ctrl / Shift 才处理。
-  if (payload.paneId === props.paneId && !ev.ctrlKey && !ev.shiftKey) {
-    ui.setStatusText('同一窗格内按住 Ctrl 拖动复制，按住 Shift 拖动移动')
-    return
-  }
-
   if (isRemote.value) {
     const target = props.tab.remote
     if (!target) return
@@ -2014,6 +2008,8 @@ function onDrop(ev: DragEvent) {
             :key="String(vr.key)"
             class="row"
             :data-selection-path="vr.row.entry.path"
+            :data-drop-path="vr.row.entry.path"
+            :data-drop-dir="vr.row.entry.isDir"
             :draggable="!editing"
             :class="{ selected: tab.selected.includes(vr.row.entry.path), dir: vr.row.entry.isDir, 'drop-target': dragOverPath === vr.row.entry.path }"
             :style="[{ height: `${vr.size}px`, transform: `translateY(${vr.start}px)` }, rowStyle]"
@@ -2114,6 +2110,8 @@ function onDrop(ev: DragEvent) {
           :key="entry.path"
           class="icon-cell"
           :data-selection-path="entry.path"
+          :data-drop-path="entry.path"
+          :data-drop-dir="entry.isDir"
           :draggable="!editing"
           :class="{ selected: tab.selected.includes(entry.path), dir: entry.isDir, 'drop-target': dragOverPath === entry.path }"
           :title="entry.path"
