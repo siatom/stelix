@@ -2209,7 +2209,7 @@ function onDrop(ev: DragEvent) {
   gap: 6px;
   color: var(--fg-dim);
   font-size: 1em;
-  background: var(--bg-app);
+  background: var(--pane-content-bg);
   padding: 20px;
   text-align: center;
 }
@@ -2333,7 +2333,7 @@ function onDrop(ev: DragEvent) {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  background: var(--bg-app);
+  background: var(--pane-content-bg);
 }
 .fl-inner {
   position: relative;
@@ -2522,7 +2522,7 @@ function onDrop(ev: DragEvent) {
   min-height: 0;
   overflow: auto;
   padding: 10px;
-  background: var(--bg-app);
+  background: var(--pane-content-bg);
 }
 .icons-grid {
   display: grid;

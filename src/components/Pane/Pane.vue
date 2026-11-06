@@ -215,7 +215,7 @@ async function confirmDelete() {
 </script>
 
 <template>
-  <section class="pane" :data-pane-id="paneId" @mousedown="activate">
+  <section class="pane" :class="{ 'is-active': isActivePane }" :data-pane-id="paneId" @mousedown="activate">
     <template v-if="tab">
       <div class="pane-topbar" :class="{ 'is-active': isActivePane }">
         <div v-if="tab.kind === 'terminal'" class="terminal-heading">
@@ -343,6 +343,7 @@ async function confirmDelete() {
 
 <style scoped>
 .pane {
+  --pane-content-bg: var(--bg-app);
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -351,6 +352,9 @@ async function confirmDelete() {
   /* 不加描边：与侧栏靠背景深浅区分，与对侧窗格靠 DualPane 的 1px 分割线区分 */
   position: relative;
   overflow: hidden;
+}
+.pane.is-active {
+  --pane-content-bg: var(--pane-content-bg-active);
 }
 .drop-overlay {
   position: absolute;
@@ -373,6 +377,7 @@ async function confirmDelete() {
   justify-content: center;
   color: var(--fg-dim);
   font-size: 1rem;
+  background: var(--pane-content-bg);
 }
 .pane-topbar {
   display: flex;

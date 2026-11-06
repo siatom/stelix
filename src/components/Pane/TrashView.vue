@@ -594,7 +594,7 @@ onBeforeUnmount(() => {
   gap: 7px;
   color: var(--fg-dim);
   font-size: 1em;
-  background: var(--bg-app);
+  background: var(--pane-content-bg);
 }
 .state {
   padding: 20px;
@@ -704,7 +704,7 @@ onBeforeUnmount(() => {
   min-height: 0;
   min-width: 0;
   overflow: auto;
-  background: var(--bg-app);
+  background: var(--pane-content-bg);
 }
 .trash-table {
   width: 100%;
@@ -797,7 +797,7 @@ onBeforeUnmount(() => {
   min-width: 0;
   min-height: 0;
   overflow: auto;
-  background: var(--bg-app);
+  background: var(--pane-content-bg);
 }
 .list-row {
   display: flex;
@@ -829,7 +829,7 @@ onBeforeUnmount(() => {
   min-height: 0;
   overflow: auto;
   padding: 10px;
-  background: var(--bg-app);
+  background: var(--pane-content-bg);
 }
 .icons-grid {
   display: grid;
