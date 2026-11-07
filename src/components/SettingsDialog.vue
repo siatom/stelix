@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted } from 'vue'
+import { nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useUiStore } from '../stores/ui'
 import Icon from './icons/Icon.vue'
 import MacWindowLights from './MacWindowLights.vue'
@@ -8,18 +8,87 @@ import { IS_MACOS } from '../utils/platform'
 
 const ui = useUiStore()
 
-function onKeydown(event: KeyboardEvent) {
-  if (event.key === 'Escape') ui.closeSettings()
+const dialog = ref<HTMLDialogElement | null>(null)
+let opener: HTMLElement | null = null
+
+function focusableControls() {
+  return Array.from(dialog.value?.querySelectorAll<HTMLElement>(
+    'button, a[href], input, select, textarea, [tabindex], [contenteditable="true"]',
+  ) ?? []).filter(element => element.tabIndex >= 0
+    && !element.matches(':disabled, [inert], [inert] *')
+    && element.getClientRects().length > 0
+    && getComputedStyle(element).visibility !== 'hidden')
 }
 
-onMounted(() => window.addEventListener('keydown', onKeydown))
-onUnmounted(() => window.removeEventListener('keydown', onKeydown))
+function onKeydown(event: KeyboardEvent) {
+  if (!dialog.value?.open || event.key !== 'Tab') return
+  const controls = focusableControls()
+  const first = controls[0]
+  const last = controls[controls.length - 1]
+  const active = document.activeElement
+  if (!first || !last) {
+    event.preventDefault()
+    dialog.value?.focus()
+  } else if (!controls.includes(active as HTMLElement)) {
+    event.preventDefault()
+    ;(event.shiftKey ? last : first).focus()
+  } else if (event.shiftKey && active === first) {
+    event.preventDefault()
+    last.focus()
+  } else if (!event.shiftKey && active === last) {
+    event.preventDefault()
+    first.focus()
+  }
+}
+
+function restoreFocus() {
+  const target = opener
+  opener = null
+  if (target?.isConnected && !target.closest('[inert]')) target.focus({ preventScroll: true })
+  // The trigger may have disappeared (for example after a pane is removed).
+  if (!target || document.activeElement !== target) {
+    document.querySelector<HTMLElement>('.app-root')?.focus({ preventScroll: true })
+  }
+}
+
+watch(() => ui.settingsOpen, async (open, wasOpen) => {
+  if (!open) {
+    document.removeEventListener('keydown', onKeydown, true)
+    dialog.value?.close()
+    if (wasOpen) restoreFocus()
+    return
+  }
+  opener = document.activeElement instanceof HTMLElement ? document.activeElement : null
+  await nextTick()
+  if (!ui.settingsOpen || !dialog.value) return
+  // Native modality makes the rest of the document inert, including other teleports.
+  dialog.value.showModal()
+  document.addEventListener('keydown', onKeydown, true)
+  const selected = dialog.value.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')
+  ;(selected ?? focusableControls()[0] ?? dialog.value).focus({ preventScroll: true })
+}, { immediate: true })
+
+onBeforeUnmount(() => {
+  document.removeEventListener('keydown', onKeydown, true)
+  if (dialog.value?.open) {
+    dialog.value.close()
+    restoreFocus()
+  }
+})
 </script>
 
 <template>
   <Teleport to="body">
-    <div v-if="ui.settingsOpen" class="settings-backdrop" @mousedown.self="ui.closeSettings()">
-      <section class="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+    <dialog
+      v-if="ui.settingsOpen"
+      ref="dialog"
+      class="settings-backdrop"
+      aria-labelledby="settings-title"
+      tabindex="-1"
+      @cancel.prevent="ui.closeSettings()"
+      @mousedown.self.prevent="ui.closeSettings()"
+    >
+      <section class="settings-dialog">
         <header class="dialog-head">
           <div class="dialog-head-main">
             <MacWindowLights class="dialog-lights" close-only @close="ui.closeSettings()" />
@@ -43,20 +112,30 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
           <SettingsPanel />
         </div>
       </section>
-    </div>
+    </dialog>
   </Teleport>
 </template>
 
 <style scoped>
 .settings-backdrop {
   position: fixed;
-  z-index: 100;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  border: 0;
+  box-sizing: border-box;
+  color: inherit;
   inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 28px;
   background: rgb(0 0 0 / 42%);
+}
+.settings-backdrop::backdrop {
+  background: transparent;
 }
 .settings-dialog {
   display: flex;

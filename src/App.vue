@@ -342,6 +342,7 @@ onBeforeUnmount(() => {
 <template>
   <div
     class="app-root"
+    tabindex="-1"
     :class="{ resizing: resizing !== null, 'ai-split': aiSplit, macos: isMacos, 'sidebar-collapsed': ui.sidebarCollapsed }"
     :style="{ '--sidebar-w': `${effectiveSidebarWidth}px` }"
   >
