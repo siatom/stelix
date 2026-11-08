@@ -28,6 +28,8 @@ use crate::types::{
 const MTIME_TOLERANCE_MS: i64 = 2000;
 /// 内容校验的读块大小。
 const HASH_CHUNK: usize = 64 * 1024;
+/// 扫描失败最多展示的条数，避免错误信息淹没界面。
+const MAX_REPORTED_ISSUES: usize = 5;
 
 #[derive(Debug, Clone, Copy)]
 struct Meta {
@@ -48,6 +50,42 @@ type Tree = HashMap<String, TreeEntry>;
 
 // ---------------------------------------------------------------- 扫描
 
+/// 扫描缺口：某条路径读取失败，导致索引可能不完整。
+#[derive(Debug, Clone)]
+struct ScanIssue {
+    path: PathBuf,
+    reason: String,
+}
+
+impl ScanIssue {
+    fn new(path: PathBuf, reason: impl Into<String>) -> Self {
+        Self {
+            path,
+            reason: reason.into(),
+        }
+    }
+
+    fn render(&self, side: &str) -> String {
+        format!("{side}扫描失败 {}: {}", self.path.display(), self.reason)
+    }
+}
+
+/// 一侧的扫描结果；`issues` 非空表示索引可能不完整，不能据此生成计划。
+#[derive(Debug, Default)]
+struct ScannedSide {
+    tree: Tree,
+    issues: Vec<ScanIssue>,
+}
+
+impl ScannedSide {
+    fn failed(issue: ScanIssue) -> Self {
+        Self {
+            tree: Tree::new(),
+            issues: vec![issue],
+        }
+    }
+}
+
 /// 扫描两侧目录并生成差异计划。
 pub fn scan(req: &SyncRequest) -> Result<SyncPlan, String> {
     let left = PathBuf::from(req.left.trim());
@@ -55,10 +93,35 @@ pub fn scan(req: &SyncRequest) -> Result<SyncPlan, String> {
     validate_roots(&left, &right)?;
 
     // 左右两侧同时扫描；每一侧内部再按顶层子树并行。
-    let (lt, rt) = rayon::join(|| collect_tree(&left), || collect_tree(&right));
-    let left_tree = lt?;
-    let right_tree = rt?;
+    let (left_side, right_side) = rayon::join(|| collect_tree(&left), || collect_tree(&right));
+    let (left_tree, right_tree) = combine_sides(left_side, right_side)?;
     Ok(build_plan(&left, &right, &left_tree, &right_tree, req))
+}
+
+/// 汇总两侧扫描结果：任一侧存在缺口就返回错误，避免用残缺索引生成删除计划。
+fn combine_sides(left: ScannedSide, right: ScannedSide) -> Result<(Tree, Tree), String> {
+    match scan_gap_error(&left.issues, &right.issues) {
+        Some(error) => Err(error),
+        None => Ok((left.tree, right.tree)),
+    }
+}
+
+fn scan_gap_error(left: &[ScanIssue], right: &[ScanIssue]) -> Option<String> {
+    let mut messages: Vec<String> = Vec::new();
+    for (side, issues) in [("左侧", left), ("右侧", right)] {
+        messages.extend(issues.iter().map(|issue| issue.render(side)));
+    }
+    if messages.is_empty() {
+        return None;
+    }
+    let total = messages.len();
+    messages.sort();
+    messages.truncate(MAX_REPORTED_ISSUES);
+    let mut text = format!("扫描不完整，已停止生成同步计划：{}", messages.join("；"));
+    if total > MAX_REPORTED_ISSUES {
+        text.push_str(&format!("；另有 {} 处失败", total - MAX_REPORTED_ISSUES));
+    }
+    Some(text)
 }
 
 /// 校验左右根目录：都存在、都是目录、不相同、不互相包含。
@@ -91,31 +154,63 @@ fn canonical(p: &Path) -> Result<PathBuf, String> {
 }
 
 /// 收集一侧目录树（跳过符号链接 / 重解析点）。
-fn collect_tree(root: &Path) -> Result<Tree, String> {
+fn collect_tree(root: &Path) -> ScannedSide {
     let io_root = fs_core::io_path(root);
-    let read = fs::read_dir(&io_root).map_err(|error| format!("无法读取目录 {}: {error}", root.display()))?;
+    let read = match fs::read_dir(&io_root) {
+        Ok(read) => read,
+        Err(error) => {
+            return ScannedSide::failed(ScanIssue::new(
+                root.to_path_buf(),
+                format!("无法读取目录: {error}"),
+            ))
+        }
+    };
 
-    let mut tree: Tree = Tree::new();
+    let mut side = ScannedSide::default();
     let mut top_dirs: Vec<(String, PathBuf)> = Vec::new();
 
-    for entry in read.flatten() {
+    for entry in read {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(error) => {
+                side.issues.push(ScanIssue::new(
+                    io_root.clone(),
+                    format!("读取目录项失败: {error}"),
+                ));
+                continue;
+            }
+        };
         let file_type = match entry.file_type() {
             Ok(value) => value,
-            Err(_) => continue,
+            Err(error) => {
+                side.issues.push(ScanIssue::new(
+                    entry.path(),
+                    format!("无法获取文件类型: {error}"),
+                ));
+                continue;
+            }
         };
+        // 符号链接按既有规则跳过，不算扫描失败。
         if file_type.is_symlink() {
             continue;
         }
         let meta = match entry.metadata() {
             Ok(value) => value,
-            Err(_) => continue,
+            Err(error) => {
+                side.issues.push(ScanIssue::new(
+                    entry.path(),
+                    format!("无法读取元数据: {error}"),
+                ));
+                continue;
+            }
         };
+        // 重解析点（junction 等）同样按既有规则跳过。
         if is_reparse_meta(&meta) {
             continue;
         }
         let name = entry.file_name().to_string_lossy().into_owned();
         if meta.is_dir() {
-            tree.insert(
+            side.tree.insert(
                 name.to_lowercase(),
                 TreeEntry {
                     rel: name.clone(),
@@ -124,7 +219,7 @@ fn collect_tree(root: &Path) -> Result<Tree, String> {
             );
             top_dirs.push((name, entry.path()));
         } else if meta.is_file() {
-            tree.insert(
+            side.tree.insert(
                 name.to_lowercase(),
                 TreeEntry {
                     rel: name,
@@ -135,25 +230,42 @@ fn collect_tree(root: &Path) -> Result<Tree, String> {
     }
 
     // 顶层子树并行遍历：宽目录（大量平级子目录）能拿到接近线性的加速。
-    let subtrees: Vec<Tree> = top_dirs
+    let subtrees: Vec<ScannedSide> = top_dirs
         .par_iter()
         .map(|(_, path)| walk_subtree(&io_root, path))
         .collect();
     for subtree in subtrees {
-        tree.extend(subtree);
+        side.tree.extend(subtree.tree);
+        side.issues.extend(subtree.issues);
     }
-    Ok(tree)
+    side
 }
 
 /// 遍历一棵子树（start 是已带 verbatim 前缀的绝对路径）。
-fn walk_subtree(io_root: &Path, start: &Path) -> Tree {
-    let mut out: Tree = Tree::new();
+fn walk_subtree(io_root: &Path, start: &Path) -> ScannedSide {
+    let mut side = ScannedSide::default();
     let walker = WalkDir::new(start)
         .follow_links(false)
         .into_iter()
         .filter_entry(|entry| entry.depth() == 0 || !is_reparse_entry(entry));
 
-    for entry in walker.flatten() {
+    for item in walker {
+        let entry = match item {
+            Ok(entry) => entry,
+            Err(error) => {
+                let path = error
+                    .path()
+                    .map(Path::to_path_buf)
+                    .unwrap_or_else(|| start.to_path_buf());
+                let reason = error
+                    .io_error()
+                    .map(|inner| inner.to_string())
+                    .unwrap_or_else(|| error.to_string());
+                side.issues
+                    .push(ScanIssue::new(path, format!("无法遍历目录: {reason}")));
+                continue;
+            }
+        };
         if entry.depth() == 0 {
             continue;
         }
@@ -161,11 +273,20 @@ fn walk_subtree(io_root: &Path, start: &Path) -> Tree {
             continue;
         };
         let rel = rel.to_string_lossy().into_owned();
-        let Ok(meta) = entry.metadata() else { continue };
+        let meta = match entry.metadata() {
+            Ok(value) => value,
+            Err(error) => {
+                side.issues.push(ScanIssue::new(
+                    entry.path().to_path_buf(),
+                    format!("无法读取元数据: {error}"),
+                ));
+                continue;
+            }
+        };
         if is_reparse_meta(&meta) {
             continue;
         }
-        out.insert(
+        side.tree.insert(
             rel.to_lowercase(),
             TreeEntry {
                 rel,
@@ -173,7 +294,7 @@ fn walk_subtree(io_root: &Path, start: &Path) -> Tree {
             },
         );
     }
-    out
+    side
 }
 
 fn meta_of(meta: &fs::Metadata) -> Meta {
@@ -865,6 +986,146 @@ mod tests {
             SyncDirection::LeftToRight
         ))
         .is_err());
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    /// 锁住目录，制造「父目录可列出、子目录无法遍历」的扫描缺口。
+    #[cfg(windows)]
+    struct DirLock {
+        _file: fs::File,
+    }
+
+    #[cfg(windows)]
+    impl DirLock {
+        fn new(dir: &Path) -> Self {
+            use std::os::windows::fs::OpenOptionsExt;
+            // FILE_FLAG_BACKUP_SEMANTICS：允许打开目录句柄。
+            const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
+            let file = fs::OpenOptions::new()
+                .read(true)
+                .share_mode(0)
+                .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
+                .open(dir)
+                .unwrap();
+            Self { _file: file }
+        }
+    }
+
+    #[cfg(unix)]
+    struct DirLock(PathBuf);
+
+    #[cfg(unix)]
+    impl DirLock {
+        fn new(dir: &Path) -> Self {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(dir, fs::Permissions::from_mode(0o000)).unwrap();
+            Self(dir.to_path_buf())
+        }
+    }
+
+    #[cfg(unix)]
+    impl Drop for DirLock {
+        fn drop(&mut self) {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = fs::set_permissions(&self.0, fs::Permissions::from_mode(0o755));
+        }
+    }
+
+    fn assert_gap_blocks_plan(left_side: bool) {
+        let base = tmp(if left_side { "gap-left" } else { "gap-right" });
+        let left = base.join("left");
+        let right = base.join("right");
+        write(&left.join("keep.txt"), "keep");
+        write(&right.join("keep.txt"), "keep");
+        write(&right.join("extra.txt"), "extra");
+        // 两侧都有同名子项：若缺口未被识别，镜像可能把它判为目标侧多余项。
+        write(&left.join("blocked").join("child.txt"), "left-child");
+        write(&right.join("blocked").join("child.txt"), "right-child");
+
+        let blocked = if left_side {
+            left.join("blocked")
+        } else {
+            right.join("blocked")
+        };
+        let lock = DirLock::new(&blocked);
+        #[cfg(unix)]
+        if fs::read_dir(&blocked).is_ok() {
+            // 以 root 运行时目录权限位不生效，无法制造缺口。
+            drop(lock);
+            let _ = fs::remove_dir_all(&base);
+            return;
+        }
+
+        let error = scan(&request(
+            &left,
+            &right,
+            SyncMode::Mirror,
+            SyncDirection::LeftToRight,
+        ))
+        .expect_err("扫描不完整时不应生成计划");
+        let side = if left_side { "左侧" } else { "右侧" };
+        assert!(error.contains(side), "错误应标明侧别：{error}");
+        assert!(error.contains("blocked"), "错误应包含失败路径：{error}");
+
+        drop(lock);
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn source_scan_gap_blocks_mirror_plan() {
+        assert_gap_blocks_plan(true);
+    }
+
+    #[test]
+    fn target_scan_gap_blocks_mirror_plan() {
+        assert_gap_blocks_plan(false);
+    }
+
+    /// 按既有规则跳过的链接不计入扫描失败。
+    #[cfg(windows)]
+    fn make_loop_link(link: &Path, target: &Path) -> bool {
+        std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(link)
+            .arg(target)
+            .status()
+            .map(|status| status.success())
+            .unwrap_or(false)
+    }
+
+    #[cfg(unix)]
+    fn make_loop_link(link: &Path, target: &Path) -> bool {
+        std::os::unix::fs::symlink(target, link).is_ok()
+    }
+
+    #[test]
+    fn skipped_links_are_not_scan_gaps() {
+        let base = tmp("link");
+        let left = base.join("left");
+        let right = base.join("right");
+        write(&left.join("a.txt"), "a");
+        write(&right.join("a.txt"), "a");
+        set_mtime(&left.join("a.txt"), 1_700_000_000);
+        set_mtime(&right.join("a.txt"), 1_700_000_000);
+
+        let link = left.join("loop");
+        if !make_loop_link(&link, &left) {
+            // 环境不支持创建链接时跳过。
+            let _ = fs::remove_dir_all(&base);
+            return;
+        }
+
+        let plan = scan(&request(
+            &left,
+            &right,
+            SyncMode::Mirror,
+            SyncDirection::LeftToRight,
+        ))
+        .expect("跳过的链接不应视为扫描失败");
+        assert!(plan.entries.is_empty(), "链接不应进入差异计划");
+
+        // 先删链接再删目录，避免清理时跟随链接。
+        let _ = fs::remove_dir(&link);
         let _ = fs::remove_dir_all(&base);
     }
 }
