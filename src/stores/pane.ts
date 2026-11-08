@@ -903,11 +903,15 @@ export const usePaneStore = defineStore('pane', () => {
     // 已有内容的目录走静默重列：`load` 会把 `loading` 置为 true，文件列表因此被
     // 「正在读取…」状态页替换并卸载重建，滚动位置也随之回到顶部。用户删除 / 重命名
     // 等操作后只是内容变化，没必要整页重来。首次加载、上次出错或正在加载时才走完整 load。
+    const requestPath = tab.path
     const canRefreshQuietly =
-      tab.kind !== 'search' && tab.entries.length > 0 && !tab.error && !tab.loading
+      (tab.kind ?? 'files') === 'files' && tab.entries.length > 0 && !tab.error && !tab.loading
     if (canRefreshQuietly) {
-      const listed = await reloadQuiet(tab)
-      if (!listed && !tab.loading) await load(tab)
+      const pending = reloadQuiet(tab)
+      const token = loadTokens.get(tab.id)
+      const result = await pending
+      if (result === 'stale' || !isCurrentQuietLoad(tab, requestPath, token)) return
+      if (result === 'failed') await load(tab)
     } else {
       await load(tab)
     }
@@ -915,40 +919,42 @@ export const usePaneStore = defineStore('pane', () => {
     // 深层删除不会触发事件），因此在这里让该目录子树的大小缓存失效并重算；
     // 普通导航不做此失效，避免每次进目录都重走大目录。
     // 远程目录没有本地递归统计，跳过缓存失效。
-    if (!tab.error && tab.kind !== 'remote') invalidateDirSizes([tab.path])
+    if (tab.path === requestPath && !tab.error && tab.kind !== 'remote') {
+      invalidateDirSizes([requestPath])
+    }
+  }
+
+  function isCurrentQuietLoad(tab: TabState, path: string, token: number | undefined) {
+    return (
+      loadTokens.get(tab.id) === token &&
+      tab.path === path &&
+      (tab.kind ?? 'files') === 'files' &&
+      panes.value.some((pane) => pane.tabs.includes(tab))
+    )
   }
 
   /**
-   * 静默重载：仅在内容**确实变化**时替换 entries。
-   *
-   * 与 `load` 的区别：不显示 loading、不清空选中、失败时静默忽略（目录可能刚被删除），
-   * 供「目录变更自动刷新」使用，避免应用内操作与 watcher 事件造成重复刷新与闪烁。
-   *
-   * @returns 是否成功读取目录；`false` 时调用方可退回 `load` 以展示错误状态。
+   * 静默重载仅在内容变化时更新列表，并保留仍然存在的选中项。
+   * 只有当前请求读取失败时，手动刷新才需要退回完整加载来展示错误。
    */
-  async function reloadQuiet(tab: TabState): Promise<boolean> {
-    if (
-      tab.loading ||
-      tab.kind === 'search' ||
-      tab.kind === 'remote' ||
-      tab.kind === 'trash'
-    ) {
-      return false
-    }
+  async function reloadQuiet(tab: TabState): Promise<'listed' | 'failed' | 'stale'> {
+    const requestPath = tab.path
+    const token = (loadTokens.get(tab.id) ?? 0) + 1
+    loadTokens.set(tab.id, token)
     let listing: DirListing
-    if (tab.filterRule?.recursive) return runFilterQuery(tab, true)
     try {
-      listing = await api.listDir(tab.path)
+      listing = await api.listDir(requestPath)
     } catch {
-      return false
+      return isCurrentQuietLoad(tab, requestPath, token) ? 'failed' : 'stale'
     }
-    if (sameEntries(tab.entries, listing.entries)) return true
+    if (!isCurrentQuietLoad(tab, requestPath, token)) return 'stale'
+    if (sameEntries(tab.entries, listing.entries)) return 'listed'
     tab.entries = listing.entries
     // 仅保留仍然存在的选中项，避免选中已删除的条目。
     const alive = new Set(listing.entries.map((entry) => entry.path))
     tab.selected = tab.selected.filter((path) => alive.has(path))
     tab.error = null
-    return true
+    return 'listed'
   }
 
   /** 某目录内容变化时，刷新**所有**打开该目录的标签（跨窗格、含后台标签）。 */
@@ -958,9 +964,9 @@ export const usePaneStore = defineStore('pane', () => {
     for (const pane of panes.value) {
       for (const tab of pane.tabs) {
         if (tab.id === editingTabId.value) continue // 正在行内编辑，跳过以免打断输入
-        if (tab.kind === 'remote') continue // 远程目录与本地监听无关
+        if (tab.loading || (tab.kind ?? 'files') !== 'files') continue
         if (normalizePath(tab.path) !== target) continue
-        jobs.push(reloadQuiet(tab))
+        jobs.push(tab.filterRule?.recursive ? runFilterQuery(tab, true) : reloadQuiet(tab))
       }
     }
     // 该目录若正被原地展开，同步刷新其缓存的子项。
