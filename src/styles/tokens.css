@@ -33,7 +33,7 @@
   --pane-title-bg: var(--bg-panel);
   --pane-title-bg-active: color-mix(in srgb, #263b50 var(--ui-opacity, 100%), transparent);
   /* 活动窗格内容区：比标题栏更克制的蓝灰底色，保持文件与选中态清晰。 */
-  --pane-content-bg-active: color-mix(in srgb, #292f36 var(--ui-opacity, 100%), transparent);
+  --pane-content-bg-active: color-mix(in srgb, #303438 var(--ui-opacity, 100%), transparent);
   /* 详细视图列头：比顶部工具栏亮一档，与文件行略作区分 */
   --pane-header-bg: color-mix(in srgb, #262626 var(--ui-opacity, 100%), transparent);
 
