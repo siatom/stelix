@@ -5,7 +5,7 @@
 //! - 调度线程每 [`POLL_INTERVAL`] 检查一次到期任务。
 
 use std::collections::HashSet;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -191,19 +191,21 @@ impl ScheduleService {
 
     /// 预演：只统计命中的文件，不产生任何副作用。
     pub fn preview(&self, action: &TaskAction) -> TaskPreview {
-        let matches = scan_matches(action);
-        let total_size = matches.iter().map(|(_, size)| *size).sum();
-        let truncated = matches.len() > PREVIEW_SAMPLE_LIMIT;
-        let samples = matches
-            .iter()
-            .take(PREVIEW_SAMPLE_LIMIT)
-            .map(|(path, _)| path.to_string_lossy().to_string())
-            .collect();
+        let mut count = 0;
+        let mut total_size = 0;
+        let mut samples = Vec::new();
+        scan_matches(action, |path, size| {
+            count += 1;
+            total_size += size;
+            if samples.len() < PREVIEW_SAMPLE_LIMIT {
+                samples.push(path.to_string_lossy().into_owned());
+            }
+        });
         TaskPreview {
-            count: matches.len(),
+            count,
             total_size,
+            truncated: count > PREVIEW_SAMPLE_LIMIT,
             samples,
-            truncated,
         }
     }
 
@@ -452,7 +454,11 @@ fn run_action(action: &TaskAction) -> Result<(usize, u64, usize), String> {
     {
         return Err("未指定移动目标目录".into());
     }
-    let matches = scan_matches(action);
+    // 在移动或回收文件前先收集完整快照，避免修改正在遍历的目录。
+    let mut matches = Vec::new();
+    scan_matches(action, |path, size| {
+        matches.push((path.to_path_buf(), size))
+    });
     let mut ok = 0usize;
     let mut bytes = 0u64;
     let mut errors = 0usize;
@@ -475,12 +481,11 @@ fn run_action(action: &TaskAction) -> Result<(usize, u64, usize), String> {
     Ok((ok, bytes, errors))
 }
 
-/// 扫描根目录，返回满足筛选条件的文件（路径, 字节数）。不产生副作用。
-fn scan_matches(action: &TaskAction) -> Vec<(PathBuf, u64)> {
-    let mut out = Vec::new();
+/// 按遍历顺序逐个报告满足筛选条件的文件（路径, 字节数）。
+fn scan_matches(action: &TaskAction, mut visit: impl FnMut(&Path, u64)) {
     let root = Path::new(&action.root);
     if !root.is_dir() {
-        return out;
+        return;
     }
     let now = now_ms();
     let mut walker = WalkDir::new(root).min_depth(1).follow_links(false);
@@ -495,10 +500,9 @@ fn scan_matches(action: &TaskAction) -> Vec<(PathBuf, u64)> {
             continue;
         }
         if matches_filters(entry.path(), &meta, &action.filters, now) {
-            out.push((entry.path().to_path_buf(), meta.len()));
+            visit(entry.path(), meta.len());
         }
     }
-    out
 }
 
 fn matches_filters(path: &Path, meta: &std::fs::Metadata, filters: &TaskFilters, now: i64) -> bool {
@@ -1086,10 +1090,81 @@ mod tests {
                 ..Default::default()
             },
         };
-        let matches = scan_matches(&action);
+        let mut matches = Vec::new();
+        scan_matches(&action, |path, size| {
+            matches.push((path.to_path_buf(), size))
+        });
         assert_eq!(matches.len(), 1);
         assert!(matches[0].0.ends_with("a.tmp"));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn preview_counts_all_matches_and_limits_samples() {
+        let dir = std::env::temp_dir().join(format!(
+            "stelix-task-preview-{}-{}",
+            std::process::id(),
+            now_ms()
+        ));
+        let nested = dir.join("nested");
+        let target = dir.join("target");
+        std::fs::create_dir_all(&nested).unwrap();
+        for index in 0..PREVIEW_SAMPLE_LIMIT {
+            std::fs::write(dir.join(format!("{index}.tmp")), b"ab").unwrap();
+        }
+        const NESTED_FILES: usize = 1_000;
+        for index in 0..NESTED_FILES {
+            std::fs::write(nested.join(format!("{index}.tmp")), b"xyz").unwrap();
+        }
+        std::fs::write(nested.join("ignored.txt"), b"ignored").unwrap();
+
+        let service = in_memory_service(&[]);
+        let mut action = TaskAction {
+            kind: "move".into(),
+            root: dir.to_string_lossy().into_owned(),
+            recursive: false,
+            move_target: Some(target.to_string_lossy().into_owned()),
+            filters: TaskFilters {
+                extensions: vec!["missing".into()],
+                ..Default::default()
+            },
+        };
+        let empty = service.preview(&action);
+        assert_eq!(empty.count, 0);
+        assert_eq!(empty.total_size, 0);
+        assert!(empty.samples.is_empty());
+        assert!(!empty.truncated);
+
+        action.filters.extensions = vec!["tmp".into()];
+        let exact = service.preview(&action);
+        assert_eq!(exact.count, PREVIEW_SAMPLE_LIMIT);
+        assert_eq!(exact.total_size, 2 * PREVIEW_SAMPLE_LIMIT as u64);
+        assert_eq!(exact.samples.len(), PREVIEW_SAMPLE_LIMIT);
+        assert!(!exact.truncated);
+
+        action.recursive = true;
+        let large = service.preview(&action);
+        assert_eq!(large.count, PREVIEW_SAMPLE_LIMIT + NESTED_FILES);
+        assert_eq!(large.total_size, exact.total_size + 3 * NESTED_FILES as u64);
+        assert_eq!(large.samples.len(), PREVIEW_SAMPLE_LIMIT);
+        assert!(large.truncated);
+
+        let mut paths = Vec::new();
+        scan_matches(&action, |path, _| {
+            paths.push(path.to_string_lossy().into_owned())
+        });
+        assert_eq!(large.samples, paths[..PREVIEW_SAMPLE_LIMIT]);
+        assert_eq!(paths.len(), large.count);
+        assert_eq!(
+            std::fs::read_dir(&dir).unwrap().count(),
+            PREVIEW_SAMPLE_LIMIT + 1
+        );
+        assert_eq!(
+            std::fs::read_dir(&nested).unwrap().count(),
+            NESTED_FILES + 1
+        );
+        assert!(!target.exists());
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
