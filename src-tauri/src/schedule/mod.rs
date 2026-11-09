@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use chrono::{Datelike, Duration as ChronoDuration, Local, TimeZone};
+use chrono::{Datelike, Days, Local, LocalResult, TimeZone};
 use parking_lot::RwLock;
 use tauri::{AppHandle, Emitter};
 use walkdir::WalkDir;
@@ -41,8 +41,20 @@ pub struct ScheduleService {
 
 impl ScheduleService {
     pub fn new() -> Self {
+        let mut tasks = persistence::load_tasks();
+        let now = now_ms();
+        for task in &mut tasks {
+            // 恢复旧版本在夏令时切换后丢失下次触发时间的任务。
+            if task.enabled
+                && task.next_run.is_none()
+                && matches!(task.schedule.kind.as_str(), "daily" | "weekly" | "monthly")
+                && validate(task).is_ok()
+            {
+                task.next_run = compute_next_run(&task.schedule, now);
+            }
+        }
         Self {
-            tasks: RwLock::new(persistence::load_tasks()),
+            tasks: RwLock::new(tasks),
             app: RwLock::new(None),
         }
     }
@@ -312,8 +324,9 @@ fn next_occurrence(
     weekday: Option<u8>,
     day_of_month: Option<u8>,
 ) -> Option<i64> {
-    for offset in 0..=366i64 {
-        let date = (from + ChronoDuration::days(offset)).date_naive();
+    let start_date = from.date_naive();
+    for offset in 0..=366 {
+        let date = start_date.checked_add_days(Days::new(offset))?;
         if let Some(target) = weekday {
             if date.weekday().num_days_from_sunday() as u8 != target {
                 continue;
@@ -325,9 +338,25 @@ fn next_occurrence(
             }
         }
         let naive = date.and_hms_opt(hour as u32, minute as u32, 0)?;
-        let candidate = Local.from_local_datetime(&naive).earliest()?;
-        if candidate.timestamp_millis() > from.timestamp_millis() {
-            return Some(candidate.timestamp_millis());
+        let candidates = match Local.from_local_datetime(&naive) {
+            LocalResult::None => continue,
+            LocalResult::Single(time) => [Some(time), None],
+            LocalResult::Ambiguous(first, second) => [Some(first), Some(second)],
+        };
+        // 往返转换排除切换边界处无效的偏移，再按绝对时间选第一次。
+        let earliest = candidates
+            .into_iter()
+            .flatten()
+            .map(|time| time.timestamp_millis())
+            .filter(|&ms| {
+                Local
+                    .timestamp_millis_opt(ms)
+                    .single()
+                    .is_some_and(|time| time.naive_local() == naive)
+            })
+            .min();
+        if let Some(ms) = earliest.filter(|&ms| ms > from.timestamp_millis()) {
+            return Some(ms);
         }
     }
     None
@@ -574,6 +603,80 @@ mod tests {
             chrono::NaiveDate::from_ymd_opt(2026, 1, 2).unwrap()
         );
         assert_eq!(next.hour(), 9);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn calendar_rules_across_daylight_saving_transitions() {
+        use chrono::Utc;
+        use std::process::Command;
+
+        // 在子进程中设置时区，避免修改并行测试使用的进程环境。
+        const CHILD: &str = "STELIX_TEST_DST_CHILD";
+        if std::env::var_os(CHILD).is_none() {
+            let status = Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "schedule::tests::calendar_rules_across_daylight_saving_transitions",
+                ])
+                .env(CHILD, "1")
+                .env("TZ", "America/New_York")
+                .status()
+                .unwrap();
+            assert!(status.success());
+            return;
+        }
+
+        let utc = |month, day, hour, minute| {
+            Utc.with_ymd_and_hms(2026, month, day, hour, minute, 0)
+                .unwrap()
+                .timestamp_millis()
+        };
+        let mut schedule = TaskSchedule {
+            hour: Some(2),
+            minute: Some(30),
+            ..daily_schedule()
+        };
+        let before_gap = utc(3, 8, 5, 0);
+        for (kind, weekday, day_of_month, expected) in [
+            ("daily", None, None, utc(3, 9, 6, 30)),
+            ("weekly", Some(0), None, utc(3, 15, 6, 30)),
+            ("monthly", None, Some(8), utc(4, 8, 6, 30)),
+        ] {
+            schedule.kind = kind.into();
+            schedule.weekday = weekday;
+            schedule.day_of_month = day_of_month;
+            assert_eq!(compute_next_run(&schedule, before_gap), Some(expected));
+        }
+
+        schedule.kind = "daily".into();
+        schedule.minute = Some(0);
+        assert_eq!(
+            compute_next_run(&schedule, before_gap),
+            Some(utc(3, 9, 6, 0))
+        );
+
+        schedule.hour = Some(3);
+        schedule.minute = Some(30);
+        // 前一天深夜加 24 小时会越过切换日的午夜。
+        assert_eq!(
+            compute_next_run(&schedule, utc(3, 8, 4, 45)),
+            Some(utc(3, 8, 7, 30))
+        );
+
+        schedule.hour = Some(1);
+        let first = utc(11, 1, 5, 30);
+        assert_eq!(compute_next_run(&schedule, utc(11, 1, 5, 0)), Some(first));
+        for from in [first, utc(11, 1, 6, 0)] {
+            assert_eq!(compute_next_run(&schedule, from), Some(utc(11, 2, 6, 30)));
+        }
+
+        schedule.kind = "interval".into();
+        schedule.interval_minutes = Some(60);
+        assert_eq!(
+            compute_next_run(&schedule, utc(3, 8, 6, 30)),
+            Some(utc(3, 8, 7, 30))
+        );
     }
 
     #[test]
