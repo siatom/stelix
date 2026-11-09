@@ -4,12 +4,13 @@
 //! - 执行器只作用于**文件**（绝不删除目录），并支持 dry-run 预演。
 //! - 调度线程每 [`POLL_INTERVAL`] 检查一次到期任务。
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use chrono::{Datelike, Days, Local, LocalResult, TimeZone};
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use tauri::{AppHandle, Emitter};
 use walkdir::WalkDir;
 
@@ -37,6 +38,27 @@ pub fn now_ms() -> i64 {
 pub struct ScheduleService {
     tasks: RwLock<Vec<ScheduledTask>>,
     app: RwLock<Option<AppHandle>>,
+    running: Mutex<HashSet<String>>,
+    #[cfg(test)]
+    in_memory: bool,
+}
+
+struct RunClaim<'a> {
+    running: &'a Mutex<HashSet<String>>,
+    id: &'a str,
+}
+
+impl Drop for RunClaim<'_> {
+    fn drop(&mut self) {
+        self.running.lock().remove(self.id);
+    }
+}
+
+#[derive(Debug)]
+enum ClaimError {
+    Missing,
+    NotDue,
+    Running,
 }
 
 impl ScheduleService {
@@ -56,6 +78,9 @@ impl ScheduleService {
         Self {
             tasks: RwLock::new(tasks),
             app: RwLock::new(None),
+            running: Mutex::new(HashSet::new()),
+            #[cfg(test)]
+            in_memory: false,
         }
     }
 
@@ -113,16 +138,55 @@ impl ScheduleService {
 
     /// 立即运行一次。
     pub fn run_now(&self, id: &str) -> Result<String, String> {
-        let task = self
-            .tasks
-            .read()
-            .iter()
-            .find(|t| t.id == id)
-            .cloned()
-            .ok_or_else(|| format!("任务不存在：{id}"))?;
+        self.run_task(id, None, execute)
+            .map_err(|error| match error {
+                ClaimError::Missing => format!("任务不存在：{id}"),
+                ClaimError::Running => format!("任务正在运行：{id}"),
+                ClaimError::NotDue => format!("任务尚未到期：{id}"),
+            })
+    }
+
+    fn run_task(
+        &self,
+        id: &str,
+        due_by: Option<i64>,
+        execute: impl FnOnce(&ScheduledTask) -> String,
+    ) -> Result<String, ClaimError> {
+        let (task, _claim) = {
+            let tasks = self.tasks.read();
+            let task = tasks
+                .iter()
+                .find(|task| task.id == id)
+                .ok_or(ClaimError::Missing)?;
+            if due_by.is_some_and(|cutoff| !Self::is_due(task, cutoff)) {
+                return Err(ClaimError::NotDue);
+            }
+            if !self.running.lock().insert(id.to_owned()) {
+                return Err(ClaimError::Running);
+            }
+            let claim = RunClaim {
+                running: &self.running,
+                id,
+            };
+            (task.clone(), claim)
+        };
+
         let summary = execute(&task);
         self.record_run(id, &summary);
         Ok(summary)
+    }
+
+    fn is_due(task: &ScheduledTask, cutoff: i64) -> bool {
+        task.enabled && task.next_run.is_some_and(|next| next <= cutoff)
+    }
+
+    fn due_ids(&self, cutoff: i64) -> Vec<String> {
+        self.tasks
+            .read()
+            .iter()
+            .filter(|task| Self::is_due(task, cutoff))
+            .map(|task| task.id.clone())
+            .collect()
     }
 
     /// 预演：只统计命中的文件，不产生任何副作用。
@@ -166,6 +230,10 @@ impl ScheduleService {
     }
 
     fn persist(&self) -> Result<(), String> {
+        #[cfg(test)]
+        if self.in_memory {
+            return Ok(());
+        }
         persistence::save_tasks(&self.tasks.read())
     }
 
@@ -175,16 +243,8 @@ impl ScheduleService {
         std::thread::spawn(move || loop {
             std::thread::sleep(POLL_INTERVAL);
             let now = now_ms();
-            let due: Vec<ScheduledTask> = self
-                .tasks
-                .read()
-                .iter()
-                .filter(|t| t.enabled && t.next_run.is_some_and(|next| next <= now))
-                .cloned()
-                .collect();
-            for task in due {
-                let summary = execute(&task);
-                self.record_run(&task.id, &summary);
+            for id in self.due_ids(now) {
+                let _ = self.run_task(&id, Some(now), execute);
             }
         });
     }
@@ -551,6 +611,100 @@ mod tests {
             next_run: None,
             run_count: 0,
         }
+    }
+
+    fn in_memory_service(ids: &[&str]) -> ScheduleService {
+        let tasks = ids
+            .iter()
+            .map(|&id| {
+                let mut task = task_with(
+                    TaskSchedule {
+                        kind: "interval".into(),
+                        interval_minutes: Some(1),
+                        ..Default::default()
+                    },
+                    delete_action(TaskFilters::default()),
+                );
+                task.id = id.into();
+                task.enabled = true;
+                task.next_run = Some(0);
+                task
+            })
+            .collect();
+        ScheduleService {
+            tasks: RwLock::new(tasks),
+            app: RwLock::new(None),
+            running: Mutex::new(HashSet::new()),
+            in_memory: true,
+        }
+    }
+
+    #[test]
+    fn manual_and_automatic_runs_share_claim_until_recorded() {
+        for first_due_by in [None, Some(0)] {
+            let service = in_memory_service(&["first", "other"]);
+            let (started_tx, started_rx) = std::sync::mpsc::channel();
+            let (finish_tx, finish_rx) = std::sync::mpsc::channel();
+            std::thread::scope(|scope| {
+                let service = &service;
+                let first = scope.spawn(move || {
+                    service.run_task("first", first_due_by, |_| {
+                        started_tx.send(()).unwrap();
+                        finish_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+                        "失败 1 个文件".into()
+                    })
+                });
+                started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+
+                let manual = service.run_now("first");
+                let automatic = service.run_task("first", Some(0), |_| {
+                    panic!("the competing automatic run entered the executor")
+                });
+                service.set_enabled("other", false).unwrap();
+                let tasks = service.list();
+                finish_tx.send(()).unwrap();
+
+                assert_eq!(manual.unwrap_err(), "任务正在运行：first");
+                assert!(matches!(automatic, Err(ClaimError::Running)));
+                assert_eq!(tasks[0].run_count, 0);
+                assert!(!tasks[1].enabled);
+                assert_eq!(first.join().unwrap().unwrap(), "失败 1 个文件");
+            });
+
+            let task = &service.list()[0];
+            assert_eq!(task.run_count, 1);
+            assert_eq!(task.last_result.as_deref(), Some("失败 1 个文件"));
+            assert!(matches!(
+                service.run_task("first", Some(0), |_| unreachable!()),
+                Err(ClaimError::NotDue)
+            ));
+            service.run_task("first", None, |_| "retry".into()).unwrap();
+            assert_eq!(service.list()[0].run_count, 2);
+        }
+    }
+
+    #[test]
+    fn automatic_claim_rechecks_due_candidates() {
+        let service = in_memory_service(&["disabled", "removed", "rescheduled"]);
+        let candidates = service.due_ids(0);
+        assert_eq!(candidates.len(), 3);
+
+        service.set_enabled("disabled", false).unwrap();
+        service.delete("removed").unwrap();
+        let mut rescheduled = service.list()[1].clone();
+        rescheduled.action.filters.extensions.push("txt".into());
+        service.save(rescheduled).unwrap();
+
+        for id in candidates {
+            let result = service.run_task(&id, Some(0), |_| {
+                panic!("stale candidate {id} entered the executor")
+            });
+            match id.as_str() {
+                "removed" => assert!(matches!(result, Err(ClaimError::Missing))),
+                _ => assert!(matches!(result, Err(ClaimError::NotDue))),
+            }
+        }
+        assert!(service.list().iter().all(|task| task.run_count == 0));
     }
 
     fn daily_schedule() -> TaskSchedule {
