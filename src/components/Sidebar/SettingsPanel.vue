@@ -328,10 +328,10 @@ watch(() => ui.settingsTab, (tab) => {
         <section class="appearance-section">
           <div class="section-heading"><div><h3>主题配色</h3><p>浅色与深色模式分别保存配色</p></div></div>
           <div v-for="group in themePaletteGroups" :key="group.mode" class="theme-palette-group">
-            <div class="theme-palette-heading"><strong>{{ group.label }}</strong><span>{{ themePalettes.find(palette => palette[group.colorKey] === group.color.value)?.[group.nameKey] || '自定义' }}</span></div>
+            <div class="theme-palette-heading"><strong>{{ group.label }}</strong><span>{{ themePalettes.find(palette => palette[group.colorKey] === group.color)?.[group.nameKey] || '自定义' }}</span></div>
             <div class="color-swatches" role="group" :aria-label="group.description">
-              <button v-for="palette in themePalettes" :key="palette[group.colorKey]" type="button" class="color-swatch" :class="{ selected: group.color.value === palette[group.colorKey] }" :style="{ '--swatch': palette[group.colorKey] }" :aria-label="palette[group.nameKey]" :aria-pressed="group.color.value === palette[group.colorKey]" :title="`${palette[group.nameKey]} · ${palette[group.colorKey]}`" @click="ui.setThemeAccentColor(group.mode, palette[group.colorKey])"><span>{{ palette[group.nameKey] }}</span></button>
-              <label class="color-swatch custom-swatch" :style="{ '--swatch': group.color.value }" title="自定义颜色" :class="{ selected: !themePalettes.some(palette => palette[group.colorKey] === group.color.value) }"><Icon name="plus" :size="16" /><input type="color" :value="group.color.value" :aria-label="`${group.label}自定义配色`" @input="ui.setThemeAccentColor(group.mode, ($event.target as HTMLInputElement).value)" /></label>
+              <button v-for="palette in themePalettes" :key="palette[group.colorKey]" type="button" class="color-swatch" :class="{ selected: group.color === palette[group.colorKey] }" :style="{ '--swatch': palette[group.colorKey] }" :aria-label="palette[group.nameKey]" :aria-pressed="group.color === palette[group.colorKey]" :title="`${palette[group.nameKey]} · ${palette[group.colorKey]}`" @click="ui.setThemeAccentColor(group.mode, palette[group.colorKey])"><span>{{ palette[group.nameKey] }}</span></button>
+              <label class="color-swatch custom-swatch" :style="{ '--swatch': group.color }" title="自定义颜色" :class="{ selected: !themePalettes.some(palette => palette[group.colorKey] === group.color) }"><Icon name="plus" :size="16" /><input type="color" :value="group.color" :aria-label="`${group.label}自定义配色`" @input="ui.setThemeAccentColor(group.mode, ($event.target as HTMLInputElement).value)" /></label>
             </div>
           </div>
         </section>

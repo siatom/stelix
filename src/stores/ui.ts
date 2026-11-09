@@ -768,7 +768,8 @@ export const useUiStore = defineStore('ui', () => {
     applyFileFontSize(fileFontSize.value)
     applyRowHeights(sidebarRowHeight.value, fileRowHeight.value)
     resetAllShortcuts()
-    setAccentColor(DEFAULT_ACCENT_COLOR)
+    setThemeAccentColor('light', DEFAULT_ACCENT_COLORS.light)
+    setThemeAccentColor('dark', DEFAULT_ACCENT_COLORS.dark)
     setUiOpacity(100)
     setSettingsBackgroundImage('')
   }

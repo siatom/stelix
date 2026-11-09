@@ -8,6 +8,7 @@
     "dev": "vite",
     "dev:tauri": "tauri dev --config src-tauri/tauri.dev.conf.json",
     "build": "vue-tsc --noEmit && vite build",
+    "package:install": "node scripts/package-install.mjs",
     "preview": "vite preview",
     "tauri": "tauri"
   },
