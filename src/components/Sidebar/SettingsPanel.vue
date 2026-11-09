@@ -15,16 +15,19 @@ const ui = useUiStore()
 const isWindows = typeof navigator !== 'undefined' && /Windows/i.test(navigator.userAgent)
 const appVersion = __APP_VERSION__
 const commitId = __COMMIT_ID__
-const accentColors = [
-  { name: '星空蓝', value: '#6d8cff' },
-  { name: '海盐青', value: '#20a99a' },
-  { name: '薄荷绿', value: '#39a96b' },
-  { name: '琥珀橙', value: '#db8b2b' },
-  { name: '莓果红', value: '#d95770' },
-  { name: '薰衣紫', value: '#9270d8' },
-  { name: '玫瑰粉', value: '#d66caf' },
-  { name: '石墨灰', value: '#737b89' },
+const themePalettes = [
+  { name: '暖白', light: '#F2EBD9', darkName: '崎红蜜', dark: '#66363C' },
+  { name: '雾凇', light: '#DDCBA7', darkName: '焦糖', dark: '#623B23' },
+  { name: '梵蒂', light: '#98C3B2', darkName: '蓝山', dark: '#455D8B' },
+  { name: '酞色', light: '#9B9690', darkName: '藤蓝', dark: '#0D0831' },
+  { name: '薄暮', light: '#D2CCC0', darkName: '青山', dark: '#7C8C65' },
+  { name: '玉色', light: '#EAE4D1', darkName: '千山翠', dark: '#6B7D73' },
+  { name: '冰台', light: '#BECAB7', darkName: '翠虬', dark: '#446A37' },
 ]
+const themePaletteGroups = computed(() => [
+  { mode: 'light' as const, label: '浅色主题', description: '浅色模式的配色', colorKey: 'light' as const, nameKey: 'name' as const, color: ui.lightAccentColor },
+  { mode: 'dark' as const, label: '深色主题', description: '深色模式的配色', colorKey: 'dark' as const, nameKey: 'darkName' as const, color: ui.darkAccentColor },
+])
 const fontSizes = [11, 12, 13, 14, 15, 16]
 const tabs = [
   { id: 'general', label: '常规', icon: 'settings' },
@@ -323,10 +326,13 @@ watch(() => ui.settingsTab, (tab) => {
 
       <div v-show="ui.settingsTab === 'appearance'" class="appearance-layout">
         <section class="appearance-section">
-          <div class="section-heading"><div><h3>主题色</h3><p>用于按钮、选中状态和交互提示</p></div><span class="appearance-current"><i :style="{ background: ui.accentColor }"></i>{{ accentColors.find(color => color.value === ui.accentColor)?.name || '自定义' }}</span></div>
-          <div class="color-swatches" role="group" aria-label="预设主题色">
-            <button v-for="color in accentColors" :key="color.value" type="button" class="color-swatch" :class="{ selected: ui.accentColor === color.value }" :style="{ '--swatch': color.value }" :aria-label="color.name" :aria-pressed="ui.accentColor === color.value" :title="color.name" @click="ui.setAccentColor(color.value)"><span>{{ color.name }}</span></button>
-            <label class="color-swatch custom-swatch" :style="{ '--swatch': ui.accentColor }" title="自定义颜色" :class="{ selected: !accentColors.some(color => color.value === ui.accentColor) }"><Icon name="plus" :size="16" /><input type="color" :value="ui.accentColor" aria-label="自定义主题色" @input="ui.setAccentColor(($event.target as HTMLInputElement).value)" /></label>
+          <div class="section-heading"><div><h3>主题配色</h3><p>浅色与深色模式分别保存配色</p></div></div>
+          <div v-for="group in themePaletteGroups" :key="group.mode" class="theme-palette-group">
+            <div class="theme-palette-heading"><strong>{{ group.label }}</strong><span>{{ themePalettes.find(palette => palette[group.colorKey] === group.color.value)?.[group.nameKey] || '自定义' }}</span></div>
+            <div class="color-swatches" role="group" :aria-label="group.description">
+              <button v-for="palette in themePalettes" :key="palette[group.colorKey]" type="button" class="color-swatch" :class="{ selected: group.color.value === palette[group.colorKey] }" :style="{ '--swatch': palette[group.colorKey] }" :aria-label="palette[group.nameKey]" :aria-pressed="group.color.value === palette[group.colorKey]" :title="`${palette[group.nameKey]} · ${palette[group.colorKey]}`" @click="ui.setThemeAccentColor(group.mode, palette[group.colorKey])"><span>{{ palette[group.nameKey] }}</span></button>
+              <label class="color-swatch custom-swatch" :style="{ '--swatch': group.color.value }" title="自定义颜色" :class="{ selected: !themePalettes.some(palette => palette[group.colorKey] === group.color.value) }"><Icon name="plus" :size="16" /><input type="color" :value="group.color.value" :aria-label="`${group.label}自定义配色`" @input="ui.setThemeAccentColor(group.mode, ($event.target as HTMLInputElement).value)" /></label>
+            </div>
           </div>
         </section>
 
@@ -540,8 +546,10 @@ watch(() => ui.settingsTab, (tab) => {
 .section-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .section-heading h3 { margin: 0; font-size: 1rem; font-weight: 600; }
 .section-heading p { margin: 3px 0 0; color: var(--fg-dim); font-size: 0.9167rem; }
-.appearance-current { display: inline-flex; align-items: center; gap: 7px; color: var(--fg); font-size: 0.9167rem; font-weight: 500; }
-.appearance-current i { width: 12px; height: 12px; border-radius: 50%; box-shadow: 0 0 0 2px color-mix(in srgb, var(--bg-elevated) 80%, transparent), 0 0 0 3px var(--accent); }
+.theme-palette-group { padding-top: 12px; }
+.theme-palette-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--fg-muted); font-size: 0.9167rem; }
+.theme-palette-heading strong { color: var(--fg); font-weight: 550; }
+.theme-palette-heading span { color: var(--fg-dim); }
 .color-swatches { display: flex; flex-wrap: wrap; gap: 10px; padding: 12px 2px 2px; }
 .color-swatch { position: relative; display: flex; align-items: center; justify-content: center; flex: none; width: 34px; height: 34px; padding: 0; border: 2px solid transparent; border-radius: 50%; background: var(--swatch); color: white; cursor: pointer; transition: transform var(--t-fast), box-shadow var(--t-fast); }
 .color-swatch:hover { transform: translateY(-1px) scale(1.06); }

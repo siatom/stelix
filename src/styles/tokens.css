@@ -23,23 +23,24 @@
   --t: 0.2s ease;
 
   /* Quiet neutral dark surfaces inspired by the ChatGPT desktop UI */
-  --bg-app: color-mix(in srgb, #212121 var(--ui-opacity, 100%), transparent);
-  --bg-panel: color-mix(in srgb, #171717 var(--ui-opacity, 100%), transparent);
-  --bg-elevated: color-mix(in srgb, #2b2b2b var(--ui-opacity, 100%), transparent);
-  --bg-hover: color-mix(in srgb, #2f2f2f var(--ui-opacity, 100%), transparent);
-  --bg-active: color-mix(in srgb, #343434 var(--ui-opacity, 100%), transparent);
+  --theme-tint: #66363c;
+  --bg-app: color-mix(in srgb, color-mix(in srgb, #212121 95%, var(--theme-tint) 5%) var(--ui-opacity, 100%), transparent);
+  --bg-panel: color-mix(in srgb, color-mix(in srgb, #171717 95%, var(--theme-tint) 5%) var(--ui-opacity, 100%), transparent);
+  --bg-elevated: color-mix(in srgb, color-mix(in srgb, #2b2b2b 95%, var(--theme-tint) 5%) var(--ui-opacity, 100%), transparent);
+  --bg-hover: color-mix(in srgb, color-mix(in srgb, #2f2f2f 94%, var(--theme-tint) 6%) var(--ui-opacity, 100%), transparent);
+  --bg-active: color-mix(in srgb, color-mix(in srgb, #343434 93%, var(--theme-tint) 7%) var(--ui-opacity, 100%), transparent);
   --bg-selected: color-mix(in srgb, var(--accent) 18%, var(--bg-active));
-  --bg-input: color-mix(in srgb, #2b2b2b var(--ui-opacity, 100%), transparent);
+  --bg-input: color-mix(in srgb, color-mix(in srgb, #2b2b2b 95%, var(--theme-tint) 5%) var(--ui-opacity, 100%), transparent);
   --pane-title-bg: var(--bg-panel);
   /* 活动窗格标题栏：只在非活动底色上叠一层极淡的冷调，避免两栏反差过大 */
-  --pane-title-bg-active: color-mix(in srgb, #1d242b var(--ui-opacity, 100%), transparent);
+  --pane-title-bg-active: color-mix(in srgb, color-mix(in srgb, #1d242b 95%, var(--theme-tint) 5%) var(--ui-opacity, 100%), transparent);
   /* 活动窗格内容区：比标题栏更克制的蓝灰底色，保持文件与选中态清晰。 */
-  --pane-content-bg-active: color-mix(in srgb, #23282e var(--ui-opacity, 100%), transparent);
+  --pane-content-bg-active: color-mix(in srgb, color-mix(in srgb, #23282e 95%, var(--theme-tint) 5%) var(--ui-opacity, 100%), transparent);
   /* 详细视图列头：比顶部工具栏亮一档，与文件行略作区分 */
-  --pane-header-bg: color-mix(in srgb, #262626 var(--ui-opacity, 100%), transparent);
+  --pane-header-bg: color-mix(in srgb, color-mix(in srgb, #262626 95%, var(--theme-tint) 5%) var(--ui-opacity, 100%), transparent);
 
   /* 左侧图标栏 + 侧边栏底色：比主区更深，靠深浅区分（不留间隙、不用描边） */
-  --sidebar-bg: color-mix(in srgb, #121212 var(--ui-opacity, 100%), transparent);
+  --sidebar-bg: color-mix(in srgb, color-mix(in srgb, #121212 95%, var(--theme-tint) 5%) var(--ui-opacity, 100%), transparent);
   --sidebar-hover: var(--bg-hover);
   --sidebar-active: color-mix(in srgb, var(--accent) 18%, var(--bg-active));
 
@@ -96,20 +97,20 @@
 
 :root[data-theme='light'] {
   /* Bright white canvas with subtle gray interaction surfaces */
-  --bg-app: color-mix(in srgb, #ffffff calc(var(--ui-opacity, 100%) - var(--ui-image-opacity-offset, 0%)), transparent);
-  --bg-panel: color-mix(in srgb, #ffffff calc(var(--ui-opacity, 100%) - var(--ui-image-opacity-offset, 0%)), transparent);
-  --bg-elevated: color-mix(in srgb, #ffffff calc(var(--ui-opacity, 100%) - var(--ui-image-opacity-offset, 0%)), transparent);
-  --bg-hover: color-mix(in srgb, #f5f5f5 calc(var(--ui-opacity, 100%) - var(--ui-image-opacity-offset, 0%)), transparent);
-  --bg-active: color-mix(in srgb, #eeeeee calc(var(--ui-opacity, 100%) - var(--ui-image-opacity-offset, 0%)), transparent);
+  --bg-app: color-mix(in srgb, color-mix(in srgb, #ffffff 95%, var(--theme-tint) 5%) calc(var(--ui-opacity, 100%) - var(--ui-image-opacity-offset, 0%)), transparent);
+  --bg-panel: color-mix(in srgb, color-mix(in srgb, #ffffff 95%, var(--theme-tint) 5%) calc(var(--ui-opacity, 100%) - var(--ui-image-opacity-offset, 0%)), transparent);
+  --bg-elevated: color-mix(in srgb, color-mix(in srgb, #ffffff 95%, var(--theme-tint) 5%) calc(var(--ui-opacity, 100%) - var(--ui-image-opacity-offset, 0%)), transparent);
+  --bg-hover: color-mix(in srgb, color-mix(in srgb, #f5f5f5 94%, var(--theme-tint) 6%) calc(var(--ui-opacity, 100%) - var(--ui-image-opacity-offset, 0%)), transparent);
+  --bg-active: color-mix(in srgb, color-mix(in srgb, #eeeeee 93%, var(--theme-tint) 7%) calc(var(--ui-opacity, 100%) - var(--ui-image-opacity-offset, 0%)), transparent);
   --bg-selected: color-mix(in srgb, var(--accent) 13%, var(--bg-active));
-  --bg-input: color-mix(in srgb, #ffffff calc(var(--ui-opacity, 100%) - var(--ui-image-opacity-offset, 0%)), transparent);
-  --pane-title-bg-active: color-mix(in srgb, #eef3fa calc(var(--ui-opacity, 100%) - var(--ui-image-opacity-offset, 0%)), transparent);
-  --pane-content-bg-active: color-mix(in srgb, #f5f9fe calc(var(--ui-opacity, 100%) - var(--ui-image-opacity-offset, 0%)), transparent);
+  --bg-input: color-mix(in srgb, color-mix(in srgb, #ffffff 95%, var(--theme-tint) 5%) calc(var(--ui-opacity, 100%) - var(--ui-image-opacity-offset, 0%)), transparent);
+  --pane-title-bg-active: color-mix(in srgb, color-mix(in srgb, #eef3fa 94%, var(--theme-tint) 6%) calc(var(--ui-opacity, 100%) - var(--ui-image-opacity-offset, 0%)), transparent);
+  --pane-content-bg-active: color-mix(in srgb, color-mix(in srgb, #f5f9fe 96%, var(--theme-tint) 4%) calc(var(--ui-opacity, 100%) - var(--ui-image-opacity-offset, 0%)), transparent);
   /* 与顶部工具栏白底拉开层次，表头仍保持克制的浅灰 */
-  --pane-header-bg: color-mix(in srgb, #f1f3f5 calc(var(--ui-opacity, 100%) - var(--ui-image-opacity-offset, 0%)), transparent);
+  --pane-header-bg: color-mix(in srgb, color-mix(in srgb, #f1f3f5 94%, var(--theme-tint) 6%) calc(var(--ui-opacity, 100%) - var(--ui-image-opacity-offset, 0%)), transparent);
 
-  --sidebar-bg: color-mix(in srgb, #f7f7f7 calc(var(--ui-opacity, 100%) - var(--ui-image-opacity-offset, 0%)), transparent);
-  --sidebar-hover: color-mix(in srgb, #ececec calc(var(--ui-opacity, 100%) - var(--ui-image-opacity-offset, 0%)), transparent);
+  --sidebar-bg: color-mix(in srgb, color-mix(in srgb, #f7f7f7 95%, var(--theme-tint) 5%) calc(var(--ui-opacity, 100%) - var(--ui-image-opacity-offset, 0%)), transparent);
+  --sidebar-hover: color-mix(in srgb, color-mix(in srgb, #ececec 93%, var(--theme-tint) 7%) calc(var(--ui-opacity, 100%) - var(--ui-image-opacity-offset, 0%)), transparent);
   --sidebar-active: color-mix(in srgb, var(--accent) 13%, var(--bg-active));
 
   --border: #ededed;
