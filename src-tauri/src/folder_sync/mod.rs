@@ -514,6 +514,13 @@ fn same_content(a: &Path, b: &Path) -> bool {
 
 /// 执行一批同步动作（前端已把扫描结果连同动作发回，这里不再重扫）。
 pub fn execute(req: &SyncExecuteRequest, ctx: &OpContext) -> SyncResult {
+    execute_with_post_copy(req, ctx, || {})
+}
+
+fn execute_with_post_copy<F>(req: &SyncExecuteRequest, ctx: &OpContext, after_copy: F) -> SyncResult
+where
+    F: FnOnce(),
+{
     let left = PathBuf::from(req.left.trim());
     let right = PathBuf::from(req.right.trim());
     let mut result = SyncResult {
@@ -617,7 +624,12 @@ pub fn execute(req: &SyncExecuteRequest, ctx: &OpContext) -> SyncResult {
         }
     }
 
-    // 3. 删除（深的先删）。
+    after_copy();
+
+    // 3. 删除（深的先删）。复制期间可能收到取消，需要在阶段切换时重新检查。
+    if !deletes.is_empty() && ctx.is_cancelled() {
+        result.cancelled = true;
+    }
     if !result.cancelled && !deletes.is_empty() {
         deletes.sort_by_key(|item| {
             std::cmp::Reverse(item.path.matches(std::path::MAIN_SEPARATOR).count())
@@ -645,29 +657,33 @@ pub fn execute(req: &SyncExecuteRequest, ctx: &OpContext) -> SyncResult {
             }
         } else if !targets.is_empty() {
             // 回收站：一次 IFileOperation 批量投递，比逐项快一个数量级。
-            match trash::delete_all(&targets) {
-                Ok(()) => {
-                    result.deleted += targets.len();
-                    ctx.add_file(0);
-                    ctx.report("run", "", true);
-                }
-                Err(_) => {
-                    // 批量失败时逐项重试，才能定位到具体失败的路径。
-                    for path in &targets {
-                        if ctx.is_cancelled() {
-                            result.cancelled = true;
-                            break;
-                        }
-                        match fs_core::trash_path(path) {
-                            Ok(()) => {
-                                result.deleted += 1;
-                                ctx.add_file(0);
-                                ctx.tick(&path.to_string_lossy());
+            if ctx.is_cancelled() {
+                result.cancelled = true;
+            } else {
+                match trash::delete_all(&targets) {
+                    Ok(()) => {
+                        result.deleted += targets.len();
+                        ctx.add_file(0);
+                        ctx.report("run", "", true);
+                    }
+                    Err(_) => {
+                        // 批量失败时逐项重试，才能定位到具体失败的路径。
+                        for path in &targets {
+                            if ctx.is_cancelled() {
+                                result.cancelled = true;
+                                break;
                             }
-                            Err(error) => {
-                                result
-                                    .errors
-                                    .push(format!("删除失败 {}: {error}", path.display()));
+                            match fs_core::trash_path(path) {
+                                Ok(()) => {
+                                    result.deleted += 1;
+                                    ctx.add_file(0);
+                                    ctx.tick(&path.to_string_lossy());
+                                }
+                                Err(error) => {
+                                    result
+                                        .errors
+                                        .push(format!("删除失败 {}: {error}", path.display()));
+                                }
                             }
                         }
                     }
@@ -967,6 +983,48 @@ mod tests {
         );
         assert!(!right.join("extra.txt").exists());
         assert_eq!(result.deleted, 1);
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn cancellation_after_copy_prevents_delete_phase() {
+        let base = tmp("cancel-before-delete");
+        let left = base.join("left");
+        let right = base.join("right");
+        write(&left.join("copy.txt"), "copied");
+        write(&right.join("extra.txt"), "keep me");
+
+        let cancel = std::sync::Arc::new(AtomicBool::new(false));
+        let ctx = OpContext::new("cancel-after-copy".into(), "sync", cancel.clone(), None);
+        let result = execute_with_post_copy(
+            &SyncExecuteRequest {
+                left: left.to_string_lossy().into_owned(),
+                right: right.to_string_lossy().into_owned(),
+                permanent: true,
+                items: vec![
+                    SyncExecItem {
+                        path: "copy.txt".into(),
+                        is_dir: false,
+                        size: 6,
+                        action: SyncAction::CopyToRight,
+                    },
+                    SyncExecItem {
+                        path: "extra.txt".into(),
+                        is_dir: false,
+                        size: 0,
+                        action: SyncAction::DeleteRight,
+                    },
+                ],
+            },
+            &ctx,
+            || cancel.store(true, Ordering::Relaxed),
+        );
+
+        assert!(result.cancelled);
+        assert!(!result.ok);
+        assert_eq!(fs::read_to_string(right.join("copy.txt")).unwrap(), "copied");
+        assert_eq!(fs::read_to_string(right.join("extra.txt")).unwrap(), "keep me");
+        assert_eq!(result.deleted, 0);
         let _ = fs::remove_dir_all(&base);
     }
 
