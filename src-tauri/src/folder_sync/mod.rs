@@ -1022,8 +1022,14 @@ mod tests {
 
         assert!(result.cancelled);
         assert!(!result.ok);
-        assert_eq!(fs::read_to_string(right.join("copy.txt")).unwrap(), "copied");
-        assert_eq!(fs::read_to_string(right.join("extra.txt")).unwrap(), "keep me");
+        assert_eq!(
+            fs::read_to_string(right.join("copy.txt")).unwrap(),
+            "copied"
+        );
+        assert_eq!(
+            fs::read_to_string(right.join("extra.txt")).unwrap(),
+            "keep me"
+        );
         assert_eq!(result.deleted, 0);
         let _ = fs::remove_dir_all(&base);
     }
