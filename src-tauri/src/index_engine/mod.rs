@@ -368,12 +368,20 @@ impl IndexStore {
 
     /// 检索索引；调用方提供 AppHandle 时，Everything 断开会同步更新前端状态。
     #[cfg_attr(not(windows), allow(unused_variables))]
-    pub fn search_with_events(&self, app: Option<&AppHandle>, query: &SearchQuery) -> Vec<SearchHit> {
+    pub fn search_with_events(
+        &self,
+        app: Option<&AppHandle>,
+        query: &SearchQuery,
+    ) -> Vec<SearchHit> {
         #[cfg(windows)]
         match everything_search(&self.everything_client, query) {
             EverythingSearch::Hits(hits) => return hits,
             EverythingSearch::Unavailable => self.mark_everything_unavailable(app),
         }
+        self.search_memory(query)
+    }
+
+    fn search_memory(&self, query: &SearchQuery) -> Vec<SearchHit> {
         let search_started = Instant::now();
         let limit = if query.limit == 0 {
             search_engine::DEFAULT_LIMIT
@@ -863,17 +871,17 @@ mod tests {
         );
 
         // ext:pdf 恰好命中 报告.pdf
-        let hits = store.search(&search_engine::parse_query("ext:pdf"));
+        let hits = store.search_memory(&search_engine::parse_query("ext:pdf"));
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].entry.name, "报告.pdf");
 
         // size:>1mb 命中 大文件.bin
-        let hits = store.search(&search_engine::parse_query("size:>1mb"));
+        let hits = store.search_memory(&search_engine::parse_query("size:>1mb"));
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].entry.name, "大文件.bin");
 
         // 中文文件名子串命中 sub/图片.png
-        let hits = store.search(&search_engine::parse_query("图片"));
+        let hits = store.search_memory(&search_engine::parse_query("图片"));
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].entry.name, "图片.png");
         assert!(
@@ -885,7 +893,7 @@ mod tests {
 
         // 空查询不应过滤掉所有条目
         assert!(
-            !store.search(&SearchQuery::default()).is_empty(),
+            !store.search_memory(&SearchQuery::default()).is_empty(),
             "空查询应返回非空结果"
         );
 
@@ -925,7 +933,7 @@ mod tests {
         );
 
         let q = search_engine::parse_query("report ext:pdf");
-        let hits = store.search(&q);
+        let hits = store.search_memory(&q);
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].entry.name, "report.pdf");
         assert!(hits[0].score > 0);
@@ -958,7 +966,7 @@ mod tests {
 
         let mut query = search_engine::parse_query("file");
         query.limit = 2;
-        let hits = store.search(&query);
+        let hits = store.search_memory(&query);
         assert_eq!(hits.len(), 2, "应截断到 limit");
         assert_eq!(hits[0].entry.name, "file.txt", "主干名命中评分最高");
         assert_eq!(hits[1].entry.name, "file-1.txt", "同分按名称升序");
