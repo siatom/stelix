@@ -66,6 +66,8 @@ export interface TrashColumnWidths {
 // ---- 本地偏好持久化（localStorage）----
 const LS_THEME = 'stelix.theme'
 const LS_ACCENT_COLOR = 'stelix.accentColor'
+const LS_LIGHT_ACCENT_COLOR = 'stelix.lightAccentColor'
+const LS_DARK_ACCENT_COLOR = 'stelix.darkAccentColor'
 const LS_UI_OPACITY = 'stelix.uiOpacity'
 const LS_SETTINGS_BACKGROUND = 'stelix.settingsBackground'
 const SETTINGS_DB_NAME = 'stelix-ui-settings'
@@ -233,13 +235,15 @@ function readTheme(): ThemeMode {
   }
 }
 
-const DEFAULT_ACCENT_COLOR = '#6d8cff'
-function readAccentColor(): string {
+const DEFAULT_ACCENT_COLORS: Record<ThemeMode, string> = { light: '#f2ebd9', dark: '#66363c' }
+function readAccentColor(mode: ThemeMode): string {
   try {
-    const saved = localStorage.getItem(LS_ACCENT_COLOR)
-    return saved && /^#[\da-f]{6}$/i.test(saved) ? saved : DEFAULT_ACCENT_COLOR
+    const legacyColor = readTheme() === mode ? localStorage.getItem(LS_ACCENT_COLOR) : null
+    const saved = localStorage.getItem(mode === 'light' ? LS_LIGHT_ACCENT_COLOR : LS_DARK_ACCENT_COLOR)
+      ?? legacyColor
+    return saved && /^#[\da-f]{6}$/i.test(saved) ? saved.toLowerCase() : DEFAULT_ACCENT_COLORS[mode]
   } catch {
-    return DEFAULT_ACCENT_COLOR
+    return DEFAULT_ACCENT_COLORS[mode]
   }
 }
 
@@ -313,7 +317,7 @@ function applyTheme(mode: ThemeMode) {
   document.documentElement.setAttribute('data-theme', mode)
 }
 
-function applyAccentColor(color: string) {
+function applyAccentColor(color: string, mode: ThemeMode) {
   const root = document.documentElement.style
   const hex = color.slice(1)
   const r = parseInt(hex.slice(0, 2), 16) / 255
@@ -321,9 +325,13 @@ function applyAccentColor(color: string) {
   const b = parseInt(hex.slice(4, 6), 16) / 255
   const luminance = [r, g, b].map((v) => v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4)
     .reduce((sum, v, i) => sum + v * [0.2126, 0.7152, 0.0722][i]!, 0)
-  root.setProperty('--accent', color)
-  root.setProperty('--accent-fg', luminance > 0.42 ? '#171717' : '#ffffff')
-  root.setProperty('--accent-soft', `color-mix(in srgb, ${color} 16%, transparent)`)
+  const effectiveColor = mode === 'light' && luminance > 0.32
+    ? `color-mix(in srgb, ${color} 35%, #212121)`
+    : color
+  root.setProperty('--theme-tint', color)
+  root.setProperty('--accent', effectiveColor)
+  root.setProperty('--accent-fg', mode === 'light' ? '#ffffff' : luminance > 0.42 ? '#171717' : '#ffffff')
+  root.setProperty('--accent-soft', `color-mix(in srgb, ${color} 18%, transparent)`)
 }
 
 function applyFontSize(size: number) {
@@ -357,7 +365,9 @@ function applyRowHeights(sidebar: number, file: number) {
 export const useUiStore = defineStore('ui', () => {
   const sidebarCollapsed = ref(readBool(LS_SIDEBAR_COLLAPSED, false))
   const theme = ref<ThemeMode>(readTheme())
-  const accentColor = ref(readAccentColor())
+  const lightAccentColor = ref(readAccentColor('light'))
+  const darkAccentColor = ref(readAccentColor('dark'))
+  const accentColor = computed(() => theme.value === 'light' ? lightAccentColor.value : darkAccentColor.value)
   const uiOpacity = ref(readUiOpacity())
   const settingsBackgroundImage = ref(readSettingsBackground())
   let backgroundImageRevision = 0
@@ -408,7 +418,7 @@ export const useUiStore = defineStore('ui', () => {
 
   // 首次进入时应用已持久化的主题
   applyTheme(theme.value)
-  applyAccentColor(accentColor.value)
+  applyAccentColor(accentColor.value, theme.value)
   applySurfaceOpacity()
   applyFontSize(fontSize.value)
   applyUiFont(uiFont.value)
@@ -497,6 +507,7 @@ export const useUiStore = defineStore('ui', () => {
   function setTheme(mode: ThemeMode) {
     theme.value = mode
     applyTheme(mode)
+    applyAccentColor(accentColor.value, mode)
     applySurfaceOpacity()
     try {
       localStorage.setItem(LS_THEME, mode)
@@ -510,10 +521,19 @@ export const useUiStore = defineStore('ui', () => {
   }
 
   function setAccentColor(color: string) {
+    setThemeAccentColor(theme.value, color)
+  }
+
+  function setThemeAccentColor(mode: ThemeMode, color: string) {
     if (!/^#[\da-f]{6}$/i.test(color)) return
-    accentColor.value = color.toLowerCase()
-    applyAccentColor(accentColor.value)
-    try { localStorage.setItem(LS_ACCENT_COLOR, accentColor.value) } catch { /* ignore */ }
+    const normalized = color.toLowerCase()
+    if (mode === 'light') lightAccentColor.value = normalized
+    else darkAccentColor.value = normalized
+    if (mode === theme.value) applyAccentColor(normalized, mode)
+    try {
+      localStorage.setItem(mode === 'light' ? LS_LIGHT_ACCENT_COLOR : LS_DARK_ACCENT_COLOR, normalized)
+      localStorage.removeItem(LS_ACCENT_COLOR)
+    } catch { /* ignore */ }
   }
 
   function setUiOpacity(value: number) {
@@ -748,7 +768,8 @@ export const useUiStore = defineStore('ui', () => {
     applyFileFontSize(fileFontSize.value)
     applyRowHeights(sidebarRowHeight.value, fileRowHeight.value)
     resetAllShortcuts()
-    setAccentColor(DEFAULT_ACCENT_COLOR)
+    setThemeAccentColor('light', DEFAULT_ACCENT_COLORS.light)
+    setThemeAccentColor('dark', DEFAULT_ACCENT_COLORS.dark)
     setUiOpacity(100)
     setSettingsBackgroundImage('')
   }
@@ -805,7 +826,10 @@ export const useUiStore = defineStore('ui', () => {
     sidebarCollapsed,
     theme,
     accentColor,
+    lightAccentColor,
+    darkAccentColor,
     setAccentColor,
+    setThemeAccentColor,
     uiOpacity,
     setUiOpacity,
     settingsBackgroundImage,
