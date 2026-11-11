@@ -27,17 +27,30 @@ jobs:
         include:
           - name: Windows x64
             os: windows-latest
+            platform: windows
             args: --bundles nsis
           - name: macOS Apple Silicon
             os: macos-15
+            platform: macos
             args: --target aarch64-apple-darwin --bundles dmg
           - name: macOS Intel
             os: macos-15-intel
+            platform: macos
             args: --target x86_64-apple-darwin --bundles dmg
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+
+      # 版本号以仓库为准，tag 必须与 package.json 一致，避免发出版本号错位的安装包。
+      - name: Verify tag matches package version
+        shell: bash
+        run: |
+          expected_tag="v$(node -p "require('./package.json').version")"
+          if [ "$GITHUB_REF_NAME" != "$expected_tag" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match package version $expected_tag" >&2
+            exit 1
+          fi
 
       - uses: pnpm/action-setup@v6
 
@@ -73,7 +86,7 @@ jobs:
           fi
 
       - name: Build and publish
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@v0.6.2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -91,3 +104,6 @@ jobs:
           prerelease: ${{ steps.meta.outputs.prerelease }}
           tauriScript: pnpm tauri
           args: ${{ matrix.args }}
+          # 附件名带上操作系统，方便按平台挑选安装包；后缀仍保留
+          # _x64-setup.exe / _aarch64.dmg / _x64.dmg，供应用内更新匹配。
+          assetNamePattern: '[name]_[version]_${{ matrix.platform }}_[arch][setup][ext]'
