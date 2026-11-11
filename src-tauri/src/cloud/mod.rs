@@ -16,9 +16,9 @@ use serde_json::Value;
 use crate::credentials;
 use crate::fs_core::path_id;
 use crate::network::{
-    join_relative_remote, join_remote, normalize_remote_dir, remote_ext, remote_file_name,
-    safe_local_name, validate_remote_path, RemoteConnection, RemoteRequest, RemoteTransferProgress,
-    RemoteTransferRequest, RemoteTransferResult, TransferDirection,
+    join_relative_remote, join_remote, local_download_child_path, local_download_path,
+    normalize_remote_dir, remote_ext, validate_remote_path, RemoteConnection, RemoteRequest,
+    RemoteTransferProgress, RemoteTransferRequest, RemoteTransferResult, TransferDirection,
 };
 use crate::types::{DirListing, FileEntry};
 
@@ -317,19 +317,14 @@ async fn download_items(
         }
         let remote = normalize_remote_dir(&item.path);
         let is_root = item.is_dir && remote == "/";
-        let local = if is_root {
-            target.clone()
-        } else {
-            let name = match remote_file_name(&remote).and_then(|name| safe_local_name(&name)) {
-                Ok(name) => name,
-                Err(error) => {
-                    result
-                        .errors
-                        .push(format!("下载 {} 失败：{error}", remote));
-                    continue;
-                }
-            };
-            target.join(name)
+        let local = match local_download_path(&target, &remote, item.is_dir) {
+            Ok(path) => path,
+            Err(error) => {
+                result
+                    .errors
+                    .push(format!("下载 {} 失败：{error}", remote));
+                continue;
+            }
         };
         let ok = if item.is_dir {
             download_dir(session, &remote, &local, result).await
@@ -394,15 +389,14 @@ async fn download_dir(
 
     let mut ok = true;
     for entry in entries {
-        let name = match safe_local_name(&entry.name) {
-            Ok(name) => name,
+        let local = match local_download_child_path(local_dir, &entry.name) {
+            Ok(path) => path,
             Err(error) => {
                 result.errors.push(format!("跳过 {}：{error}", entry.path));
                 ok = false;
                 continue;
             }
         };
-        let local = local_dir.join(name);
         if entry.is_dir {
             if !Box::pin(download_dir(session, &entry.path, &local, result)).await {
                 ok = false;

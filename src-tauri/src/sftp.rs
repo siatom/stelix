@@ -20,9 +20,10 @@ use russh_sftp::protocol::FileType;
 
 use crate::fs_core::path_id;
 use crate::network::{
-    join_relative_remote, join_remote, normalize_remote_dir, remote_ext, remote_file_name,
-    safe_local_name, validate_connection, validate_remote_path, RemoteConnection, RemoteRequest,
-    RemoteTransferProgress, RemoteTransferRequest, RemoteTransferResult, TransferDirection,
+    join_relative_remote, join_remote, local_download_child_path, local_download_path,
+    normalize_remote_dir, remote_ext, validate_connection, validate_remote_path, RemoteConnection,
+    RemoteRequest, RemoteTransferProgress, RemoteTransferRequest, RemoteTransferResult,
+    TransferDirection,
 };
 use crate::ssh::{connect_authenticated, ClientHandler, SshAuth};
 use crate::types::{DirListing, FileEntry};
@@ -332,19 +333,14 @@ async fn download_items(
             continue;
         }
         let is_root = item.is_dir && normalize_remote_dir(&item.path) == "/";
-        let local = if is_root {
-            target.clone()
-        } else {
-            let name = match remote_file_name(&item.path).and_then(|name| safe_local_name(&name)) {
-                Ok(name) => name,
-                Err(error) => {
-                    result
-                        .errors
-                        .push(format!("下载 {} 失败：{error}", item.path));
-                    continue;
-                }
-            };
-            target.join(name)
+        let local = match local_download_path(&target, &item.path, item.is_dir) {
+            Ok(path) => path,
+            Err(error) => {
+                result
+                    .errors
+                    .push(format!("下载 {} 失败：{error}", item.path));
+                continue;
+            }
         };
 
         let ok = if item.is_dir {
@@ -409,15 +405,14 @@ async fn download_tree(
             }
         };
         for entry in entries {
-            let name = match safe_local_name(&entry.name) {
-                Ok(name) => name,
+            let target = match local_download_child_path(&local, &entry.name) {
+                Ok(path) => path,
                 Err(error) => {
                     result.errors.push(format!("跳过 {}：{error}", entry.path));
                     ok = false;
                     continue;
                 }
             };
-            let target = local.join(name);
             if entry.is_dir {
                 // 空目录也要在本地建出来（非空目录随后由下载文件的父目录创建兜底）。
                 if let Err(error) = tokio::fs::create_dir_all(&target).await {

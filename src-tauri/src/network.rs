@@ -352,19 +352,14 @@ fn download_items(
             continue;
         }
         let is_root = item.is_dir && normalize_remote_dir(&item.path) == "/";
-        let local = if is_root {
-            target.clone()
-        } else {
-            let name = match remote_file_name(&item.path).and_then(|name| safe_local_name(&name)) {
-                Ok(name) => name,
-                Err(error) => {
-                    result
-                        .errors
-                        .push(format!("下载 {} 失败：{error}", item.path));
-                    continue;
-                }
-            };
-            target.join(name)
+        let local = match local_download_path(&target, &item.path, item.is_dir) {
+            Ok(path) => path,
+            Err(error) => {
+                result
+                    .errors
+                    .push(format!("下载 {} 失败：{error}", item.path));
+                continue;
+            }
         };
         let ok = if item.is_dir {
             download_dir(&request.connection, &item.path, &local, result)
@@ -427,15 +422,14 @@ fn download_dir(
 
     let mut ok = true;
     for entry in listing.entries {
-        let name = match safe_local_name(&entry.name) {
-            Ok(name) => name,
+        let local = match local_download_child_path(local_dir, &entry.name) {
+            Ok(path) => path,
             Err(error) => {
                 result.errors.push(format!("跳过 {}：{error}", entry.path));
                 ok = false;
                 continue;
             }
         };
-        let local = local_dir.join(name);
         if entry.is_dir {
             if !download_dir(connection, &entry.path, &local, result) {
                 ok = false;
@@ -729,6 +723,27 @@ pub(crate) fn remote_file_name(path: &str) -> Result<String, String> {
         return Err("远程文件名无效".into());
     }
     Ok(name.to_string())
+}
+
+/// 下载条目的本地路径：保留条目名称；远端根目录内容直接写入目标目录。
+pub(crate) fn local_download_path(
+    target_dir: &Path,
+    remote_path: &str,
+    is_dir: bool,
+) -> Result<PathBuf, String> {
+    if is_dir && normalize_remote_dir(remote_path) == "/" {
+        return Ok(target_dir.to_path_buf());
+    }
+    let name = remote_file_name(remote_path).and_then(|name| safe_local_name(&name))?;
+    Ok(target_dir.join(name))
+}
+
+/// 下载递归目录中的子项，统一执行本地文件名校验与路径拼接。
+pub(crate) fn local_download_child_path(
+    parent: &Path,
+    remote_name: &str,
+) -> Result<PathBuf, String> {
+    Ok(parent.join(safe_local_name(remote_name)?))
 }
 
 /// 把远端名字转换为安全的本地文件名：替换 Windows 非法字符，避开保留设备名。
