@@ -566,6 +566,12 @@ pub fn io_path(p: &Path) -> PathBuf {
         if text.starts_with("\\\\?\\") {
             return norm;
         }
+        // WSL exposes Linux filesystems through a UNC provider. Keep its native
+        // path form instead of applying the Win32 verbatim UNC prefix.
+        let lower = text.to_ascii_lowercase();
+        if lower.starts_with(r"\\wsl.localhost\") || lower.starts_with(r"\\wsl$\") {
+            return norm;
+        }
         if let Some(Component::Prefix(prefix)) = norm.components().next() {
             match prefix.kind() {
                 std::path::Prefix::Disk(_) => return PathBuf::from(format!("\\\\?\\{text}")),
