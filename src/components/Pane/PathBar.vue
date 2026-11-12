@@ -18,6 +18,7 @@ const isFavorite = ref(loadFavorites().some((item) => item.path === props.tab.pa
 
 /** 远程（FTP / SFTP）标签：路径只读展示，不参与本地收藏与路径补全。 */
 const isRemote = computed(() => props.tab.kind === 'remote' && !!props.tab.remote)
+const isSftp = computed(() => isRemote.value && props.tab.remote?.protocol === 'sftp')
 
 const editing = ref(false)
 const draft = ref('')
@@ -356,6 +357,15 @@ watch(
       @click="addCurrentFavorite"
     >
       <Icon name="star" :size="15" />
+    </button>
+    <button
+      v-if="isSftp && tab.remote"
+      class="favorite-button terminal-button"
+      title="打开 SSH 终端"
+      aria-label="打开 SSH 终端"
+      @click="paneStore.openTerminal(paneId, tab.remote)"
+    >
+      <Icon name="terminal" :size="15" />
     </button>
     <FilterPanel :tab="tab" />
   </div>
