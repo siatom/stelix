@@ -479,12 +479,6 @@ async function openHostInPane(item: RemoteHost) {
   await pane.openRemoteWorkspace(toLocation(item), '/')
 }
 
-/** 打开 SSH 终端（仅 SFTP 主机，即 SSH 会话）：在文件窗格中新增一个终端标签。 */
-async function openTerminal(item: RemoteHost) {
-  if (item.protocol !== 'sftp') return
-  await pane.openTerminal(pane.activePaneId, toLocation(item))
-}
-
 function toggleHostMenu(id: string) {
   openHostMenuId.value = openHostMenuId.value === id ? null : id
 }
@@ -575,7 +569,6 @@ function toggleHost(item: RemoteHost) {
               <Icon name="drive" :size="18" /><span class="label">{{ item.label }}</span><small>{{ item.protocol.toUpperCase() }}{{ item.authMethod === 'key' ? ' · 密钥' : '' }}</small>
             </button>
             <div class="host-actions" :class="{ 'menu-open': openHostMenuId === item.id }" @keydown.esc.stop="openHostMenuId = null">
-              <button v-if="item.protocol === 'sftp'" class="remove" title="打开 SSH 终端" aria-label="打开 SSH 终端" @click="openTerminal(item)"><Icon name="terminal" :size="12" /></button>
               <div class="host-menu-wrap">
                 <button class="remove" title="更多操作" :aria-label="`${item.label}更多操作`" aria-haspopup="menu" :aria-expanded="openHostMenuId === item.id" @click.stop="toggleHostMenu(item.id)"><Icon name="more" :size="14" /></button>
                 <div v-if="openHostMenuId === item.id" class="host-menu" role="menu" @click.stop>
