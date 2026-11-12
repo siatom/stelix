@@ -2060,7 +2060,7 @@ function onDrop(ev: DragEvent) {
               <span v-if="editing && editing.mode === 'rename' && editing.path === vr.row.entry.path" class="nm">
                 <input
                   v-model="editing.name"
-                  class="inline-edit"
+                  class="inline-edit rename"
                   spellcheck="false"
                   @keydown.enter.stop.prevent="commitEdit"
                   @keydown.esc.stop.prevent="cancelEdit"
@@ -2142,7 +2142,7 @@ function onDrop(ev: DragEvent) {
           <span v-if="editing && editing.mode === 'rename' && editing.path === entry.path" class="icon-name">
             <input
               v-model="editing.name"
-              class="inline-edit"
+              class="inline-edit rename"
               spellcheck="false"
               @keydown.enter.stop.prevent="commitEdit"
               @keydown.esc.stop.prevent="cancelEdit"
@@ -2398,6 +2398,13 @@ function onDrop(ev: DragEvent) {
   border-radius: var(--radius-sm);
   outline: none;
 }
+/* 重命名输入框：背景只包住文件名文字，不铺满整列 */
+.inline-edit.rename {
+  width: auto;
+  max-width: 100%;
+  field-sizing: content;
+  background: var(--bg-input-strong);
+}
 /* 多行输入框：Shift+Enter 换行，高度由脚本按内容设置 */
 .inline-edit-multi {
   display: block;
@@ -2414,6 +2421,13 @@ function onDrop(ev: DragEvent) {
 .icon-name .inline-edit {
   display: block;
   width: 100%;
+}
+/* 图标视图重命名：同样让背景只包住文字并保持居中 */
+.icon-name .inline-edit.rename {
+  display: inline-block;
+  width: auto;
+  max-width: 100%;
+  field-sizing: content;
 }
 /* 图标视图下多行新建：名称区跟随输入框增高，不再单行裁剪 */
 .icon-name:has(.inline-edit-multi) {

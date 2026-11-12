@@ -31,6 +31,8 @@
   --bg-active: color-mix(in srgb, color-mix(in srgb, #343434 93%, var(--theme-tint) 7%) var(--ui-opacity, 100%), transparent);
   --bg-selected: color-mix(in srgb, var(--accent) 18%, var(--bg-active));
   --bg-input: color-mix(in srgb, color-mix(in srgb, #2b2b2b 95%, var(--theme-tint) 5%) var(--ui-opacity, 100%), transparent);
+  /* 深色模式：重命名高亮用更亮一档的底色，避免在深色行里显得像一块凹陷 */
+  --bg-input-strong: color-mix(in srgb, color-mix(in srgb, #3b3b3b 95%, var(--theme-tint) 5%) var(--ui-opacity, 100%), transparent);
   --pane-title-bg: var(--bg-panel);
   /* 活动窗格标题栏：只在非活动底色上叠一层极淡的冷调，避免两栏反差过大 */
   --pane-title-bg-active: color-mix(in srgb, color-mix(in srgb, #1d242b 95%, var(--theme-tint) 5%) var(--ui-opacity, 100%), transparent);
@@ -104,6 +106,8 @@
   --bg-active: color-mix(in srgb, color-mix(in srgb, #eeeeee 93%, var(--theme-tint) 7%) calc(var(--ui-opacity, 100%) - var(--ui-image-opacity-offset, 0%)), transparent);
   --bg-selected: color-mix(in srgb, var(--accent) 13%, var(--bg-active));
   --bg-input: color-mix(in srgb, color-mix(in srgb, #ffffff 95%, var(--theme-tint) 5%) calc(var(--ui-opacity, 100%) - var(--ui-image-opacity-offset, 0%)), transparent);
+  /* 浅色模式：重命名高亮用略深的底色，白底上也能看清文字区域 */
+  --bg-input-strong: color-mix(in srgb, color-mix(in srgb, #e6e6e6 95%, var(--theme-tint) 5%) calc(var(--ui-opacity, 100%) - var(--ui-image-opacity-offset, 0%)), transparent);
   --pane-title-bg-active: color-mix(in srgb, color-mix(in srgb, #eef3fa 94%, var(--theme-tint) 6%) calc(var(--ui-opacity, 100%) - var(--ui-image-opacity-offset, 0%)), transparent);
   --pane-content-bg-active: color-mix(in srgb, color-mix(in srgb, #f5f9fe 96%, var(--theme-tint) 4%) calc(var(--ui-opacity, 100%) - var(--ui-image-opacity-offset, 0%)), transparent);
   /* 与顶部工具栏白底拉开层次，表头仍保持克制的浅灰 */
