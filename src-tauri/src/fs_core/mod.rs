@@ -575,12 +575,13 @@ pub fn io_path(p: &Path) -> PathBuf {
         if let Some(Component::Prefix(prefix)) = norm.components().next() {
             match prefix.kind() {
                 std::path::Prefix::Disk(_) => return PathBuf::from(format!("\\\\?\\{text}")),
-                std::path::Prefix::UNC(server, share) => {
-                    return PathBuf::from(format!(
-                        "\\\\?\\UNC\\{}\\{}",
-                        server.to_string_lossy(),
-                        share.to_string_lossy()
-                    ))
+                // 必须保留 share 之后的全部组件：只拼 server\share 会把
+                // `\\server\share\dir` 变成共享根 `\\server\share`，进入任意子目录
+                // 读到的都是第一层内容（WSL 路径走上面的原生分支，其余 UNC 如 SMB 仍会命中这里）。
+                std::path::Prefix::UNC(..) => {
+                    if let Some(rest) = text.strip_prefix("\\\\") {
+                        return PathBuf::from(format!("\\\\?\\UNC\\{rest}"));
+                    }
                 }
                 _ => {}
             }
@@ -1977,6 +1978,25 @@ mod tests {
         assert_eq!(io_path(&p), p, "重复调用不应叠加前缀");
         // 相对路径原样返回。
         assert_eq!(io_path(Path::new("a\\b")), PathBuf::from("a\\b"));
+    }
+
+    /// UNC 路径：verbatim 化时必须保留 share 之后的组件。
+    #[cfg(windows)]
+    #[test]
+    fn io_path_preserves_unc_subdirectories() {
+        // 普通 UNC（SMB）：verbatim 形式要带上 share 之后的全部层级。
+        assert_eq!(
+            io_path(Path::new(r"\\server\share\a\b.txt")).to_string_lossy(),
+            r"\\?\UNC\server\share\a\b.txt"
+        );
+        // WSL 走 Plan9 提供程序，保留原生 UNC 形式（不加 verbatim 前缀）。
+        assert_eq!(
+            io_path(Path::new(r"\\wsl.localhost\Ubuntu\home\xiang")).to_string_lossy(),
+            r"\\wsl.localhost\Ubuntu\home\xiang"
+        );
+        // 已是 verbatim 的路径保持原样。
+        let verbatim = PathBuf::from(r"\\?\UNC\server\share\a");
+        assert_eq!(io_path(&verbatim), verbatim);
     }
 
     /// 超长路径（> MAX_PATH）可正常新建与删除。
