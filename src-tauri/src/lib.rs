@@ -18,6 +18,15 @@ mod file_locks;
 mod folder_sync;
 mod fs_core;
 mod index_engine;
+#[cfg(windows)]
+mod native_drag;
+#[cfg(not(windows))]
+mod native_drag {
+    #[tauri::command]
+    pub async fn start_file_drag(_paths: Vec<String>) -> Result<String, String> {
+        Err("当前平台不支持该拖拽方式".to_string())
+    }
+}
 mod network;
 mod persistence;
 mod preview;
@@ -1300,7 +1309,6 @@ pub fn run() {
         }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_drag::init())
         // 开机自启动：注册时带上 `--autostart` 参数，供下方 setup 判断启动来源。
         .plugin(tauri_plugin_autostart::init(
             MacosLauncher::LaunchAgent,
@@ -1408,6 +1416,7 @@ pub fn run() {
             show_item_properties,
             show_open_with,
             show_native_shell_menu,
+            native_drag::start_file_drag,
             start_index,
             set_index_roots,
             retry_everything_index,

@@ -3,8 +3,8 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useVirtualizer } from '@tanstack/vue-virtual'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
+import { invoke } from '@tauri-apps/api/core'
 import { openPath } from '@tauri-apps/plugin-opener'
-import { startDrag } from '@crabnebula/tauri-plugin-drag'
 import type { FileEntry, FsOp, RemoteLocation, RemoteTransferItem, TabState } from '../../types'
 import { usePaneStore } from '../../stores/pane'
 import { usePreviewStore } from '../../stores/preview'
@@ -1523,6 +1523,7 @@ let shellMenuListenerDisposed = false
 onMounted(() => {
   window.addEventListener('keydown', onGlobalKey)
   window.addEventListener('stelix:batch-rename', onBatchRenameRequest)
+  window.addEventListener('stelix:drag-hover', onDragHoverPath)
   // macOS / Linux 的原生菜单选中项通过事件回传（Windows 由命令直接返回）。
   void listen<string>('shell-menu:action', onShellMenuAction).then((off) => {
     if (shellMenuListenerDisposed) off()
@@ -1540,6 +1541,7 @@ onBeforeUnmount(() => {
   cancelPendingRename()
   window.removeEventListener('keydown', onGlobalKey)
   window.removeEventListener('stelix:batch-rename', onBatchRenameRequest)
+  window.removeEventListener('stelix:drag-hover', onDragHoverPath)
   stopMarquee()
   paneStore.setVisibleDirs(props.paneId, [])
 })
@@ -1739,18 +1741,11 @@ function onDragStart(ev: DragEvent, entry: FileEntry) {
       detail: { operation, paneId: props.paneId, modifier: ev.ctrlKey || ev.shiftKey, paths },
     }),
   )
-  void startDrag({
-    item: paths,
-    // Omit the optional preview asset so no asynchronous resource lookup can
-    // delay starting the native drag after the user's pointer gesture.
-    icon: '',
-    // External applications should receive a copy; Stelix panes apply the
-    // in-app move/copy behavior from the drag-start modifier.
-    mode: 'copy',
-  }, ({ result }) => {
-    window.dispatchEvent(new CustomEvent('stelix:file-drag-end'))
-    if (result === 'Cancelled') ui.setStatusText('文件未被目标应用接收')
-  })
+  void invoke<string>('start_file_drag', { paths })
+    .then((result) => {
+      window.dispatchEvent(new CustomEvent('stelix:file-drag-end'))
+      if (result !== 'dropped') ui.setStatusText('文件未被目标应用接收')
+    })
     .catch((error: unknown) => {
       window.dispatchEvent(new CustomEvent('stelix:file-drag-end'))
       console.error('无法启动文件拖拽', error)
@@ -1791,6 +1786,15 @@ function onEntryDragLeave(ev: DragEvent, path: string) {
   const related = ev.relatedTarget as Node | null
   if (related && (ev.currentTarget as HTMLElement).contains(related)) return
   if (dragOverPath.value === path) dragOverPath.value = null
+}
+
+/**
+ * 原生拖拽（OLE DoDragDrop）期间收不到 HTML5 dragover，落点高亮改由 DualPane
+ * 根据 `tauri://drag-over` 的位置算出悬停的文件夹后广播过来。
+ */
+function onDragHoverPath(event: Event) {
+  const detail = (event as CustomEvent<{ path: string | null }>).detail
+  dragOverPath.value = detail?.path ?? null
 }
 
 async function onEntryDrop(ev: DragEvent, entry: FileEntry) {
@@ -2457,10 +2461,9 @@ function onDrop(ev: DragEvent) {
   background: var(--bg-selected);
 }
 .row.drop-target {
-  background: color-mix(in srgb, var(--accent) 24%, var(--bg-hover));
-  outline: 2px solid color-mix(in srgb, var(--accent) 82%, transparent);
-  outline-offset: -2px;
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 38%, transparent);
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg-hover));
+  outline: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  outline-offset: -1px;
 }
 .row.drop-target .nm,
 .row.drop-target .ico {
@@ -2560,10 +2563,9 @@ function onDrop(ev: DragEvent) {
   background: var(--bg-selected);
 }
 .icon-cell.drop-target {
-  background: color-mix(in srgb, var(--accent) 24%, var(--bg-hover));
-  outline: 2px solid color-mix(in srgb, var(--accent) 82%, transparent);
-  outline-offset: -2px;
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 38%, transparent);
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg-hover));
+  outline: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  outline-offset: -1px;
 }
 .icon-cell.drop-target .icon-big,
 .icon-cell.drop-target .icon-name {

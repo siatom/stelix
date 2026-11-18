@@ -15,7 +15,6 @@
     "core:window:allow-set-position",
     "opener:default",
     "dialog:default",
-    "drag:default",
     {
       "identifier": "opener:allow-open-path",
       "allow": [{ "path": "**" }]

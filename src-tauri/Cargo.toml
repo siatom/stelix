@@ -66,7 +66,6 @@ hex = "0.4"
 
 rusqlite = { version = "0.40.2", features = ["bundled", "cache"], default-features = false }
 notify = "8.2.0"
-tauri-plugin-drag = "2.1.1"
 # 删除文件：默认为「移到回收站 / 废纸篓」，跨平台由该 crate 处理
 trash = "5"
 
@@ -97,15 +96,22 @@ windows-sys = { version = "0.59", features = [
     "Win32_System_LibraryLoader",
     # 文件被占用时查占用进程（Restart Manager，见 file_locks.rs）
     "Win32_System_RestartManager",
+    # 原生文件拖拽：拖拽线程接管鼠标捕获 + 监听全局左键（见 native_drag.rs）
+    "Win32_UI_Input_KeyboardAndMouse",
 ] }
 windows = { version = "0.62", features = [
     "Win32_Foundation",
     "Win32_Graphics_Gdi",
     "Win32_System_Com",
+    # 原生文件拖拽：DoDragDrop / IDropSource
+    "Win32_System_Ole",
+    "Win32_System_SystemServices",
     "Win32_UI_Shell",
     "Win32_UI_Shell_Common",
     "Win32_UI_WindowsAndMessaging",
 ] }
+# `#[implement]` 宏生成的代码引用 `::windows_core::`，需显式声明该 crate。
+windows-core = "0.62"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSWorkspace", "NSImage", "NSBitmapImageRep"] }

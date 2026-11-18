@@ -11,7 +11,6 @@ const paneStore = usePaneStore()
 const ui = useUiStore()
 const rootRef = ref<HTMLElement | null>(null)
 const dragging = ref(false)
-const dropTargetPaneId = ref<string | null>(null)
 let unlistenDragEvents: UnlistenFn[] = []
 let dragEventSequence = 0
 interface InternalDrag {
@@ -23,6 +22,15 @@ interface InternalDrag {
 
 let internalDrag: InternalDrag | null = null
 let dragEndTimer: number | undefined
+/** 原生拖拽线程报来的松手位置，等 `stelix:drag-end` 确认落下方可使用。 */
+let pendingRelease: { x: number; y: number } | null = null
+/** 缩放比例在拖拽期间复用，避免每个位置事件都走一次 IPC。 */
+let cachedScale: number | null = null
+
+async function currentScale(): Promise<number> {
+  if (cachedScale === null) cachedScale = await getCurrentWindow().scaleFactor()
+  return cachedScale
+}
 
 /** 内部拖拽的路径集合是否与本次落点一致（用于区分应用内拖拽和外部文件拖入）。 */
 function samePaths(a: string[], b: string[]): boolean {
@@ -46,6 +54,8 @@ function onFileDragStart(event: Event) {
     window.clearTimeout(dragEndTimer)
     dragEndTimer = undefined
   }
+  pendingRelease = null
+  cachedScale = null
 }
 
 /**
@@ -95,6 +105,11 @@ function resetRatio() {
   paneStore.setSplitRatio(0.5)
 }
 
+/** 把当前拖拽悬停的文件夹广播给文件列表，用于行级高亮。 */
+function broadcastDragHover(path: string | null) {
+  window.dispatchEvent(new CustomEvent('stelix:drag-hover', { detail: { path } }))
+}
+
 onMounted(() => {
   window.addEventListener('stelix:file-drag-start', onFileDragStart)
   window.addEventListener('stelix:file-drag-end', onFileDragEnd)
@@ -108,12 +123,13 @@ onMounted(() => {
     const dragOperation = isDrop ? internal?.operation ?? null : null
     const sequence = ++dragEventSequence
     try {
-      const scale = await getCurrentWindow().scaleFactor()
+      const scale = await currentScale()
       if (sequence !== dragEventSequence) return
       const pointX = payload.position.x / scale
       const pointY = payload.position.y / scale
       const dropElement = document.elementFromPoint(pointX, pointY)?.closest<HTMLElement>('[data-drop-path]')
       const folderPath = dropElement?.dataset.dropDir === 'true' ? dropElement.dataset.dropPath : undefined
+      broadcastDragHover(folderPath ?? null)
       const paneEl = [...(rootRef.value?.querySelectorAll<HTMLElement>('[data-pane-id]') ?? [])]
         .find((el) => {
           const rect = el.getBoundingClientRect()
@@ -130,15 +146,14 @@ onMounted(() => {
         tab.kind === 'terminal' ||
         tab.kind === 'trash'
       ) {
-        dropTargetPaneId.value = null
+        broadcastDragHover(null)
         return
       }
       // 同窗格拖到空白处视为取消；拖到具体文件夹时按当前拖拽模式执行。
       if (internal?.paneId === paneId && !folderPath && isDrop) {
-        dropTargetPaneId.value = null
+        broadcastDragHover(null)
         return
       }
-      dropTargetPaneId.value = paneId
       if (!isDrop || !payload.paths?.length) return
       const sourcePaneId = internal?.paneId ?? paneId
       const op = {
@@ -152,11 +167,11 @@ onMounted(() => {
         if (sourcePaneId !== paneId) await paneStore.refresh(paneId)
         else if (folderPath) await paneStore.reloadByPath(folderPath)
       } finally {
-        dropTargetPaneId.value = null
+        broadcastDragHover(null)
         internalDrag = null
       }
     } catch (error) {
-      dropTargetPaneId.value = null
+      broadcastDragHover(null)
       console.error('无法处理外部文件拖放', error)
     }
   }
@@ -168,11 +183,34 @@ onMounted(() => {
       void handleDragPosition(event.payload, false)
     }),
     listen<{ paths: string[]; position: { x: number; y: number } }>('tauri://drag-drop', (event) => {
+      // 应用内拖拽的落下统一由 stelix:drag-end 处理：后台线程发起的 OLE 拖拽
+      // 不一定能把 Drop 送到 WebView2，两条路都走会移动两次。
+      if (internalDrag && samePaths(event.payload.paths ?? [], internalDrag.paths)) return
       void handleDragPosition(event.payload, true)
     }),
     listen('tauri://drag-leave', () => {
       dragEventSequence += 1
-      dropTargetPaneId.value = null
+      broadcastDragHover(null)
+    }),
+    // 原生拖拽线程轮询光标报来的位置：应用内拖拽靠它做落点高亮，
+    // 不依赖 WebView2 是否收到 drag-over。
+    listen<{ x: number; y: number }>('stelix:drag-position', (event) => {
+      if (!internalDrag) return
+      void handleDragPosition({ paths: internalDrag.paths, position: event.payload }, false)
+    }),
+    listen<{ x: number; y: number }>('stelix:drag-release', (event) => {
+      pendingRelease = event.payload
+    }),
+    listen<{ outcome: string }>('stelix:drag-end', (event) => {
+      const point = pendingRelease
+      pendingRelease = null
+      if (!internalDrag) return
+      if (event.payload.outcome !== 'dropped' || !point) {
+        dragEventSequence += 1
+        broadcastDragHover(null)
+        return
+      }
+      void handleDragPosition({ paths: internalDrag.paths, position: point }, true)
     }),
   ]).then((unlisteners) => { unlistenDragEvents = unlisteners })
 })
@@ -193,14 +231,12 @@ onBeforeUnmount(() => {
       v-if="!paneStore.singlePane || paneStore.activePaneId === 'left'"
       v-show="!aiSplit || paneStore.activePaneId === 'left'"
       pane-id="left"
-      :drop-active="dropTargetPaneId === 'left'"
     />
     <div v-if="!singleView" class="divider" title="拖拽调整宽度，双击均分" @mousedown="startDrag" @dblclick="resetRatio" />
     <Pane
       v-if="!paneStore.singlePane || paneStore.activePaneId === 'right'"
       v-show="!aiSplit || paneStore.activePaneId === 'right'"
       pane-id="right"
-      :drop-active="dropTargetPaneId === 'right'"
     />
   </div>
 </template>
