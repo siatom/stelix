@@ -160,13 +160,14 @@ const SIDEBAR_ROW_DEF = 26
 const FILE_ROW_MIN = 22
 const FILE_ROW_MAX = 40
 const FILE_ROW_DEF = 26
-const SIDEBAR_FONT_SIZE_DEF = 13
-const FILE_FONT_SIZE_DEF = 13
+const SIDEBAR_FONT_SIZE_DEF = 12.5
+const FILE_FONT_SIZE_DEF = 12.5
 
 // 视图设置默认值（「恢复默认」回到这些值）
 const FONT_SIZE_MIN = 11
 const FONT_SIZE_MAX = 16
-const FONT_SIZE_DEF = 12
+const FONT_SIZE_STEP = 0.5
+const FONT_SIZE_DEF = 12.5
 const HIDE_PROTECTED_DEF = true
 const SHOW_HIDDEN_DEF = true
 const HIDE_FILE_EXTENSIONS_DEF = false
@@ -175,7 +176,12 @@ const PANE_DRAG_MODE_DEF: PaneDragMode = 'move'
 function readFontSize(key = LS_FONT_SIZE, fallback = FONT_SIZE_DEF): number {
   try {
     const saved = Number(localStorage.getItem(key))
-    return Number.isInteger(saved) && saved >= FONT_SIZE_MIN && saved <= FONT_SIZE_MAX ? saved : fallback
+    return Number.isFinite(saved)
+      && saved >= FONT_SIZE_MIN
+      && saved <= FONT_SIZE_MAX
+      && Number.isInteger((saved - FONT_SIZE_MIN) / FONT_SIZE_STEP)
+      ? saved
+      : fallback
   } catch {
     return fallback
   }
@@ -558,7 +564,7 @@ export const useUiStore = defineStore('ui', () => {
   }
 
   function setFontSize(size: number) {
-    if (!Number.isInteger(size) || size < FONT_SIZE_MIN || size > FONT_SIZE_MAX) return
+    if (!Number.isFinite(size) || size < FONT_SIZE_MIN || size > FONT_SIZE_MAX || !Number.isInteger((size - FONT_SIZE_MIN) / FONT_SIZE_STEP)) return
     fontSize.value = size
     applyFontSize(size)
     try {
@@ -584,7 +590,7 @@ export const useUiStore = defineStore('ui', () => {
   }
 
   function setSidebarFontSize(size: number) {
-    if (!Number.isInteger(size) || size < FONT_SIZE_MIN || size > FONT_SIZE_MAX) return
+    if (!Number.isFinite(size) || size < FONT_SIZE_MIN || size > FONT_SIZE_MAX || !Number.isInteger((size - FONT_SIZE_MIN) / FONT_SIZE_STEP)) return
     sidebarFontSize.value = size
     applySidebarFontSize(size)
     try {
@@ -595,7 +601,7 @@ export const useUiStore = defineStore('ui', () => {
   }
 
   function setFileFontSize(size: number) {
-    if (!Number.isInteger(size) || size < FONT_SIZE_MIN || size > FONT_SIZE_MAX) return
+    if (!Number.isFinite(size) || size < FONT_SIZE_MIN || size > FONT_SIZE_MAX || !Number.isInteger((size - FONT_SIZE_MIN) / FONT_SIZE_STEP)) return
     fileFontSize.value = size
     applyFileFontSize(size)
     try {

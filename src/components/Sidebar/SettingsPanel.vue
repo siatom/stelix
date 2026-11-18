@@ -28,7 +28,7 @@ const themePaletteGroups = computed(() => [
   { mode: 'light' as const, label: '浅色主题', description: '浅色模式的配色', colorKey: 'light' as const, nameKey: 'name' as const, color: ui.lightAccentColor },
   { mode: 'dark' as const, label: '深色主题', description: '深色模式的配色', colorKey: 'dark' as const, nameKey: 'darkName' as const, color: ui.darkAccentColor },
 ])
-const fontSizes = [11, 12, 13, 14, 15, 16]
+const fontSizes = Array.from({ length: 11 }, (_, index) => 11 + index * 0.5)
 const tabs = [
   { id: 'general', label: '常规', icon: 'settings' },
   { id: 'appearance', label: '外观', icon: 'image' },
@@ -339,6 +339,12 @@ watch(() => ui.settingsTab, (tab) => {
         <section class="appearance-section">
           <div class="section-heading"><div><h3>字体与行高</h3><p>调整界面字体、列表字号与信息密度</p></div></div>
           <div class="font-grid">
+            <label class="font-row">
+              <span><strong>界面字号</strong><small>应用各界面的基础字号</small></span>
+              <select class="setting-select" :value="String(ui.fontSize)" @change="ui.setFontSize(Number(($event.target as HTMLSelectElement).value))">
+                <option v-for="size in fontSizes" :key="size" :value="String(size)">{{ size }}px</option>
+              </select>
+            </label>
             <div class="font-row font-row-wide font-row-family">
               <div class="font-family-head">
                 <span><strong>界面字体</strong><small>支持 VS Code 形式的字体列表，留空使用系统默认；右侧为实时预览</small></span>
@@ -503,7 +509,7 @@ watch(() => ui.settingsTab, (tab) => {
   grid-template-columns: 154px minmax(0, 1fr);
   height: 100%;
   min-height: 0;
-  font-size: max(12px, var(--ui-font-size));
+  font-size: var(--ui-font-size);
   position: relative;
   background: var(--bg-app);
 }
