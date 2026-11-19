@@ -9,14 +9,15 @@ import FolderTree from './FolderTree.vue'
 import TaskPanel from './TaskPanel.vue'
 import SearchBar from '../SearchBar.vue'
 import AiPanel from '../AiPanel.vue'
+import { t } from '../../i18n'
 
 const ui = useUiStore()
 
-const titles: Record<PanelKey, string> = {
-  files: '文件导航',
-  tasks: '定时任务',
-  search: '搜索',
-  ai: 'AI 助手',
+const titles: Record<PanelKey, () => string> = {
+  files: () => t('文件导航'),
+  tasks: () => t('定时任务'),
+  search: () => t('搜索'),
+  ai: () => t('AI 助手'),
 }
 
 const panels: Record<PanelKey, Component> = {
@@ -26,7 +27,7 @@ const panels: Record<PanelKey, Component> = {
   ai: AiPanel,
 }
 
-const title = computed(() => titles[ui.activePanel])
+const title = computed(() => titles[ui.activePanel]())
 const current = computed(() => panels[ui.activePanel])
 const showHead = computed(() => ui.activePanel !== 'ai')
 const searchShortcut = computed(() =>
@@ -41,7 +42,7 @@ const searchShortcut = computed(() =>
       <kbd
         v-if="ui.activePanel === 'search' && searchShortcut"
         class="head-kbd"
-        :title="`打开搜索：${searchShortcut}`"
+        :title="t(`打开搜索：${searchShortcut}`, `Open search: ${searchShortcut}`)"
       >{{ searchShortcut }}</kbd>
     </header>
     <div

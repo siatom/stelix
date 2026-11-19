@@ -7,13 +7,14 @@ import { useUiStore } from '../../stores/ui'
 import Icon from '../icons/Icon.vue'
 import TaskEditor from './TaskEditor.vue'
 import type { ScheduledTask } from '../../types'
+import { locale, t } from '../../i18n'
 
 const tasks = useTasksStore()
 const pane = usePaneStore()
 const ui = useUiStore()
 
 const editing = ref<ScheduledTask | null>(null)
-const WEEKDAYS = ['日', '一', '二', '三', '四', '五', '六']
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
 function blankTask(): ScheduledTask {
   return {
@@ -45,9 +46,9 @@ async function onSave(task: ScheduledTask) {
   try {
     await tasks.save(task)
     editing.value = null
-    ui.setStatusText('定时任务已保存')
+    ui.setStatusText(t('定时任务已保存'))
   } catch (e) {
-    ui.setStatusText(`保存失败：${String(e)}`)
+    ui.setStatusText(t(`保存失败：${String(e)}`, `Save failed: ${String(e)}`))
   }
 }
 
@@ -55,7 +56,7 @@ async function runNow(task: ScheduledTask) {
   try {
     ui.setStatusText(await tasks.runNow(task.id))
   } catch (e) {
-    ui.setStatusText(`运行失败：${String(e)}`)
+    ui.setStatusText(t(`运行失败：${String(e)}`, `Run failed: ${String(e)}`))
   }
 }
 
@@ -70,7 +71,7 @@ async function toggle(task: ScheduledTask) {
 async function remove(task: ScheduledTask) {
   try {
     await tasks.remove(task.id)
-    ui.setStatusText('已删除任务')
+    ui.setStatusText(t('已删除任务'))
   } catch (e) {
     ui.setStatusText(String(e))
   }
@@ -81,30 +82,30 @@ function scheduleText(task: ScheduledTask): string {
   const hm = `${String(s.hour ?? 0).padStart(2, '0')}:${String(s.minute ?? 0).padStart(2, '0')}`
   switch (s.kind) {
     case 'interval':
-      return `每 ${s.intervalMinutes ?? 0} 分钟`
+      return locale.value === 'zh-CN' ? `每 ${s.intervalMinutes ?? 0} 分钟` : `Every ${s.intervalMinutes ?? 0} minutes`
     case 'weekly':
-      return `每周${WEEKDAYS[s.weekday ?? 0]} ${hm}`
+      return locale.value === 'zh-CN' ? `每周${'日一二三四五六'[s.weekday ?? 0]} ${hm}` : `Every ${WEEKDAYS[s.weekday ?? 0]} at ${hm}`
     case 'monthly':
-      return `每月 ${s.dayOfMonth ?? 1} 日 ${hm}`
+      return locale.value === 'zh-CN' ? `每月 ${s.dayOfMonth ?? 1} 日 ${hm}` : `Monthly on day ${s.dayOfMonth ?? 1} at ${hm}`
     default:
-      return `每天 ${hm}`
+      return locale.value === 'zh-CN' ? `每天 ${hm}` : `Daily at ${hm}`
   }
 }
 
 function actionText(task: ScheduledTask): string {
   const a = task.action
-  const verb = a.kind === 'move' ? `移动到 ${a.moveTarget ?? ''}` : '移到回收站'
+  const verb = a.kind === 'move' ? t(`移动到 ${a.moveTarget ?? ''}`, `Move to ${a.moveTarget ?? ''}`) : t('移到回收站')
   const conds: string[] = []
   if (a.filters.extensions.length) conds.push(a.filters.extensions.map((e) => `.${e}`).join('/'))
-  if (a.filters.nameContains) conds.push(`含「${a.filters.nameContains}」`)
-  if (a.filters.minAgeDays != null) conds.push(`早于 ${a.filters.minAgeDays} 天`)
-  const cond = conds.length ? `中的 ${conds.join('、')} 文件` : '中的文件'
+  if (a.filters.nameContains) conds.push(t(`含「${a.filters.nameContains}」`, `name contains “${a.filters.nameContains}”`))
+  if (a.filters.minAgeDays != null) conds.push(t(`早于 ${a.filters.minAgeDays} 天`, `older than ${a.filters.minAgeDays} days`))
+  const cond = conds.length ? t(`中的 ${conds.join('、')} 文件`, `files in matching ${conds.join(', ')}`) : t('中的文件')
   return `${verb} ${a.root} ${cond}`
 }
 
 function formatTime(ms?: number | null): string {
   if (!ms) return '—'
-  return new Date(ms).toLocaleString('zh-CN', { hour12: false })
+  return new Date(ms).toLocaleString(locale.value, { hour12: false })
 }
 
 onMounted(async () => {
@@ -124,40 +125,40 @@ onMounted(async () => {
   <div v-else class="task-panel">
     <button class="new-btn" @click="startCreate">
       <Icon name="plus" :size="13" />
-      <span>新建任务</span>
+      <span>{{ t('新建任务') }}</span>
     </button>
 
     <p v-if="tasks.error" class="err">{{ tasks.error }}</p>
     <p v-else-if="!tasks.tasks.length" class="state">
-      暂无定时任务。点击上方按钮，或用 AI 描述你的清理需求。
+      {{ t('暂无定时任务。点击上方按钮，或用 AI 描述你的清理需求。') }}
     </p>
 
     <ul v-else class="task-list">
-      <li v-for="t in tasks.tasks" :key="t.id" class="task-item">
+      <li v-for="task in tasks.tasks" :key="task.id" class="task-item">
         <div class="ti-head">
-          <span class="ti-name" :title="t.name">{{ t.name || '未命名任务' }}</span>
+          <span class="ti-name" :title="task.name">{{ task.name || t('未命名任务') }}</span>
           <input
             type="checkbox"
             class="ti-toggle"
-            :checked="t.enabled"
-            :title="t.enabled ? '已启用，点击停用' : '已停用，点击启用'"
-            @change="toggle(t)"
+            :checked="task.enabled"
+            :title="task.enabled ? t('已启用，点击停用') : t('已停用，点击启用')"
+            @change="toggle(task)"
           />
         </div>
         <div class="ti-meta">
-          <span class="ti-when"><Icon name="clock" :size="11" />{{ scheduleText(t) }}</span>
-          <span class="ti-act" :title="actionText(t)">{{ actionText(t) }}</span>
+          <span class="ti-when"><Icon name="clock" :size="11" />{{ scheduleText(task) }}</span>
+          <span class="ti-act" :title="actionText(task)">{{ actionText(task) }}</span>
           <span class="ti-run">
-            {{ t.enabled ? `下次 ${formatTime(t.nextRun)}` : '已停用' }}
-            <template v-if="t.lastResult"> · 上次：{{ t.lastResult }}</template>
+            {{ task.enabled ? t(`下次 ${formatTime(task.nextRun)}`, `Next: ${formatTime(task.nextRun)}`) : t('已停用') }}
+            <template v-if="task.lastResult"> · {{ t('上次：') }}{{ task.lastResult }}</template>
           </span>
         </div>
         <div class="ti-actions">
-          <button class="ti-btn" :disabled="tasks.runningId === t.id" @click="runNow(t)">
-            <Icon name="play" :size="11" />{{ tasks.runningId === t.id ? '运行中…' : '立即运行' }}
+          <button class="ti-btn" :disabled="tasks.runningId === task.id" @click="runNow(task)">
+            <Icon name="play" :size="11" />{{ tasks.runningId === task.id ? t('运行中…') : t('立即运行') }}
           </button>
-          <button class="ti-btn" @click="startEdit(t)"><Icon name="pencil" :size="11" />编辑</button>
-          <button class="ti-btn danger" @click="remove(t)"><Icon name="trash" :size="11" />删除</button>
+          <button class="ti-btn" @click="startEdit(task)"><Icon name="pencil" :size="11" />{{ t('编辑') }}</button>
+          <button class="ti-btn danger" @click="remove(task)"><Icon name="trash" :size="11" />{{ t('__legacy_6cba6a2c0801') }}</button>
         </div>
       </li>
     </ul>

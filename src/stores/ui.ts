@@ -1,8 +1,9 @@
 import { defineStore } from 'pinia'
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { api, events } from '../api'
 import { resetAllShortcuts } from './shortcuts'
 import type { IndexProgress } from '../types'
+import { locale, t } from '../i18n'
 
 /** 左侧栏面板类型 */
 export type PanelKey = 'files' | 'tasks' | 'search' | 'ai'
@@ -413,7 +414,11 @@ export const useUiStore = defineStore('ui', () => {
   const feedbackOpen = ref(false)
   /** 文件夹同步对话框是否打开 */
   const syncOpen = ref(false)
-  const statusText = ref('就绪')
+  const statusText = ref(t('就绪'))
+  watch(locale, (next, previous) => {
+    const previousReady = previous === 'zh-CN' ? '就绪' : 'Ready'
+    if (statusText.value === previousReady) statusText.value = next === 'zh-CN' ? '就绪' : 'Ready'
+  })
   const indexTotal = ref(0)
 
   function applySurfaceOpacity() {

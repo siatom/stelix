@@ -7,6 +7,7 @@ import ChatMessage from './ai/ChatMessage.vue'
 import ChatHistory from './ai/ChatHistory.vue'
 import Icon from './icons/Icon.vue'
 import type { AiApproval } from '../types'
+import { locale, t } from '../i18n'
 
 const ai = useAiStore()
 const ui = useUiStore()
@@ -22,7 +23,9 @@ const hasNewMessage = ref(false)
 const streamingActive = computed(() => ai.responding && ai.busyConversationId === ai.activeId)
 const activeDir = computed(() => pane.activeTab?.path ?? '')
 const selectionCount = computed(() => pane.activeTab?.selected.length ?? 0)
-const examples = ['找出这个目录下最大的 5 个文件', '把所有 png 图片列出来', '按扩展名统计当前目录']
+const examples = computed(() => locale.value === 'zh-CN'
+  ? ['找出这个目录下最大的 5 个文件', '把所有 png 图片列出来', '按扩展名统计当前目录']
+  : ['Find the 5 largest files in this folder', 'List all PNG images', 'Count files by extension in this folder'])
 const selectedApprovalCount = computed(() => ai.pendingApprovals.filter(item => ai.approvalSelection[item.id] !== false).length)
 
 function approvalPaths(approval: AiApproval): string[] {
@@ -96,9 +99,9 @@ function dayLabel(time: number) {
   const date = new Date(time)
   const now = new Date()
   const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1)
-  if (date.toDateString() === now.toDateString()) return '今天'
-  if (date.toDateString() === yesterday.toDateString()) return '昨天'
-  return date.toLocaleDateString('zh-CN', { year: 'numeric', month: 'numeric', day: 'numeric' })
+  if (date.toDateString() === now.toDateString()) return t('今天')
+  if (date.toDateString() === yesterday.toDateString()) return t('昨天')
+  return date.toLocaleDateString(locale.value, { year: 'numeric', month: 'numeric', day: 'numeric' })
 }
 function startsDay(index: number) {
   return index === 0 || new Date(ai.messages[index]!.createdAt).toDateString() !== new Date(ai.messages[index - 1]!.createdAt).toDateString()
@@ -117,29 +120,29 @@ function submitPath() {
 </script>
 
 <template>
-  <aside class="ai-panel" aria-label="AI 助手">
+  <aside class="ai-panel" :aria-label="t('AI 助手')">
     <header class="ai-head">
-      <span class="title"><Icon name="sparkles" :size="15" />AI 助手</span>
+      <span class="title"><Icon name="sparkles" :size="15" />{{ t('AI 助手') }}</span>
       <div class="head-actions">
-        <button class="head-btn" title="新建对话" aria-label="新建对话" :disabled="ai.executing || ai.historyLoading || ai.historyMutating" @click="newChat"><Icon name="plus" :size="15" /></button>
-        <button class="head-btn" :class="{ selected: showHistory }" title="历史对话" aria-label="历史对话" :aria-pressed="showHistory" @click="showHistory = !showHistory"><Icon name="clock" :size="14" /></button>
-        <button class="head-btn" title="AI 大模型设置" aria-label="AI 大模型设置" @click="ui.openSettings('ai')"><Icon name="settings" :size="14" /></button>
-        <button class="head-btn" title="关闭 AI 助手" aria-label="关闭 AI 助手" @click="ui.toggleSidebar()"><Icon name="panel-left-close" :size="14" /></button>
+        <button class="head-btn" :title="t('新建对话')" :aria-label="t('新建对话')" :disabled="ai.executing || ai.historyLoading || ai.historyMutating" @click="newChat"><Icon name="plus" :size="15" /></button>
+        <button class="head-btn" :class="{ selected: showHistory }" :title="t('历史对话')" :aria-label="t('历史对话')" :aria-pressed="showHistory" @click="showHistory = !showHistory"><Icon name="clock" :size="14" /></button>
+        <button class="head-btn" :title="t('AI 大模型设置')" :aria-label="t('AI 大模型设置')" @click="ui.openSettings('ai')"><Icon name="settings" :size="14" /></button>
+        <button class="head-btn" :title="t('关闭 AI 助手')" :aria-label="t('关闭 AI 助手')" @click="ui.toggleSidebar()"><Icon name="panel-left-close" :size="14" /></button>
       </div>
     </header>
-    <div class="conversation-bar"><span :title="showHistory ? '历史对话' : ai.current?.title">{{ showHistory ? '历史对话' : ai.current?.title ?? '新对话' }}</span><button v-if="showHistory" title="返回当前对话" aria-label="返回当前对话" @click="showHistory = false"><Icon name="chevron-left" :size="13" />返回</button></div>
-    <div v-if="ai.historyError" class="notice error-notice" role="alert"><span>{{ ai.historyError }}</span><button :disabled="ai.historyLoading || ai.historyMutating" @click="ai.retryHistory">重试</button></div>
-    <div v-if="ai.error" class="notice error-notice" role="alert"><span>模型配置读取失败：{{ ai.error }}</span><button @click="ui.openSettings('ai')">设置</button></div>
+    <div class="conversation-bar"><span :title="showHistory ? t('历史对话') : ai.current?.title">{{ showHistory ? t('历史对话') : ai.current?.title ?? t('新对话') }}</span><button v-if="showHistory" :title="t('返回当前对话')" :aria-label="t('返回当前对话')" @click="showHistory = false"><Icon name="chevron-left" :size="13" />{{ t('返回') }}</button></div>
+    <div v-if="ai.historyError" class="notice error-notice" role="alert"><span>{{ ai.historyError }}</span><button :disabled="ai.historyLoading || ai.historyMutating" @click="ai.retryHistory">{{ t('重试') }}</button></div>
+    <div v-if="ai.error" class="notice error-notice" role="alert"><span>{{ t('模型配置读取失败：') }}{{ ai.error }}</span><button @click="ui.openSettings('ai')">{{ t('设置') }}</button></div>
 
     <ChatHistory v-if="showHistory" @open="showHistory = false" />
     <template v-else>
       <button class="model-status" :title="ai.modelLabel" @click="ui.openSettings('ai')"><span class="model-dot" :class="{ enabled: ai.config.enabled }" /><span>{{ ai.modelLabel }}</span><Icon name="chevron-down" :size="11" /></button>
       <div class="chat-flow">
         <div ref="bodyRef" class="ai-body" :aria-busy="ai.responding && ai.busyConversationId === ai.activeId" @scroll="onScroll">
-          <div v-if="ai.historyLoading" class="loading" role="status">正在读取对话…</div>
+          <div v-if="ai.historyLoading" class="loading" role="status">{{ t('正在读取对话…') }}</div>
           <div v-else-if="!ai.messages.length" class="empty">
             <div class="welcome-icon"><Icon name="sparkles" :size="22" /></div>
-            <h2>今天想整理什么？</h2><p>查找文件、分析目录，或描述你的整理需求。</p>
+            <h2>{{ t('今天想整理什么？') }}</h2><p>{{ t('查找文件、分析目录，或描述你的整理需求。') }}</p>
             <button v-for="example in examples" :key="example" class="example" @click="draft = example; inputRef?.focus()">{{ example }}<Icon name="arrow-up" :size="12" /></button>
           </div>
           <template v-for="(message, index) in ai.messages" :key="message.id">
@@ -147,7 +150,7 @@ function submitPath() {
             <ChatMessage :message="message" :busy="ai.busy" :step="streamingActive ? ai.pendingStep : ''" :can-retry="index === ai.messages.length - 1 && message.kind === 'message' && (message.status === 'error' || message.status === 'interrupted')" @retry="ai.retry" />
           </template>
           <div v-if="ai.pendingApprovals.length" class="confirm">
-            <p class="confirm-title"><Icon name="alert-triangle" :size="13" />确认文件操作（已选 {{ selectedApprovalCount }}/{{ ai.pendingApprovals.length }}）</p>
+            <p class="confirm-title"><Icon name="alert-triangle" :size="13" />{{ t(`确认文件操作（已选 ${selectedApprovalCount}/${ai.pendingApprovals.length}）`, `Confirm file operations (${selectedApprovalCount}/${ai.pendingApprovals.length} selected)`) }}</p>
             <ul class="approval-list">
               <li v-for="approval in ai.pendingApprovals" :key="approval.id" class="approval-item">
                 <label class="approval-head">
@@ -155,38 +158,38 @@ function submitPath() {
                   <span>{{ approval.description }}</span>
                 </label>
                 <p class="approval-meta">
-                  <span>{{ approval.preview.items }} 项</span>
-                  <span v-if="approval.preview.crossDrive" class="warn">跨盘</span>
-                  <span v-if="approval.preview.targetExists" class="warn">目标已存在</span>
+                  <span>{{ t(`${approval.preview.items} 项`, `${approval.preview.items} items`) }}</span>
+                  <span v-if="approval.preview.crossDrive" class="warn">{{ t('跨盘') }}</span>
+                  <span v-if="approval.preview.targetExists" class="warn">{{ t('目标已存在') }}</span>
                 </p>
-                <p v-if="approvalPaths(approval).length" class="approval-paths">{{ approvalPaths(approval).slice(0, 3).join('、') }}<span v-if="approvalPaths(approval).length > 3"> …共 {{ approvalPaths(approval).length }} 项</span></p>
+                <p v-if="approvalPaths(approval).length" class="approval-paths">{{ approvalPaths(approval).slice(0, 3).join(' · ') }}<span v-if="approvalPaths(approval).length > 3"> {{ t(`…共 ${approvalPaths(approval).length} 项`, `…and ${approvalPaths(approval).length} items`) }}</span></p>
                 <ul v-if="approval.preview.warnings.length" class="approval-warnings">
                   <li v-for="warning in approval.preview.warnings" :key="warning">{{ warning }}</li>
                 </ul>
               </li>
             </ul>
-            <div class="confirm-actions"><button :disabled="ai.busy || !selectedApprovalCount" class="allow" @click="ai.submitApprovals()">执行选中</button><button :disabled="ai.busy" @click="ai.rejectAllApprovals()">全部取消</button></div>
+            <div class="confirm-actions"><button :disabled="ai.busy || !selectedApprovalCount" class="allow" @click="ai.submitApprovals()">{{ t('执行选中') }}</button><button :disabled="ai.busy" @click="ai.rejectAllApprovals()">{{ t('全部取消') }}</button></div>
           </div>
-          <div v-if="ai.executing && ai.busyConversationId === ai.activeId" class="loading" role="status">正在执行文件操作…</div>
+          <div v-if="ai.executing && ai.busyConversationId === ai.activeId" class="loading" role="status">{{ t('正在执行文件操作…') }}</div>
         </div>
-        <button v-if="!atBottom && ai.messages.length" class="jump-latest" @click="scrollToLatest"><Icon name="arrow-down" :size="12" />{{ hasNewMessage ? '查看新回复' : '回到最新' }}</button>
+        <button v-if="!atBottom && ai.messages.length" class="jump-latest" @click="scrollToLatest"><Icon name="arrow-down" :size="12" />{{ hasNewMessage ? t('查看新回复') : t('回到最新') }}</button>
       </div>
-      <div v-if="ai.responding && ai.busyConversationId !== ai.activeId" class="background-reply" role="status">另一条对话正在回复<button @click="ai.selectConversation(ai.busyConversationId)">查看</button></div>
+      <div v-if="ai.responding && ai.busyConversationId !== ai.activeId" class="background-reply" role="status">{{ t('另一条对话正在回复') }}<button @click="ai.selectConversation(ai.busyConversationId)">{{ t('查看') }}</button></div>
       <div class="context-area">
-        <div class="context-bar" aria-label="对话上下文">
-          <button class="ctx-chip" :class="{ on: ai.contextToggles.activeDir && activeDir }" :disabled="!activeDir" :title="activeDir || '当前没有打开的目录'" @click="ai.toggleContext('activeDir')"><Icon name="folder" :size="12" /><span>当前目录{{ activeDir ? `：${baseName(activeDir)}` : '' }}</span></button>
-          <button class="ctx-chip" :class="{ on: ai.contextToggles.selection && selectionCount > 0 }" :disabled="!selectionCount" :title="`已选中 ${selectionCount} 项`" @click="ai.toggleContext('selection')"><Icon name="check-circle" :size="12" /><span>选中 {{ selectionCount }} 项</span></button>
-          <span v-for="path in ai.manualPaths" :key="path" class="ctx-chip on manual" :title="path"><Icon name="file" :size="12" /><span>{{ baseName(path) }}</span><button class="ctx-remove" type="button" title="移除该上下文" aria-label="移除该上下文" @click="ai.removeContextPath(path)"><Icon name="x" :size="10" /></button></span>
-          <button class="ctx-chip add" type="button" title="添加路径作为上下文" aria-label="添加路径作为上下文" :aria-expanded="addingPath" @click="addingPath = !addingPath"><Icon name="plus" :size="12" /></button>
+        <div class="context-bar" :aria-label="t('对话上下文')">
+          <button class="ctx-chip" :class="{ on: ai.contextToggles.activeDir && activeDir }" :disabled="!activeDir" :title="activeDir || t('当前没有打开的目录')" @click="ai.toggleContext('activeDir')"><Icon name="folder" :size="12" /><span>{{ t('当前目录') }}{{ activeDir ? `: ${baseName(activeDir)}` : '' }}</span></button>
+          <button class="ctx-chip" :class="{ on: ai.contextToggles.selection && selectionCount > 0 }" :disabled="!selectionCount" :title="t(`已选中 ${selectionCount} 项`, `${selectionCount} items selected`)" @click="ai.toggleContext('selection')"><Icon name="check-circle" :size="12" /><span>{{ t(`选中 ${selectionCount} 项`, `${selectionCount} selected`) }}</span></button>
+          <span v-for="path in ai.manualPaths" :key="path" class="ctx-chip on manual" :title="path"><Icon name="file" :size="12" /><span>{{ baseName(path) }}</span><button class="ctx-remove" type="button" :title="t('移除该上下文')" :aria-label="t('移除该上下文')" @click="ai.removeContextPath(path)"><Icon name="x" :size="10" /></button></span>
+          <button class="ctx-chip add" type="button" :title="t('添加路径作为上下文')" :aria-label="t('添加路径作为上下文')" :aria-expanded="addingPath" @click="addingPath = !addingPath"><Icon name="plus" :size="12" /></button>
         </div>
         <div v-if="addingPath" class="ctx-add">
-          <input v-model="pathDraft" aria-label="上下文路径" placeholder="文件或文件夹的绝对路径" spellcheck="false" @keydown.enter.prevent="submitPath" @keydown.esc="addingPath = false" />
-          <button type="button" :disabled="!pathDraft.trim()" @click="submitPath">添加</button>
+          <input v-model="pathDraft" :aria-label="t('上下文路径')" :placeholder="t('文件或文件夹的绝对路径')" spellcheck="false" @keydown.enter.prevent="submitPath" @keydown.esc="addingPath = false" />
+          <button type="button" :disabled="!pathDraft.trim()" @click="submitPath">{{ t('添加') }}</button>
         </div>
       </div>
       <form class="ai-input" @submit.prevent="send">
-        <div class="composer"><textarea ref="inputRef" v-model="draft" rows="2" aria-label="消息内容" placeholder="描述你的需求…" spellcheck="false" @input="resizeInput" @keydown="onInputKeydown" /><div class="composer-bottom"><span>{{ streamingActive ? (ai.stopping ? '正在停止…' : ai.pendingStep || '正在思考…') : 'Enter 发送 · Shift+Enter 换行' }}</span><button v-if="streamingActive" class="send stop" type="button" title="停止生成" aria-label="停止生成" :disabled="ai.stopping" @click="ai.stop()"><Icon name="stop" :size="13" /></button><button v-else class="send" type="submit" title="发送消息" aria-label="发送消息" :disabled="ai.busy || ai.historyLoading || ai.historyMutating || !draft.trim()"><Icon name="arrow-up" :size="15" /></button></div></div>
-        <p class="input-hint">文件写操作会先请你确认</p>
+        <div class="composer"><textarea ref="inputRef" v-model="draft" rows="2" :aria-label="t('消息内容')" :placeholder="t('描述你的需求…')" spellcheck="false" @input="resizeInput" @keydown="onInputKeydown" /><div class="composer-bottom"><span>{{ streamingActive ? (ai.stopping ? t('正在停止…') : ai.pendingStep || t('正在思考…')) : t('Enter 发送 · Shift+Enter 换行') }}</span><button v-if="streamingActive" class="send stop" type="button" :title="t('停止生成')" :aria-label="t('停止生成')" :disabled="ai.stopping" @click="ai.stop()"><Icon name="stop" :size="13" /></button><button v-else class="send" type="submit" :title="t('发送消息')" :aria-label="t('发送消息')" :disabled="ai.busy || ai.historyLoading || ai.historyMutating || !draft.trim()"><Icon name="arrow-up" :size="15" /></button></div></div>
+        <p class="input-hint">{{ t('文件写操作会先请你确认') }}</p>
       </form>
     </template>
   </aside>

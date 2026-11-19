@@ -6,9 +6,17 @@
  * 复用同一个 `Intl.Collator`：`String.prototype.localeCompare` 传 locale/options 时
  * 每次比较都会重建比较器，大目录（上万条）排序会因此慢一个数量级。
  */
-const nameCollator = new Intl.Collator('zh-Hans-CN', { numeric: true, sensitivity: 'base' })
+import { locale } from './i18n'
+
+const collators = new Map<string, Intl.Collator>()
 
 /** 按自然顺序比较两个名称（数字按数值大小，其余按中文 / 字母顺序）。 */
 export function compareNames(a: string, b: string): number {
-  return nameCollator.compare(a, b)
+  const currentLocale = locale.value
+  let collator = collators.get(currentLocale)
+  if (!collator) {
+    collator = new Intl.Collator(currentLocale, { numeric: true, sensitivity: 'base' })
+    collators.set(currentLocale, collator)
+  }
+  return collator.compare(a, b)
 }

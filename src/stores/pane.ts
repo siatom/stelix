@@ -12,6 +12,7 @@ import { normalizeRemotePath, remoteDirname, resolveRemoteAuth } from '../shell/
 import { compareNames } from '../naturalSort'
 import { refreshTrashIcon } from '../components/icons/fileIconCache'
 import { useTerminalStore } from './terminal'
+import { locale, t } from '../i18n'
 
 /**
  * 双窗格 / 多标签状态 —— 由 **WS-D (feat/ui-panes)** 实现。
@@ -331,16 +332,16 @@ export const usePaneStore = defineStore('pane', () => {
    * 返回 reason 表示当前布局/标签不满足条件（标题栏按钮据此禁用）。
    */
   const syncDirs = computed<{ left?: string; right?: string; reason?: string }>(() => {
-    if (singlePane.value) return { reason: '需要双窗格布局' }
+    if (singlePane.value) return { reason: t('需要双窗格布局') }
     const leftPane = panes.value.find((pane) => pane.id === 'left')
     const rightPane = panes.value.find((pane) => pane.id === 'right')
     const leftTab = leftPane ? activeTabOf(leftPane) : undefined
     const rightTab = rightPane ? activeTabOf(rightPane) : undefined
     if (!leftTab || (leftTab.kind ?? 'files') !== 'files') {
-      return { reason: '左侧窗格不是本地文件夹' }
+      return { reason: t('左侧窗格不是本地文件夹') }
     }
     if (!rightTab || (rightTab.kind ?? 'files') !== 'files') {
-      return { reason: '右侧窗格不是本地文件夹' }
+      return { reason: t('右侧窗格不是本地文件夹') }
     }
     return { left: leftTab.path, right: rightTab.path }
   })
@@ -537,7 +538,74 @@ export const usePaneStore = defineStore('pane', () => {
   }
 
   function setStatus(text: string) {
-    useUiStore().statusText = text
+    if (locale.value === 'zh-CN') {
+      useUiStore().statusText = text
+      return
+    }
+    const exact: Record<string, string> = {
+      '未选择任何条目': 'No items selected', '已清除筛选': 'Filters cleared', '未知错误': 'Unknown error',
+      '已取消：目标位置存在同名项': 'Cancelled: an item with the same name exists at the destination',
+      '回收站中已找不到该项': 'The item is no longer in the Recycle Bin', '没有可撤销的操作': 'Nothing to undo',
+      '没有可重做的操作': 'Nothing to redo', '请先选择要操作的条目': 'Select items first',
+      '该位置不支持此操作': 'This location does not support this operation', '当前标签不支持新建文件夹': 'New folders are not supported in this tab',
+      '剪贴板为空': 'Clipboard is empty', '已交换左右窗格': 'Panes swapped',
+      '对侧窗格是搜索结果，无法作为传输目标': 'The other pane shows search results and cannot be a transfer target',
+      '暂不支持在远程服务器之间直接传输，请先下载到本地': 'Direct transfer between remote servers is not supported. Download the files first.',
+      '操作已完成': 'Operation completed', '操作已完成（管理员权限）': 'Operation completed with administrator privileges',
+      '没有权限移动所选条目': 'You do not have permission to move the selected item',
+      '新建失败：名称为空': 'Could not create folder: name is empty', '名称为空': 'Name cannot be empty',
+      '需要管理员权限，正在请求提权…': 'Administrator permission required. Requesting elevation…',
+      '已取消提权：部分操作已执行，其余未执行': 'Elevation cancelled. Some operations completed; the rest were not run.',
+      '已取消提权，操作未执行': 'Elevation cancelled. No operations were run.',
+    }
+    const patterns: Array<[RegExp, (match: RegExpMatchArray) => string]> = [
+      [/^无法打开目录：(.*)$/s, m => `Could not open folder: ${m[1]}`],
+      [/^无法展开：(.*)$/s, m => `Could not expand folder: ${m[1]}`],
+      [/^已连接 (.*)$/s, m => `Connected to ${m[1]}`],
+      [/^SSH 终端：(.*)$/s, m => `SSH terminal: ${m[1]}`],
+      [/^筛选到 (\d+) 项（结果过多，已截断）$/, m => `Filtered to ${m[1]} items (results truncated)`],
+      [/^筛选到 (\d+) 项$/, m => `Filtered to ${m[1]} items`],
+      [/^筛选失败：(.*)$/s, m => `Filter failed: ${m[1]}`],
+      [/^正在(下载|上传) (\d+) 项…$/, m => `${m[1] === '下载' ? 'Downloading' : 'Uploading'} ${m[2]} items…`],
+      [/^已下载 (\d+) 项到 (.*)$/s, m => `Downloaded ${m[1]} items to ${m[2]}`],
+      [/^已上传 (\d+) 项到 (.*)$/s, m => `Uploaded ${m[1]} items to ${m[2]}`],
+      [/^已移动 (\d+) 项到本地（远端源已删除）$/, m => `Moved ${m[1]} items to this device and deleted the remote originals`],
+      [/^已移动 (\d+) 项到远程（本地源已删除）$/, m => `Moved ${m[1]} items to the remote location and deleted the local originals`],
+      [/^(下载|上传)失败：(.*)$/s, m => `${m[1] === '下载' ? 'Download' : 'Upload'} failed: ${m[2]}`],
+      [/^已复制 (\d+) 个远程项$/, m => `Copied ${m[1]} remote items`], [/^已剪切 (\d+) 个远程项$/, m => `Cut ${m[1]} remote items`],
+      [/^已复制 (\d+) 项到剪贴板$/, m => `Copied ${m[1]} items to clipboard`], [/^已剪切 (\d+) 项$/, m => `Cut ${m[1]} items`],
+      [/^系统剪贴板写入失败：(.*)$/s, m => `Could not write to system clipboard: ${m[1]}`],
+      [/^操作失败：(.*)$/s, m => `Operation failed: ${m[1]}`], [/^提权失败：(.*)$/s, m => `Elevation failed: ${m[1]}`],
+      [/^已取消提权（需要管理员权限）$/, () => 'Elevation cancelled (administrator permission is required)'],
+      [/^取消失败：(.*)$/s, m => `Could not cancel: ${m[1]}`],
+      [/^部分还原失败：(.*)$/s, m => `Some items could not be restored: ${m[1]}`],
+      [/^还原失败：(.*)$/s, m => `Restore failed: ${m[1]}`],
+      [/^部分撤销失败：(.*)$/s, m => `Some undo operations failed: ${m[1]}`],
+      [/^已撤销：(.*)（(\d+) 项在回收站中未找到）$/, m => `Undid ${m[1]}; ${m[2]} items were not found in the Recycle Bin`],
+      [/^正在撤销：(.*)$/s, m => `Undoing: ${m[1]}`], [/^已撤销：(.*)$/s, m => `Undid: ${m[1]}`],
+      [/^(.*)操作无法撤销$/, m => `${m[1]} cannot be undone`],
+      [/^撤销未完成：(.*)$/s, m => `Undo incomplete: ${m[1]}`], [/^正在重做：(.*)$/s, m => `Redoing: ${m[1]}`],
+      [/^已重做：(.*)$/s, m => `Redid: ${m[1]}`], [/^重做未完成：(.*)$/s, m => `Redo incomplete: ${m[1]}`],
+      [/^新建失败：(.+)（(.*)）$/s, m => `Could not create "${m[1]}": ${m[2]}`],
+      [/^新建失败：(.*)$/s, m => `Could not create folder: ${m[1]}`],
+      [/^已创建 (\d+) 个文件夹，(\d+) 个失败：(.*)$/s, m => `Created ${m[1]} folders; ${m[2]} failed: ${m[3]}`],
+      [/^已创建 (\d+) 个文件夹$/, m => `Created ${m[1]} folders`],
+      [/^已新建「(.*)」，但移动失败：(.*)$/s, m => `Created "${m[1]}", but the move failed: ${m[2]}`],
+      [/^已新建「(.*)」并移动 (\d+) 项$/, m => `Created "${m[1]}" and moved ${m[2]} items into it`],
+      [/^无法打开文件夹选择器：(.*)$/s, m => `Could not open folder picker: ${m[1]}`],
+      [/^无法读取回收站：(.*)$/s, m => `Could not read Recycle Bin: ${m[1]}`],
+    ]
+    let translated = exact[text]
+    if (!translated) {
+      for (const [pattern, render] of patterns) {
+        const match = text.match(pattern)
+        if (match) {
+          translated = render(match)
+          break
+        }
+      }
+    }
+    useUiStore().statusText = translated ?? text
   }
 
   // ---- 加载 / 导航 ----
@@ -1668,9 +1736,9 @@ export const usePaneStore = defineStore('pane', () => {
     const failed = result.errors.length
     const detail = result.errors.slice(0, 2).join('；')
     if (result.transferred > 0) {
-      return `${action}完成 ${result.transferred} 项，${failed} 项失败：${detail}`
+      return t(`${action}完成 ${result.transferred} 项，${failed} 项失败：${detail}`, `${action === '下载' ? 'Downloaded' : 'Uploaded'} ${result.transferred} items; ${failed} failed: ${detail}`)
     }
-    return `${action}失败：${detail || '未知错误'}`
+    return t(`${action}失败：${detail || '未知错误'}`, `${action === '下载' ? 'Download' : 'Upload'} failed: ${detail || 'Unknown error'}`)
   }
 
   /** 远端 → 本地：下载文件 / 目录（目录自动递归）。 */
@@ -1812,19 +1880,19 @@ export const usePaneStore = defineStore('pane', () => {
   function opLabel(op: FsOp): string {
     switch (op.op) {
       case 'rename':
-        return '重命名'
+        return t('重命名')
       case 'move':
-        return '移动'
+        return t('__legacy_fd096fbc579a')
       case 'copy':
-        return '复制'
+        return t('__legacy_51b2bc4bd068')
       case 'delete':
-        return op.permanent ? '永久删除' : '删除'
+        return op.permanent ? t('永久删除') : t('__legacy_6cba6a2c0801')
       case 'mkdir':
-        return '新建文件夹'
+        return t('新建文件夹')
       case 'createFile':
-        return '新建文件'
+        return t('新建文件')
       case 'duplicate':
-        return '复制副本'
+        return t('复制副本')
     }
   }
 
@@ -1845,19 +1913,19 @@ export const usePaneStore = defineStore('pane', () => {
     const count = op.op === 'mkdir' ? (op.targets?.length ?? 0) : (op.sources?.length ?? 0)
     switch (op.op) {
       case 'copy':
-        return count ? `复制 ${count} 项` : '复制'
+        return count ? t(`复制 ${count} 项`, `Copy ${count} items`) : t('__legacy_51b2bc4bd068')
       case 'move':
-        return count ? `移动 ${count} 项` : '移动'
+        return count ? t(`移动 ${count} 项`, `Move ${count} items`) : t('__legacy_fd096fbc579a')
       case 'delete':
-        return `${op.permanent ? '永久删除' : '删除'}${count ? ` ${count} 项` : ''}`
+        return t(`${op.permanent ? '永久删除' : '删除'}${count ? ` ${count} 项` : ''}`, `${op.permanent ? 'Delete permanently' : 'Delete'}${count ? ` ${count} items` : ''}`)
       case 'duplicate':
-        return count ? `复制副本 ${count} 项` : '复制副本'
+        return count ? t(`复制副本 ${count} 项`, `Duplicate ${count} items`) : t('复制副本')
       case 'mkdir':
-        return count > 1 ? `新建文件夹 ${count} 个` : '新建文件夹'
+        return count > 1 ? t(`新建文件夹 ${count} 个`, `Create ${count} folders`) : t('新建文件夹')
       case 'createFile':
-        return '新建文件'
+        return t('新建文件')
       case 'rename':
-        return '重命名'
+        return t('重命名')
     }
   }
 
@@ -2259,23 +2327,23 @@ export const usePaneStore = defineStore('pane', () => {
 
   /** 本地预检文件夹名，返回可展示的失败原因（后端仍会做最终校验）。 */
   function folderNameError(name: string): string | null {
-    if (name.length > 255) return '名称过长（最多 255 个字符）'
-    if (name === '.' || name === '..') return '名称不能是 "." 或 ".."'
+    if (name.length > 255) return t('名称过长（最多 255 个字符）')
+    if (name === '.' || name === '..') return t('名称不能是 "." 或 ".."')
     if (INVALID_FOLDER_NAME_CHARS.test(name)) {
       return isWindows
-        ? '名称不能包含 \\ / : * ? " < > | 等字符'
-        : '名称不能包含 / 或 : 字符'
+        ? t('名称不能包含 \\ / : * ? " < > | 等字符')
+        : t('名称不能包含 / 或 : 字符')
     }
-    if (isWindows && name.endsWith('.')) return '名称不能以句点结尾'
-    if (isWindows && RESERVED_FOLDER_NAMES.test(name)) return '这是 Windows 保留名称'
+    if (isWindows && name.endsWith('.')) return t('名称不能以句点结尾')
+    if (isWindows && RESERVED_FOLDER_NAMES.test(name)) return t('这是 Windows 保留名称')
     return null
   }
 
   /** 把后端错误收敛为针对单个名称的原因（去掉完整路径，避免状态栏过长）。 */
   function folderErrorReason(errors: string[], path: string, name: string): string {
     const raw = errors.join('；')
-    if (raw.includes('已存在同名项')) return '已存在同名项'
-    if (raw.includes('目标路径为空')) return '名称为空'
+    if (raw.includes('已存在同名项')) return t('已存在同名项')
+    if (raw.includes('目标路径为空')) return t('名称为空')
     const prefix = `新建目录失败 ${path}: `
     const detail = raw.startsWith(prefix) ? raw.slice(prefix.length) : raw
     return detail.split(path).join(name)
@@ -2284,11 +2352,11 @@ export const usePaneStore = defineStore('pane', () => {
   /** 把移动失败的后端错误收敛成可直接展示的原因。 */
   function moveErrorReason(errors: string[]): string {
     const raw = errors.join('；')
-    if (!raw) return '移动未完成'
-    if (raw.includes('路径不存在')) return '所选条目已不存在，可能已被移动或删除'
-    if (raw.includes('拒绝访问') || raw.includes('os error 5')) return '没有权限移动所选条目'
-    if (raw.includes('已拒绝把目录放入其自身子目录')) return '不能把文件夹移动到它自己的子目录'
-    if (raw.includes('已拒绝操作驱动器根目录')) return '不能移动驱动器根目录'
+    if (!raw) return t('移动未完成')
+    if (raw.includes('路径不存在')) return t('所选条目已不存在，可能已被移动或删除')
+    if (raw.includes('拒绝访问') || raw.includes('os error 5')) return t('没有权限移动所选条目')
+    if (raw.includes('已拒绝把目录放入其自身子目录')) return t('不能把文件夹移动到它自己的子目录')
+    if (raw.includes('已拒绝操作驱动器根目录')) return t('不能移动驱动器根目录')
     return raw
   }
 
@@ -2296,9 +2364,10 @@ export const usePaneStore = defineStore('pane', () => {
   function failureSummary(failures: FolderCreateFailure[]): string {
     const shown = failures
       .slice(0, 2)
-      .map((item) => `${item.name}（${item.reason}）`)
-      .join('；')
-    return failures.length > 2 ? `${shown} 等 ${failures.length} 项` : shown
+      .map((item) => locale.value === 'zh-CN' ? `${item.name}（${item.reason}）` : `${item.name} (${item.reason})`)
+      .join(locale.value === 'zh-CN' ? '；' : '; ')
+    if (failures.length <= 2) return shown
+    return locale.value === 'zh-CN' ? `${shown} 等 ${failures.length} 项` : `${shown}; ${failures.length - 2} more`
   }
 
   /**

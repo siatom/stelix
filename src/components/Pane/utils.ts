@@ -1,5 +1,6 @@
 // Pane 视图层纯工具函数（路径 / 格式化 / 图标）—— WS-D 拥有。
 import type { FileEntry } from '../../types'
+import { locale, t } from '../../i18n'
 import type { IconName } from '../icons/paths'
 
 /** Windows 回收站的 Shell 命名空间路径，用于向系统请求回收站图标。 */
@@ -65,6 +66,9 @@ export function formatSize(bytes: number): string {
 export function formatTime(ms: number): string {
   if (!ms) return ''
   const d = new Date(ms)
+  if (locale.value === 'en-US') {
+    return d.toLocaleString('en-US', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })
+  }
   const pad = (n: number) => String(n).padStart(2, '0')
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
@@ -137,7 +141,7 @@ export function folderIcon(expanded: boolean): IconName {
 
 /** 类型列文案 */
 export function typeLabel(entry: FileEntry): string {
-  if (entry.isDir) return '文件夹'
+  if (entry.isDir) return t('文件夹')
   const ext = (entry.ext ?? '').replace(/^\./, '').toUpperCase()
-  return ext ? `${ext} 文件` : '文件'
+  return ext ? t(`${ext} 文件`, `${ext} file`) : t('文件')
 }

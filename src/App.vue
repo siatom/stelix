@@ -21,6 +21,7 @@ import PreviewOverlay from './components/PreviewOverlay.vue'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { LogicalSize, PhysicalPosition, PhysicalSize } from '@tauri-apps/api/dpi'
+import { t } from './i18n'
 
 const ui = useUiStore()
 const paneStore = usePaneStore()
@@ -130,10 +131,10 @@ async function beginTitlebarAction(mode: 'move' | 'size') {
   titlebarActionMode.value = mode
   if (mode === 'move') {
     actionPosition = await appWindow.outerPosition()
-    titlebarModeHint.value = '使用方向键移动窗口，Enter 确认，Esc 取消'
+    titlebarModeHint.value = t('使用方向键移动窗口，Enter 确认，Esc 取消')
   } else {
     actionSize = await appWindow.outerSize()
-    titlebarModeHint.value = '使用方向键调整窗口大小，Enter 确认，Esc 取消'
+    titlebarModeHint.value = t('使用方向键调整窗口大小，Enter 确认，Esc 取消')
   }
 }
 
@@ -211,10 +212,10 @@ onMounted(async () => {
   })
   // 远程上传 / 下载进度：状态栏显示当前条目（传输本身在后台线程执行）。
   unlistenRemoteTransfer = await events.onRemoteTransfer((progress) => {
-    const verb = progress.direction === 'download' ? '下载' : '上传'
+    const verb = progress.direction === 'download' ? t('下载') : t('上传')
     const index = Math.min(progress.done + 1, progress.total)
     const name = progress.current.split(/[\\/]/).filter(Boolean).pop() ?? progress.current
-    ui.setStatusText(`正在${verb} ${index}/${progress.total}：${name}`)
+    ui.setStatusText(t(`正在${verb} ${index}/${progress.total}：${name}`, `${verb} ${index}/${progress.total}: ${name}`))
   })
 })
 
@@ -368,14 +369,14 @@ onBeforeUnmount(() => {
       </div>
       <div class="titlebar-side titlebar-right">
         <div v-if="!isMacos" class="titlebar-controls">
-          <button class="titlebar-button" type="button" aria-label="最小化" title="最小化" @click="appWindow.minimize()">
+          <button class="titlebar-button" type="button" :aria-label="t('最小化')" :title="t('最小化')" @click="appWindow.minimize()">
             <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 6h8" /></svg>
           </button>
-          <button class="titlebar-button" type="button" :aria-label="isMaximized ? '还原' : '最大化'" :title="isMaximized ? '还原' : '最大化'" @click="toggleMaximize()">
+          <button class="titlebar-button" type="button" :aria-label="isMaximized ? t('还原') : t('最大化')" :title="isMaximized ? t('还原') : t('最大化')" @click="toggleMaximize()">
             <svg v-if="isMaximized" viewBox="0 0 12 12" aria-hidden="true"><path d="M4 2.5h5.5V8M8 4H2.5v5.5H8z" /></svg>
             <svg v-else viewBox="0 0 12 12" aria-hidden="true"><rect x="2.5" y="2.5" width="7" height="7" rx=".5" /></svg>
           </button>
-          <button class="titlebar-button close-button" type="button" aria-label="关闭" title="关闭" @click="appWindow.close()">
+          <button class="titlebar-button close-button" type="button" :aria-label="t('关闭')" :title="t('关闭')" @click="appWindow.close()">
             <svg viewBox="0 0 12 12" aria-hidden="true"><path d="m3 3 6 6M9 3 3 9" /></svg>
           </button>
         </div>
@@ -385,20 +386,20 @@ onBeforeUnmount(() => {
       v-if="titlebarMenu"
       class="titlebar-context-menu"
       role="menu"
-      aria-label="窗口菜单"
+      :aria-label="t('窗口菜单')"
       :style="{ left: `${titlebarMenu.x}px`, top: `${titlebarMenu.y}px` }"
       @mousedown.stop
       @contextmenu.prevent.stop
     >
-      <button type="button" role="menuitem" :disabled="!isMaximized" @click="toggleMaximize">还原</button>
-      <button type="button" role="menuitem" :disabled="isMaximized" @click="beginTitlebarAction('move')">移动</button>
-      <button type="button" role="menuitem" :disabled="isMaximized" @click="beginTitlebarAction('size')">大小</button>
+      <button type="button" role="menuitem" :disabled="!isMaximized" @click="toggleMaximize">{{ t('还原') }}</button>
+      <button type="button" role="menuitem" :disabled="isMaximized" @click="beginTitlebarAction('move')">{{ t('__legacy_fd096fbc579a') }}</button>
+      <button type="button" role="menuitem" :disabled="isMaximized" @click="beginTitlebarAction('size')">{{ t('大小') }}</button>
       <div class="titlebar-menu-separator" />
-      <button type="button" role="menuitem" @click="appWindow.minimize(); closeTitlebarMenu()">最小化</button>
-      <button type="button" role="menuitem" :disabled="isMaximized" @click="appWindow.maximize(); closeTitlebarMenu()">最大化</button>
+      <button type="button" role="menuitem" @click="appWindow.minimize(); closeTitlebarMenu()">{{ t('最小化') }}</button>
+      <button type="button" role="menuitem" :disabled="isMaximized" @click="appWindow.maximize(); closeTitlebarMenu()">{{ t('最大化') }}</button>
       <div class="titlebar-menu-separator" />
       <button type="button" role="menuitem" class="titlebar-menu-close" @click="appWindow.close()">
-        <span>关闭</span><span class="titlebar-menu-shortcut">Alt+F4</span>
+        <span>{{ t('关闭') }}</span><span class="titlebar-menu-shortcut">Alt+F4</span>
       </button>
     </div>
     <div v-if="titlebarActionMode" class="titlebar-mode-hint" role="status">{{ titlebarModeHint }}</div>
@@ -410,8 +411,8 @@ onBeforeUnmount(() => {
       role="separator"
       aria-orientation="vertical"
       :aria-valuenow="effectiveSidebarWidth"
-      :aria-label="aiSplit ? '调整 AI 助手与文件窗格的宽度' : '调整左侧展开栏宽度'"
-      :title="aiSplit ? '拖动调整宽度，双击均分' : '拖动调整侧栏宽度'"
+      :aria-label="aiSplit ? t('调整 AI 助手与文件窗格的宽度') : t('调整左侧展开栏宽度')"
+      :title="aiSplit ? t('拖动调整宽度，双击均分') : t('拖动调整侧栏宽度')"
       @mousedown="startResize($event, 'sidebar')"
       @dblclick="resetSplit"
     />

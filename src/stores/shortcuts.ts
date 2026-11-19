@@ -1,3 +1,5 @@
+import { t } from '../i18n'
+
 /**
  * 全局快捷键注册表 —— 应用内键位的唯一事实来源。
  *
@@ -115,7 +117,7 @@ export function comboEquals(a: KeyCombo | undefined, b: KeyCombo | undefined): b
 /** 键位显示文案，如 `Ctrl+Shift+W`、`F2`、`未设置`。 */
 export function formatCombo(combo: KeyCombo | undefined): string {
   const c = normalize(combo)
-  if (!c.key) return '未设置'
+  if (!c.key) return t('未设置')
   const parts: string[] = []
   if (c.ctrl) parts.push(IS_MAC ? '⌘' : 'Ctrl')
   if (c.shift) parts.push('Shift')
@@ -206,13 +208,25 @@ export type AssignResult =
   | { ok: false; reason: 'invalid'; message: string }
   | { ok: false; reason: 'conflict'; message: string; conflictId: string }
 
+function shortcutLabelEnglish(id: string, fallback: string): string {
+  const labels: Record<string, string> = {
+    'new-tab': 'New tab', 'close-tab': 'Close current tab', copy: 'Copy', cut: 'Cut', paste: 'Paste',
+    'copy-path': 'Copy path', 'copy-name': 'Copy file name', 'copy-to': 'Copy to…', 'move-to': 'Move to…',
+    undo: 'Undo last action', redo: 'Redo', duplicate: 'Duplicate', rename: 'Rename',
+    delete: 'Delete (move to Recycle Bin)', 'delete-permanent': 'Delete permanently (skip Recycle Bin)',
+    preview: 'Preview file', 'close-window': 'Close window', 'open-in-other-pane': 'Open current folder in other pane',
+    'swap-panes': 'Swap panes', search: 'Open search panel', 'command-palette': 'Open command palette',
+  }
+  return labels[id] ?? fallback
+}
+
 /**
  * 改键。冲突时**不修改**并返回冲突条目，由调用方提示用户。
  * `key` 为空串表示「解除绑定」（退格清除）。
  */
 export function assignCombo(id: string, raw: KeyCombo): AssignResult {
   const def = SHORTCUT_DEFS.find((d) => d.id === id)
-  if (!def) return { ok: false, reason: 'invalid', message: '未知快捷键条目' }
+  if (!def) return { ok: false, reason: 'invalid', message: t('未知快捷键条目') }
 
   const combo = normalize(raw)
   if (!combo.key) {
@@ -220,7 +234,7 @@ export function assignCombo(id: string, raw: KeyCombo): AssignResult {
     return { ok: true }
   }
   if (!combo.ctrl && !combo.alt && !BARE_KEYS.has(combo.key)) {
-    return { ok: false, reason: 'invalid', message: '请使用 Ctrl / Alt 组合键，或 F1–F12、Delete、空格等功能键' }
+    return { ok: false, reason: 'invalid', message: t('请使用 Ctrl / Alt 组合键，或 F1–F12、Delete、空格等功能键') }
   }
 
   const conflict = SHORTCUT_DEFS.find((other) => {
@@ -232,7 +246,7 @@ export function assignCombo(id: string, raw: KeyCombo): AssignResult {
     return {
       ok: false,
       reason: 'conflict',
-      message: `与「${conflict.label}」冲突，未修改`,
+      message: t(`与「${conflict.label}」冲突，未修改`, `Conflicts with "${shortcutLabelEnglish(conflict.id, conflict.label)}"; no changes made`),
       conflictId: conflict.id,
     }
   }

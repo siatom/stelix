@@ -386,6 +386,9 @@ pub struct AiContext {
     /// 当前选中项路径
     #[serde(default)]
     pub selected: Vec<String>,
+    /// 回复语言，由当前界面语言提供。
+    #[serde(default)]
+    pub language: Option<String>,
 }
 
 /// AI 回复

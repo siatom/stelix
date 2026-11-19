@@ -6,6 +6,7 @@ import { FitAddon } from '@xterm/addon-fit'
 import { useTerminalStore } from '../../stores/terminal'
 import type { TerminalSession } from '../../stores/terminal'
 import { useUiStore } from '../../stores/ui'
+import { t } from '../../i18n'
 
 const props = withDefaults(
   defineProps<{
@@ -164,10 +165,10 @@ onBeforeUnmount(() => {
     <div ref="hostRef" class="terminal-host" />
     <div v-if="session.status === 'connecting'" class="terminal-overlay">
       <span class="spinner" aria-hidden="true" />
-      正在连接 {{ session.location.host }}…
+      {{ t(`正在连接 ${session.location.host}…`, `Connecting to ${session.location.host}…`) }}
     </div>
     <div v-else-if="session.status === 'error'" class="terminal-overlay error">
-      <strong>连接失败</strong>
+      <strong>{{ t('连接失败') }}</strong>
       <span>{{ session.message }}</span>
     </div>
   </div>

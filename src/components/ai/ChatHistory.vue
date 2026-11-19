@@ -3,6 +3,7 @@ import { computed, nextTick, ref } from 'vue'
 import { useAiStore } from '../../stores/ai'
 import type { AiConversation } from '../../types'
 import Icon from '../icons/Icon.vue'
+import { locale, t } from '../../i18n'
 
 const ai = useAiStore()
 const emit = defineEmits<{ open: [] }>()
@@ -18,15 +19,15 @@ const groups = computed(() => {
   const term = query.value.trim().toLocaleLowerCase()
   const filtered = ai.history.filter(c => !term || c.title.toLocaleLowerCase().includes(term) || c.messages.some(m => m.content.toLocaleLowerCase().includes(term)))
   return [
-    { title: '今天', items: filtered.filter(c => c.updatedAt >= today) },
-    { title: '昨天', items: filtered.filter(c => c.updatedAt >= yesterday && c.updatedAt < today) },
-    { title: '更早', items: filtered.filter(c => c.updatedAt < yesterday) },
+    { title: t('今天'), items: filtered.filter(c => c.updatedAt >= today) },
+    { title: t('昨天'), items: filtered.filter(c => c.updatedAt >= yesterday && c.updatedAt < today) },
+    { title: t('更早'), items: filtered.filter(c => c.updatedAt < yesterday) },
   ].filter(g => g.items.length)
 })
 
 function snippet(conversation: AiConversation) {
   const last = conversation.messages[conversation.messages.length - 1]
-  return last?.content.replace(/\s+/g, ' ').slice(0, 100) || '正在回复…'
+  return last?.content.replace(/\s+/g, ' ').slice(0, 100) || t('正在回复…')
 }
 function open(id: string) {
   ai.selectConversation(id)
@@ -49,27 +50,27 @@ async function remove(id: string) {
 </script>
 
 <template>
-  <section class="chat-history" aria-label="历史对话管理">
-    <div class="history-search"><Icon name="search" :size="14" /><input v-model="query" aria-label="搜索历史对话" placeholder="搜索标题或对话内容" spellcheck="false" /></div>
-    <div v-if="ai.historyLoading" class="history-empty" role="status">正在读取历史对话…</div>
-    <div v-else-if="!groups.length" class="history-empty"><Icon name="message-square" :size="24" /><p>{{ query.trim() ? '没有找到相关对话' : '还没有历史对话' }}</p><span>{{ query.trim() ? '换个关键词试试' : '发送第一条消息后会自动保存到本机' }}</span></div>
+  <section class="chat-history" :aria-label="t('历史对话管理')">
+    <div class="history-search"><Icon name="search" :size="14" /><input v-model="query" :aria-label="t('搜索历史对话')" :placeholder="t('搜索标题或对话内容')" spellcheck="false" /></div>
+    <div v-if="ai.historyLoading" class="history-empty" role="status">{{ t('正在读取历史对话…') }}</div>
+    <div v-else-if="!groups.length" class="history-empty"><Icon name="message-square" :size="24" /><p>{{ query.trim() ? t('没有找到相关对话') : t('还没有历史对话') }}</p><span>{{ query.trim() ? t('换个关键词试试') : t('发送第一条消息后会自动保存到本机') }}</span></div>
     <div v-else class="history-list">
       <section v-for="group in groups" :key="group.title" class="history-group">
         <h3>{{ group.title }}</h3>
         <div v-for="conversation in group.items" :key="conversation.id" class="history-item" :class="{ active: conversation.id === ai.activeId }">
           <div v-if="renaming === conversation.id" class="rename-form">
-            <input ref="renameInput" v-model="renameDraft" aria-label="对话新名称" maxlength="120" @keydown.enter.prevent="saveRename" @keydown.esc="renaming = ''" />
-            <div class="rename-actions"><button :disabled="!renameDraft.trim() || ai.historyMutating" @click="saveRename">保存</button><button :disabled="ai.historyMutating" @click="renaming = ''">取消</button></div>
+            <input ref="renameInput" v-model="renameDraft" :aria-label="t('对话新名称')" maxlength="120" @keydown.enter.prevent="saveRename" @keydown.esc="renaming = ''" />
+            <div class="rename-actions"><button :disabled="!renameDraft.trim() || ai.historyMutating" @click="saveRename">{{ t('保存') }}</button><button :disabled="ai.historyMutating" @click="renaming = ''">{{ t('取消') }}</button></div>
           </div>
           <template v-else>
-            <button class="conversation-main" :disabled="ai.executing || ai.historyMutating" :title="conversation.title" @click="open(conversation.id)"><span class="conversation-name">{{ conversation.title }}</span><span class="conversation-snippet">{{ snippet(conversation) }}</span><span class="conversation-date">{{ new Date(conversation.updatedAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }) }}<span v-if="conversation.id === ai.busyConversationId"> · {{ ai.executing ? '执行中' : '回复中' }}</span></span></button>
-            <div class="history-actions"><button title="重命名对话" :aria-label="`重命名对话 ${conversation.title}`" :disabled="ai.historyMutating" @click="startRename(conversation)"><Icon name="pencil" :size="12" /></button><button title="删除对话" :aria-label="`删除对话 ${conversation.title}`" :disabled="ai.historyMutating || ai.executing || conversation.id === ai.busyConversationId" @click="deleting = conversation.id"><Icon name="trash" :size="12" /></button></div>
+            <button class="conversation-main" :disabled="ai.executing || ai.historyMutating" :title="conversation.title" @click="open(conversation.id)"><span class="conversation-name">{{ conversation.title }}</span><span class="conversation-snippet">{{ snippet(conversation) }}</span><span class="conversation-date">{{ new Date(conversation.updatedAt).toLocaleString(locale, { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }) }}<span v-if="conversation.id === ai.busyConversationId"> · {{ ai.executing ? t('执行中') : t('回复中') }}</span></span></button>
+            <div class="history-actions"><button :title="t('重命名对话')" :aria-label="t(`重命名对话 ${conversation.title}`, `Rename conversation ${conversation.title}`)" :disabled="ai.historyMutating" @click="startRename(conversation)"><Icon name="pencil" :size="12" /></button><button :title="t('删除对话')" :aria-label="t(`删除对话 ${conversation.title}`, `Delete conversation ${conversation.title}`)" :disabled="ai.historyMutating || ai.executing || conversation.id === ai.busyConversationId" @click="deleting = conversation.id"><Icon name="trash" :size="12" /></button></div>
           </template>
-          <div v-if="deleting === conversation.id" class="delete-confirm"><p>删除这条对话及其全部消息？</p><div><button class="danger" :disabled="ai.historyMutating" @click="remove(conversation.id)">删除</button><button :disabled="ai.historyMutating" @click="deleting = ''">取消</button></div></div>
+          <div v-if="deleting === conversation.id" class="delete-confirm"><p>{{ t('删除这条对话及其全部消息？') }}</p><div><button class="danger" :disabled="ai.historyMutating" @click="remove(conversation.id)">{{ t('__legacy_6cba6a2c0801') }}</button><button :disabled="ai.historyMutating" @click="deleting = ''">{{ t('取消') }}</button></div></div>
         </div>
       </section>
     </div>
-    <p class="history-hint">历史仅保存在本机，继续对话时会使用当前模型。</p>
+    <p class="history-hint">{{ t('历史仅保存在本机，继续对话时会使用当前模型。') }}</p>
   </section>
 </template>
 

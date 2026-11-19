@@ -7,6 +7,7 @@ import { resolveRemoteAuth } from '../../shell/remote'
 import { compareNames } from '../../naturalSort'
 import type { RemoteLocation } from '../../types'
 import Icon from '../icons/Icon.vue'
+import { t } from '../../i18n'
 
 const props = defineProps<{
   location: RemoteLocation
@@ -65,7 +66,7 @@ function openInPane() {
         class="twist"
         :class="{ open: expanded }"
         role="button"
-        :title="expanded ? '折叠' : '展开下一级'"
+        :title="expanded ? t('折叠') : t('展开下一级')"
         @click.stop="toggle"
       >
         <Icon name="chevron-right" :size="11" />
@@ -76,9 +77,9 @@ function openInPane() {
       </button>
     </div>
     <div v-if="expanded">
-      <p v-if="loading" class="state">读取中…</p>
+      <p v-if="loading" class="state">{{ t('读取中…') }}</p>
       <p v-else-if="error" class="state error">{{ error }}</p>
-      <p v-else-if="!children.length" class="state">无子目录</p>
+      <p v-else-if="!children.length" class="state">{{ t('无子目录') }}</p>
       <RemoteTreeNode
         v-for="child in children"
         :key="child.path"

@@ -21,6 +21,7 @@ import MacWindowLights from './MacWindowLights.vue'
 import { IS_MACOS } from '../utils/platform'
 import type { IconName } from './icons/paths'
 import { formatSize, formatTime } from './Pane/utils'
+import { locale, t } from '../i18n'
 
 /** 超过这个大小的图片不解码：避免一次性占满显存 / 内存。 */
 const MAX_IMAGE_BYTES = 64 * 1024 * 1024
@@ -308,7 +309,7 @@ async function copyText() {
       copiedTimer = undefined
     }, 1500)
   } catch (error) {
-    ui.setStatusText(`复制失败：${String(error)}`)
+    ui.setStatusText(t(`复制失败：${String(error)}`, `Copy failed: ${String(error)}`))
   }
 }
 
@@ -317,7 +318,7 @@ async function copyText() {
 /** asset 协议带 CORS 头，可以直接 fetch 成 ArrayBuffer。 */
 async function readBytes(path: string): Promise<ArrayBuffer> {
   const response = await fetch(convertFileSrc(path))
-  if (!response.ok) throw new Error(`无法读取文件（HTTP ${response.status}）`)
+  if (!response.ok) throw new Error(t(`无法读取文件（HTTP ${response.status}）`, `Could not read file (HTTP ${response.status})`))
   return response.arrayBuffer()
 }
 
@@ -441,7 +442,7 @@ function primitiveText(value: unknown): string {
   if (value === null || value === undefined) return ''
   if (typeof value === 'boolean') return value ? 'TRUE' : 'FALSE'
   if (typeof value === 'number' || typeof value === 'string') return String(value)
-  if (value instanceof Date) return value.toLocaleString()
+  if (value instanceof Date) return value.toLocaleString(locale.value)
   return ''
 }
 
@@ -452,7 +453,7 @@ function cellText(cell: ExcelCell): string {
   if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
     return primitiveText(value)
   }
-  if (value instanceof Date) return value.toLocaleString()
+  if (value instanceof Date) return value.toLocaleString(locale.value)
   if (typeof value !== 'object') return String(value)
   const record = value as unknown as Record<string, unknown>
   if (Array.isArray(record.richText)) {
@@ -735,7 +736,7 @@ onBeforeUnmount(() => {
 
 <template>
   <div v-if="store.open && item" class="mask" @mousedown.self="store.close()">
-    <section class="preview-card" role="dialog" aria-modal="true" :aria-label="`预览 ${item.name}`">
+    <section class="preview-card" role="dialog" aria-modal="true" :aria-label="t(`预览 ${item.name}`, `Preview ${item.name}`)">
       <header class="pv-head">
         <MacWindowLights class="pv-lights" :close-only="true" @close="store.close()" />
         <div class="pv-title">
@@ -751,19 +752,19 @@ onBeforeUnmount(() => {
 
         <div class="pv-actions">
           <template v-if="kind === 'image' && !imageError">
-            <button type="button" title="缩小（-）" @click="zoomOut"><Icon name="minus" :size="15" /></button>
+            <button type="button" :title="t('缩小（-）')" @click="zoomOut"><Icon name="minus" :size="15" /></button>
             <span class="pv-percent">{{ percent }}%</span>
-            <button type="button" title="放大（+）" @click="zoomIn"><Icon name="plus" :size="15" /></button>
-            <button type="button" class="pv-text-btn" title="适应窗口（0）" @click="fitToWindow">适应</button>
-            <button type="button" class="pv-text-btn" title="原始尺寸（1）" @click="actualSize">1:1</button>
+            <button type="button" :title="t('放大（+）')" @click="zoomIn"><Icon name="plus" :size="15" /></button>
+            <button type="button" class="pv-text-btn" :title="t('适应窗口（0）')" @click="fitToWindow">{{ t('适应') }}</button>
+            <button type="button" class="pv-text-btn" :title="t('原始尺寸（1）')" @click="actualSize">1:1</button>
           </template>
           <span v-else-if="textual && textPreview" class="pv-text-meta">
-            {{ lineCount }} 行 · {{ textPreview.encoding.toUpperCase() }}
+            {{ t(`${lineCount} 行`, `${lineCount} lines`) }} · {{ textPreview.encoding.toUpperCase() }}
           </span>
-          <button type="button" class="pv-text-btn" title="用默认应用打开" @click="openExternal">
-            <Icon name="external-link" :size="13" /><span>打开</span>
+          <button type="button" class="pv-text-btn" :title="t('用默认应用打开')" @click="openExternal">
+            <Icon name="external-link" :size="13" /><span>{{ t('打开') }}</span>
           </button>
-          <button v-if="!IS_MACOS" type="button" class="pv-close" title="关闭（Esc）" aria-label="关闭预览" @click="store.close()">
+          <button v-if="!IS_MACOS" type="button" class="pv-close" :title="t('关闭（Esc）')" :aria-label="t('关闭预览')" @click="store.close()">
             <Icon name="x" :size="15" />
           </button>
         </div>
@@ -774,8 +775,8 @@ onBeforeUnmount(() => {
           v-if="store.canNavigate"
           type="button"
           class="pv-nav prev"
-          title="上一个（←）"
-          aria-label="上一个"
+          :title="t('上一个（←）')"
+          :aria-label="t('上一个')"
           @click.stop="store.prev()"
         >
           <Icon name="chevron-left" :size="22" />
@@ -785,23 +786,23 @@ onBeforeUnmount(() => {
           <!-- 远程（FTP / SFTP）：路径不在本地，无法读取 -->
           <div v-if="store.isRemote" class="pv-empty">
             <Icon name="network" :size="30" />
-            <p class="pv-empty-title">远程文件暂不支持预览</p>
-            <p class="pv-empty-desc">请下载到本地后再预览，或用外部程序打开</p>
+            <p class="pv-empty-title">{{ t('远程文件暂不支持预览') }}</p>
+            <p class="pv-empty-desc">{{ t('请下载到本地后再预览，或用外部程序打开') }}</p>
           </div>
 
           <!-- 图片 -->
           <template v-else-if="kind === 'image'">
             <div v-if="item.size > MAX_IMAGE_BYTES" class="pv-empty">
               <Icon name="image" :size="30" />
-              <p class="pv-empty-title">图片过大，暂不预览</p>
-              <p class="pv-empty-desc">文件大小 {{ formatSize(item.size) }}，超过 {{ formatSize(MAX_IMAGE_BYTES) }} 上限</p>
-              <button type="button" class="pv-primary" @click="openExternal">用默认应用打开</button>
+              <p class="pv-empty-title">{{ t('图片过大，暂不预览') }}</p>
+              <p class="pv-empty-desc">{{ t(`文件大小 ${formatSize(item.size)}，超过 ${formatSize(MAX_IMAGE_BYTES)} 上限`, `File size ${formatSize(item.size)} exceeds the ${formatSize(MAX_IMAGE_BYTES)} limit`) }}</p>
+              <button type="button" class="pv-primary" @click="openExternal">{{ t('用默认应用打开') }}</button>
             </div>
             <div v-else-if="imageError" class="pv-empty">
               <Icon name="alert-triangle" :size="28" />
-              <p class="pv-empty-title">无法加载这张图片</p>
-              <p class="pv-empty-desc">格式可能不受支持，或文件已被移动</p>
-              <button type="button" class="pv-primary" @click="openExternal">用默认应用打开</button>
+              <p class="pv-empty-title">{{ t('无法加载这张图片') }}</p>
+              <p class="pv-empty-desc">{{ t('格式可能不受支持，或文件已被移动') }}</p>
+              <button type="button" class="pv-primary" @click="openExternal">{{ t('用默认应用打开') }}</button>
             </div>
             <div
               v-else
@@ -819,31 +820,31 @@ onBeforeUnmount(() => {
                 @load="onImageLoad"
                 @error="onImageError"
               />
-              <span v-if="imageLoading" class="pv-loading">正在加载…</span>
+              <span v-if="imageLoading" class="pv-loading">{{ t('正在加载…') }}</span>
             </div>
           </template>
 
           <!-- 文本 / Markdown -->
           <template v-else-if="textual">
             <div v-if="textLoading" class="pv-empty">
-              <span class="pv-loading">正在读取…</span>
+              <span class="pv-loading">{{ t('正在读取…') }}</span>
             </div>
             <div v-else-if="textError" class="pv-empty">
               <Icon name="alert-triangle" :size="28" />
-              <p class="pv-empty-title">无法读取文件内容</p>
+              <p class="pv-empty-title">{{ t('无法读取文件内容') }}</p>
               <p class="pv-empty-desc">{{ textError }}</p>
             </div>
             <div v-else-if="textPreview?.binary" class="pv-empty">
               <Icon name="file" :size="30" />
-              <p class="pv-empty-title">这不是文本文件</p>
-              <p class="pv-empty-desc">内容包含二进制数据，无法以文本方式预览</p>
-              <button type="button" class="pv-primary" @click="openExternal">用默认应用打开</button>
+              <p class="pv-empty-title">{{ t('这不是文本文件') }}</p>
+              <p class="pv-empty-desc">{{ t('内容包含二进制数据，无法以文本方式预览') }}</p>
+              <button type="button" class="pv-primary" @click="openExternal">{{ t('用默认应用打开') }}</button>
             </div>
             <div v-else class="pv-text-wrap">
               <div v-if="kind === 'markdown' && mdView === 'preview'" class="pv-md" data-native-context-menu v-html="mdHtml" />
               <pre v-else class="pv-text" :class="{ wrap }" data-native-context-menu><code v-if="codeHtml" class="hljs" v-html="codeHtml"></code><template v-else>{{ textPreview?.text ?? '' }}</template></pre>
               <div v-if="textPreview?.truncated" class="pv-truncated">
-                文件较大，仅显示前 {{ formatSize(TEXT_LIMIT) }}（共 {{ formatSize(textPreview.size) }}），复制内容也只含已加载部分
+                {{ t(`文件较大，仅显示前 ${formatSize(TEXT_LIMIT)}（共 ${formatSize(textPreview.size)}），复制内容也只含已加载部分`, `Large file: showing ${formatSize(TEXT_LIMIT)} of ${formatSize(textPreview.size)}. Copy includes only the loaded portion.`) }}
               </div>
             </div>
           </template>
@@ -852,9 +853,9 @@ onBeforeUnmount(() => {
           <template v-else-if="isOffice">
             <div v-if="item.size > MAX_OFFICE_BYTES" class="pv-empty">
               <Icon name="file-text" :size="30" />
-              <p class="pv-empty-title">文档过大，暂不预览</p>
-              <p class="pv-empty-desc">文件大小 {{ formatSize(item.size) }}，超过 {{ formatSize(MAX_OFFICE_BYTES) }} 上限</p>
-              <button type="button" class="pv-primary" @click="openExternal">用默认应用打开</button>
+              <p class="pv-empty-title">{{ t('文档过大，暂不预览') }}</p>
+              <p class="pv-empty-desc">{{ t(`文件大小 ${formatSize(item.size)}，超过 ${formatSize(MAX_OFFICE_BYTES)} 上限`, `File size ${formatSize(item.size)} exceeds the ${formatSize(MAX_OFFICE_BYTES)} limit`) }}</p>
+              <button type="button" class="pv-primary" @click="openExternal">{{ t('用默认应用打开') }}</button>
             </div>
             <div v-else class="pv-doc-wrap">
               <div ref="docStyleRef" class="pv-doc-style" />
@@ -872,16 +873,16 @@ onBeforeUnmount(() => {
                 </button>
               </div>
               <div v-if="sheetTruncated && kind === 'excel'" class="pv-truncated">
-                表格较大，仅显示前 {{ SHEET_MAX_ROWS }} 行 × {{ SHEET_MAX_COLS }} 列
+                {{ t(`表格较大，仅显示前 ${SHEET_MAX_ROWS} 行 × ${SHEET_MAX_COLS} 列`, `Large spreadsheet: showing the first ${SHEET_MAX_ROWS} rows × ${SHEET_MAX_COLS} columns`) }}
               </div>
               <div v-if="docLoading" class="pv-doc-status">
-                <span class="pv-loading">正在解析文档…</span>
+                <span class="pv-loading">{{ t('正在解析文档…') }}</span>
               </div>
               <div v-else-if="docError" class="pv-doc-status">
                 <Icon name="alert-triangle" :size="26" />
-                <p class="pv-empty-title">无法解析这个文档</p>
+                <p class="pv-empty-title">{{ t('无法解析这个文档') }}</p>
                 <p class="pv-empty-desc">{{ docError }}</p>
-                <button type="button" class="pv-primary" @click="openExternal">用默认应用打开</button>
+                <button type="button" class="pv-primary" @click="openExternal">{{ t('用默认应用打开') }}</button>
               </div>
             </div>
           </template>
@@ -890,9 +891,9 @@ onBeforeUnmount(() => {
           <template v-else-if="kind === 'pdf'">
             <div v-if="item.size > MAX_PDF_BYTES" class="pv-empty">
               <Icon name="file-text" :size="30" />
-              <p class="pv-empty-title">PDF 过大，暂不预览</p>
-              <p class="pv-empty-desc">文件大小 {{ formatSize(item.size) }}</p>
-              <button type="button" class="pv-primary" @click="openExternal">用默认应用打开</button>
+              <p class="pv-empty-title">{{ t('PDF 过大，暂不预览') }}</p>
+              <p class="pv-empty-desc">{{ t(`文件大小 ${formatSize(item.size)}`, `File size ${formatSize(item.size)}`) }}</p>
+              <button type="button" class="pv-primary" @click="openExternal">{{ t('用默认应用打开') }}</button>
             </div>
             <iframe v-else class="pv-pdf" :src="assetUrl" :title="item.name" />
           </template>
@@ -900,9 +901,9 @@ onBeforeUnmount(() => {
           <!-- 其他格式 -->
           <div v-else class="pv-empty">
             <Icon name="file" :size="30" />
-            <p class="pv-empty-title">该格式暂不支持预览</p>
-            <p class="pv-empty-desc">扩展名：{{ item.ext || '无' }}</p>
-            <button type="button" class="pv-primary" @click="openExternal">用默认应用打开</button>
+            <p class="pv-empty-title">{{ t('该格式暂不支持预览') }}</p>
+            <p class="pv-empty-desc">{{ t('扩展名：') }}{{ item.ext || t('无') }}</p>
+            <button type="button" class="pv-primary" @click="openExternal">{{ t('用默认应用打开') }}</button>
           </div>
         </div>
 
@@ -910,8 +911,8 @@ onBeforeUnmount(() => {
           v-if="store.canNavigate"
           type="button"
           class="pv-nav next"
-          title="下一个（→）"
-          aria-label="下一个"
+          :title="t('下一个（→）')"
+          :aria-label="t('下一个')"
           @click.stop="store.next()"
         >
           <Icon name="chevron-right" :size="22" />
@@ -924,22 +925,22 @@ onBeforeUnmount(() => {
             v-if="kind === 'markdown'"
             type="button"
             class="pv-foot-btn"
-            :title="mdView === 'preview' ? '查看 Markdown 源码' : '查看渲染效果'"
+            :title="mdView === 'preview' ? t('查看 Markdown 源码') : t('查看渲染效果')"
             @click="mdView = mdView === 'preview' ? 'source' : 'preview'"
           >
-            <Icon :name="mdView === 'preview' ? 'code' : 'eye'" :size="13" />{{ mdView === 'preview' ? '源码' : '预览' }}
+            <Icon :name="mdView === 'preview' ? 'code' : 'eye'" :size="13" />{{ mdView === 'preview' ? t('源码') : t('预览') }}
           </button>
           <button v-if="kind === 'text' || mdView === 'source'" type="button" class="pv-foot-btn" @click="wrap = !wrap">
-            <Icon name="view-list" :size="13" />{{ wrap ? '取消换行' : '自动换行' }}
+            <Icon name="view-list" :size="13" />{{ wrap ? t('取消换行') : t('自动换行') }}
           </button>
-          <button type="button" class="pv-foot-btn" :title="copied ? '已复制' : '复制全部内容（Ctrl+C 可复制选中部分）'" @click="copyText">
-            <Icon :name="copied ? 'check' : 'copy'" :size="13" />{{ copied ? '已复制' : '复制内容' }}
+          <button type="button" class="pv-foot-btn" :title="copied ? t('已复制') : t('复制全部内容（Ctrl+C 可复制选中部分）')" @click="copyText">
+            <Icon :name="copied ? 'check' : 'copy'" :size="13" />{{ copied ? t('已复制') : t('复制内容') }}
           </button>
         </template>
         <span class="pv-path" :title="item.path">{{ item.path }}</span>
         <span class="pv-hints">
-          <template v-if="store.canNavigate">← → 切换 · </template>
-          Esc / 空格 关闭
+          <template v-if="store.canNavigate">{{ t('← → 切换 · ') }}</template>
+          {{ t('Esc / 空格 关闭') }}
         </span>
       </footer>
     </section>

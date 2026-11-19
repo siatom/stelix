@@ -5,6 +5,7 @@ import type { TabState } from '../../types'
 import { usePaneStore } from '../../stores/pane'
 import { dirname, joinPath } from './utils'
 import Icon from '../icons/Icon.vue'
+import { t } from '../../i18n'
 import FilterPanel from './FilterPanel.vue'
 import { addFavorite, FAVORITES_CHANGED_EVENT, loadFavorites } from '../Sidebar/shared'
 import { useUiStore } from '../../stores/ui'
@@ -176,7 +177,7 @@ function addCurrentFavorite() {
   if (isFavorite.value) return
   const added = addFavorite(props.tab.path)
   isFavorite.value = true
-  ui.setStatusText(added ? '已加入收藏' : '该目录已在收藏中')
+  ui.setStatusText(added ? t('已加入收藏') : t('该目录已在收藏中'))
 }
 
 onMounted(async () => {
@@ -265,7 +266,7 @@ async function commit() {
     }
     go(target)
   } catch (error) {
-    ui.setStatusText(`无法检查路径：${String(error)}`)
+    ui.setStatusText(t(`无法检查路径：${String(error)}`, `Could not check path: ${String(error)}`))
     return
   }
 }
@@ -289,7 +290,7 @@ watch(
       v-if="!editing"
       ref="crumbsEl"
       class="crumbs"
-      :title="isRemote ? '远程路径（只读）' : '双击切换为可编辑路径'"
+      :title="isRemote ? t('远程路径（只读）') : t('双击切换为可编辑路径')"
       @dblclick.stop.prevent="startEdit"
     >
       <button
@@ -297,7 +298,7 @@ watch(
         ref="ellipsisEl"
         class="crumb ellipsis"
         :class="{ open: hiddenOpen }"
-        :title="`隐藏的上级目录：${hiddenSegments.map((seg) => seg.label).join(' / ')}`"
+        :title="t(`隐藏的上级目录：${hiddenSegments.map((seg) => seg.label).join(' / ')}`, `Hidden parent folders: ${hiddenSegments.map((seg) => seg.label).join(' / ')}`)"
         @click.stop="toggleHidden"
       >
         …
@@ -342,7 +343,7 @@ watch(
       v-model="draft"
       class="path-input"
       spellcheck="false"
-      title="支持环境变量（%APPDATA% / $HOME）与 ~ 主目录"
+      :title="t('支持环境变量（%APPDATA% / $HOME）与 ~ 主目录')"
       @keyup.enter="commit"
       @keyup.esc="cancel"
       @blur="commit"
@@ -351,8 +352,8 @@ watch(
       v-if="!isRemote"
       class="favorite-button"
       :class="{ 'is-favorite': isFavorite }"
-      :title="isFavorite ? '当前目录已在收藏中' : '将当前目录加入收藏'"
-      aria-label="将当前目录加入收藏"
+      :title="isFavorite ? t('当前目录已在收藏中') : t('将当前目录加入收藏')"
+      :aria-label="t('将当前目录加入收藏')"
       :disabled="isFavorite"
       @click="addCurrentFavorite"
     >
@@ -361,8 +362,8 @@ watch(
     <button
       v-if="isSftp && tab.remote"
       class="favorite-button terminal-button"
-      title="打开 SSH 终端"
-      aria-label="打开 SSH 终端"
+      :title="t('打开 SSH 终端')"
+      :aria-label="t('打开 SSH 终端')"
       @click="paneStore.openTerminal(paneId, tab.remote)"
     >
       <Icon name="terminal" :size="15" />

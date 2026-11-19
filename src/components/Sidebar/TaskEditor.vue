@@ -6,6 +6,7 @@ import { usePaneStore } from '../../stores/pane'
 import { useUiStore } from '../../stores/ui'
 import Icon from '../icons/Icon.vue'
 import type { ScheduledTask, TaskAction, TaskPreview, TaskSchedule } from '../../types'
+import { locale, t } from '../../i18n'
 
 const props = defineProps<{ initial: ScheduledTask }>()
 const emit = defineEmits<{ close: [] }>()
@@ -14,7 +15,10 @@ const tasks = useTasksStore()
 const pane = usePaneStore()
 const ui = useUiStore()
 
-const WEEKDAYS = ['日', '一', '二', '三', '四', '五', '六']
+const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+function weekdayLabel(index: number): string {
+  return locale.value === 'zh-CN' ? `周${'日一二三四五六'[index]}` : WEEKDAYS[index] ?? ''
+}
 
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T
@@ -75,6 +79,7 @@ async function generate() {
     const reply = await tasks.plan(prompt, {
       activePath: localTab?.path ?? null,
       selected: localTab?.selected ?? [],
+      language: locale.value,
     })
     planText.value = reply.text
     if (reply.draft) {
@@ -85,7 +90,7 @@ async function generate() {
       preview.value = null
     }
   } catch (e) {
-    planText.value = `规划失败：${String(e)}`
+    planText.value = t(`规划失败：${String(e)}`, `Planning failed: ${String(e)}`)
   } finally {
     planning.value = false
   }
@@ -96,7 +101,7 @@ async function doPreview() {
   try {
     preview.value = await tasks.preview(buildAction())
   } catch (e) {
-    ui.setStatusText(`预演失败：${String(e)}`)
+    ui.setStatusText(t(`预演失败：${String(e)}`, `Preview failed: ${String(e)}`))
   } finally {
     previewing.value = false
   }
@@ -113,7 +118,7 @@ async function submit() {
   saveError.value = ''
   try {
     await tasks.save(task)
-    ui.setStatusText('定时任务已保存')
+    ui.setStatusText(t('定时任务已保存'))
     emit('close')
   } catch (e) {
     saveError.value = String(e)
@@ -138,33 +143,33 @@ function formatSize(bytes: number): string {
   <div class="task-editor">
     <div class="te-head">
       <button class="te-back" @click="emit('close')">
-        <Icon name="chevron-left" :size="13" />返回
+        <Icon name="chevron-left" :size="13" />{{ t('返回') }}
       </button>
-      <span class="te-title">{{ form.id ? '编辑任务' : '新建任务' }}</span>
+      <span class="te-title">{{ form.id ? t('编辑任务') : t('新建任务') }}</span>
     </div>
 
     <section class="te-card ai">
-      <div class="te-label"><Icon name="sparkles" :size="12" /> 用 AI 生成</div>
+      <div class="te-label"><Icon name="sparkles" :size="12" /> {{ t('用 AI 生成') }}</div>
       <textarea
         v-model="aiPrompt"
         rows="2"
-        placeholder="例如：每天 9 点清理下载文件夹里超过 30 天的 .tmp 文件"
+        :placeholder="t('例如：每天 9 点清理下载文件夹里超过 30 天的 .tmp 文件')"
         spellcheck="false"
       />
       <button class="te-btn primary sm" :disabled="planning || !aiPrompt.trim()" @click="generate">
-        {{ planning ? '生成中…' : 'AI 生成' }}
+        {{ planning ? t('生成中…') : t('AI 生成') }}
       </button>
       <p v-if="planText" class="te-hint">{{ planText }}</p>
     </section>
 
     <section class="te-card">
-      <div class="te-label">基本信息</div>
+      <div class="te-label">{{ t('基本信息') }}</div>
       <label class="te-field">
-        <span>名称</span>
-        <input v-model="form.name" placeholder="任务名称" spellcheck="false" />
+        <span>{{ t('名称') }}</span>
+        <input v-model="form.name" :placeholder="t('任务名称')" spellcheck="false" />
       </label>
       <label class="te-field row">
-        <span>启用</span>
+        <span>{{ t('启用') }}</span>
         <input
           type="checkbox"
           :checked="form.enabled"
@@ -174,18 +179,18 @@ function formatSize(bytes: number): string {
     </section>
 
     <section class="te-card">
-      <div class="te-label">触发时间</div>
+      <div class="te-label">{{ t('触发时间') }}</div>
       <label class="te-field">
-        <span>频率</span>
+        <span>{{ t('频率') }}</span>
         <select :value="form.schedule.kind" @change="setScheduleKind">
-          <option value="interval">每 N 分钟</option>
-          <option value="daily">每天</option>
-          <option value="weekly">每周</option>
-          <option value="monthly">每月</option>
+          <option value="interval">{{ t('每 N 分钟') }}</option>
+          <option value="daily">{{ t('每天') }}</option>
+          <option value="weekly">{{ t('每周') }}</option>
+          <option value="monthly">{{ t('每月') }}</option>
         </select>
       </label>
       <label v-if="form.schedule.kind === 'interval'" class="te-field">
-        <span>间隔(分钟)</span>
+        <span>{{ t('间隔(分钟)') }}</span>
         <input
           type="number"
           min="1"
@@ -195,16 +200,16 @@ function formatSize(bytes: number): string {
       </label>
       <template v-else>
         <label v-if="form.schedule.kind === 'weekly'" class="te-field">
-          <span>星期</span>
+          <span>{{ t('星期') }}</span>
           <select
             :value="form.schedule.weekday ?? 1"
             @change="form.schedule.weekday = Number(($event.target as HTMLSelectElement).value)"
           >
-            <option v-for="(w, i) in WEEKDAYS" :key="i" :value="i">周{{ w }}</option>
+            <option v-for="(_, i) in WEEKDAYS" :key="i" :value="i">{{ weekdayLabel(i) }}</option>
           </select>
         </label>
         <label v-if="form.schedule.kind === 'monthly'" class="te-field">
-          <span>日期</span>
+          <span>{{ t('日期') }}</span>
           <input
             type="number"
             min="1"
@@ -214,10 +219,10 @@ function formatSize(bytes: number): string {
           />
         </label>
         <div class="te-field">
-          <span>时间</span>
+          <span>{{ t('时间') }}</span>
           <div class="te-time">
             <input
-              aria-label="小时"
+              :aria-label="t('小时')"
               type="number"
               min="0"
               max="23"
@@ -226,7 +231,7 @@ function formatSize(bytes: number): string {
             />
             <em>:</em>
             <input
-              aria-label="分钟"
+              :aria-label="t('分钟')"
               type="number"
               min="0"
               max="59"
@@ -239,35 +244,35 @@ function formatSize(bytes: number): string {
     </section>
 
     <section class="te-card">
-      <div class="te-label">操作</div>
+      <div class="te-label">{{ t('__legacy_c3ce74b08b38') }}</div>
       <label class="te-field">
-        <span>动作</span>
+        <span>{{ t('动作') }}</span>
         <select :value="form.action.kind" @change="setActionKind">
-          <option value="delete">删除（移到回收站）</option>
-          <option value="move">移动到</option>
+          <option value="delete">{{ t('删除（移到回收站）') }}</option>
+          <option value="move">{{ t('移动到') }}</option>
         </select>
       </label>
       <label class="te-field">
-        <span>目录</span>
+        <span>{{ t('目录') }}</span>
         <input
           :value="form.action.root"
-          placeholder="D:\下载"
+          :placeholder="t('D:\\下载')"
           spellcheck="false"
           @input="form.action.root = textValue($event)"
         />
       </label>
-      <button class="te-btn ghost sm" @click="useCurrentDir">使用当前目录</button>
+      <button class="te-btn ghost sm" @click="useCurrentDir">{{ t('使用当前目录') }}</button>
       <label v-if="form.action.kind === 'move'" class="te-field">
-        <span>目标</span>
+        <span>{{ t('目标') }}</span>
         <input
           :value="form.action.moveTarget ?? ''"
-          placeholder="D:\归档"
+          :placeholder="t('D:\\归档')"
           spellcheck="false"
           @input="form.action.moveTarget = textValue($event)"
         />
       </label>
       <label class="te-field row">
-        <span>含子目录</span>
+        <span>{{ t('含子目录') }}</span>
         <input
           type="checkbox"
           :checked="form.action.recursive"
@@ -277,22 +282,22 @@ function formatSize(bytes: number): string {
     </section>
 
     <section class="te-card">
-      <div class="te-label">筛选条件（至少一项）</div>
+      <div class="te-label">{{ t('筛选条件（至少一项）') }}</div>
       <label class="te-field">
-        <span>扩展名</span>
-        <input v-model="extText" placeholder="tmp, log（逗号分隔）" spellcheck="false" />
+        <span>{{ t('__legacy_0a109b4cc99c') }}</span>
+        <input v-model="extText" :placeholder="t('tmp, log（逗号分隔）')" spellcheck="false" />
       </label>
       <label class="te-field">
-        <span>名称含</span>
+        <span>{{ t('名称含') }}</span>
         <input
           :value="form.action.filters.nameContains ?? ''"
-          placeholder="可选"
+          :placeholder="t('可选')"
           spellcheck="false"
           @input="form.action.filters.nameContains = textValue($event)"
         />
       </label>
       <label class="te-field">
-        <span>早于(天)</span>
+        <span>{{ t('早于(天)') }}</span>
         <input
           type="number"
           min="0"
@@ -304,23 +309,23 @@ function formatSize(bytes: number): string {
 
     <section class="te-card">
       <button class="te-btn sm" :disabled="previewing" @click="doPreview">
-        <Icon name="play" :size="12" />{{ previewing ? '预演中…' : '预演（不执行）' }}
+        <Icon name="play" :size="12" />{{ previewing ? t('预演中…') : t('预演（不执行）') }}
       </button>
       <div v-if="preview" class="te-preview">
-        <p class="te-hint">命中 {{ preview.count }} 个文件，共 {{ formatSize(preview.totalSize) }}</p>
+        <p class="te-hint">{{ t(`命中 ${preview.count} 个文件，共 ${formatSize(preview.totalSize)}`, `${preview.count} files matched, ${formatSize(preview.totalSize)} total`) }}</p>
         <ul v-if="preview.samples.length">
           <li v-for="s in preview.samples.slice(0, 8)" :key="s" :title="s">{{ s }}</li>
         </ul>
-        <p v-if="preview.truncated" class="te-hint">…仅显示前 8 条</p>
+        <p v-if="preview.truncated" class="te-hint">{{ t('…仅显示前 8 条') }}</p>
       </div>
     </section>
 
     <p v-if="saveError" class="te-error">{{ saveError }}</p>
 
     <div class="te-actions">
-      <button class="te-btn ghost" @click="emit('close')">取消</button>
+      <button class="te-btn ghost" @click="emit('close')">{{ t('取消') }}</button>
       <button class="te-btn primary" :disabled="saving" @click="submit">
-        {{ saving ? '保存中…' : '保存' }}
+        {{ saving ? t('保存中…') : t('保存') }}
       </button>
     </div>
   </div>

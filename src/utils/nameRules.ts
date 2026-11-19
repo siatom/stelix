@@ -1,4 +1,5 @@
 // 文件 / 文件夹名称校验：在提交到后端前拦住平台非法名称，避免只拿到系统错误码。
+import { t } from '../i18n'
 
 const IS_WINDOWS =
   typeof navigator !== 'undefined' && /Windows/i.test(navigator.userAgent)
@@ -21,18 +22,18 @@ export interface NameRuleOptions {
  * @returns `null` 表示合法；否则返回可直接展示给用户的中文原因。
  */
 export function validateEntryName(name: string, options?: NameRuleOptions): string | null {
-  if (!name.length) return options?.allowEmpty ? null : '名称不能为空'
-  if (name === '.' || name === '..') return '名称不能是「.」或「..」'
+  if (!name.length) return options?.allowEmpty ? null : t('名称不能为空')
+  if (name === '.' || name === '..') return t('名称不能是「.」或「..」')
   if (INVALID_CHARS.test(name)) {
     return IS_WINDOWS
-      ? '名称不能包含 < > : " / \\ | ? * 这些字符'
-      : '名称不能包含 / 或 : 字符'
+      ? t('名称不能包含 < > : " / \\ | ? * 这些字符')
+      : t('名称不能包含 / 或 : 字符')
   }
-  if (CONTROL_CHARS.test(name)) return '名称不能包含控制字符'
+  if (CONTROL_CHARS.test(name)) return t('名称不能包含控制字符')
   if (IS_WINDOWS && RESERVED_NAME.test(name)) {
-    return '名称不能使用 Windows 保留名（CON / PRN / AUX / NUL / COM1-9 / LPT1-9）'
+    return t('名称不能使用 Windows 保留名（CON / PRN / AUX / NUL / COM1-9 / LPT1-9）')
   }
-  if (IS_WINDOWS && /[ .]$/.test(name)) return '名称不能以空格或点结尾'
-  if (name.length > 255) return '名称不能超过 255 个字符'
+  if (IS_WINDOWS && /[ .]$/.test(name)) return t('名称不能以空格或点结尾')
+  if (name.length > 255) return t('名称不能超过 255 个字符')
   return null
 }

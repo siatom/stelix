@@ -8,20 +8,21 @@ import { usePaneStore } from '../stores/pane'
 import { useUiStore } from '../stores/ui'
 import Icon from './icons/Icon.vue'
 import type { IconName } from './icons/paths'
+import { t } from '../i18n'
 
 const paneStore = usePaneStore()
 const ui = useUiStore()
 
-const modes: { key: ViewMode; icon: IconName; title: string }[] = [
-  { key: 'details', icon: 'view-details', title: '详细' },
-  { key: 'list', icon: 'view-list', title: '列表（多列）' },
-  { key: 'icons', icon: 'view-icons', title: '图标' },
+const modes: { key: ViewMode; icon: IconName; title: string; titleEn: string }[] = [
+  { key: 'details', icon: 'view-details', title: '详细', titleEn: 'Details' },
+  { key: 'list', icon: 'view-list', title: '列表（多列）', titleEn: 'List (columns)' },
+  { key: 'icons', icon: 'view-icons', title: '图标', titleEn: 'Icons' },
 ]
 
 const viewMode = computed(() => paneStore.activePane?.viewMode ?? 'details')
 /** 当前活动窗格已选中的条目数（「移动到新建文件夹」按钮的提示与可用态）。 */
 const selectedCount = computed(() => paneStore.activeTab?.selected.length ?? 0)
-const moveCountHint = computed(() => (selectedCount.value ? `（${selectedCount.value} 项）` : ''))
+const moveCountHint = computed(() => (selectedCount.value ? t(`（${selectedCount.value} 项）`, ` (${selectedCount.value} items)`) : ''))
 const canOpenTerminal = computed(() => {
   const tab = paneStore.activeTab
   return !!tab && (!tab.kind || tab.kind === 'files')
@@ -32,7 +33,7 @@ const canSync = computed(() => !syncDisabledReason.value)
 /** 双窗格下在 tooltip 里点明作用对象，避免误以为按钮属于某一侧。 */
 const scopeHint = computed(() => {
   if (paneStore.singlePane) return ''
-  return paneStore.activePaneId === 'right' ? '（右侧窗格）' : '（左侧窗格）'
+  return paneStore.activePaneId === 'right' ? t('（右侧窗格）') : t('（左侧窗格）')
 })
 
 async function openTerminalHere() {
@@ -40,21 +41,21 @@ async function openTerminalHere() {
   if (!tab || !canOpenTerminal.value) return
   try {
     await api.openInTerminal(tab.path)
-    ui.setStatusText('已在当前文件夹打开系统终端')
+    ui.setStatusText(t('已在当前文件夹打开系统终端'))
   } catch (error) {
-    ui.setStatusText(`无法打开系统终端：${String(error)}`)
+    ui.setStatusText(t(`无法打开系统终端：${String(error)}`, `Could not open the system terminal: ${String(error)}`))
   }
 }
 </script>
 
 <template>
-  <div class="titlebar-actions" role="toolbar" aria-label="文件操作与视图">
+  <div class="titlebar-actions" role="toolbar" :aria-label="t('文件操作与视图')">
     <!-- 创建 -->
     <div class="group">
       <button
         type="button"
-        :title="`新建文件${scopeHint}`"
-        :aria-label="`新建文件${scopeHint}`"
+        :title="t(`新建文件${scopeHint}`, `New file${scopeHint}`)"
+        :aria-label="t(`新建文件${scopeHint}`, `New file${scopeHint}`)"
         :disabled="!paneStore.canCreateInActivePane"
         @click="paneStore.requestAction('createFile')"
       >
@@ -62,8 +63,8 @@ async function openTerminalHere() {
       </button>
       <button
         type="button"
-        :title="`新建文件夹${scopeHint}`"
-        :aria-label="`新建文件夹${scopeHint}`"
+        :title="t(`新建文件夹${scopeHint}`, `New folder${scopeHint}`)"
+        :aria-label="t(`新建文件夹${scopeHint}`, `New folder${scopeHint}`)"
         :disabled="!paneStore.canCreateInActivePane"
         @click="paneStore.requestAction('mkdir')"
       >
@@ -71,8 +72,8 @@ async function openTerminalHere() {
       </button>
       <button
         type="button"
-        :title="`移动到新建文件夹${moveCountHint}${scopeHint}`"
-        :aria-label="`移动到新建文件夹${scopeHint}`"
+        :title="t(`移动到新建文件夹${moveCountHint}${scopeHint}`, `Move to new folder${moveCountHint}${scopeHint}`)"
+        :aria-label="t(`移动到新建文件夹${scopeHint}`, `Move to new folder${scopeHint}`)"
         :disabled="!paneStore.canMoveToNewFolderInActivePane"
         @click="paneStore.requestAction('mkdirMove')"
       >
@@ -87,8 +88,8 @@ async function openTerminalHere() {
       <button
         type="button"
         class="danger"
-        :title="`删除所选（移到回收站，Shift 点击永久删除）${scopeHint}`"
-        :aria-label="`删除所选（移到回收站，Shift 点击永久删除）${scopeHint}`"
+        :title="t(`删除所选（移到回收站，Shift 点击永久删除）${scopeHint}`, `Delete selected (move to Recycle Bin; Shift-click to delete permanently)${scopeHint}`)"
+        :aria-label="t(`删除所选（移到回收站，Shift 点击永久删除）${scopeHint}`, `Delete selected (move to Recycle Bin; Shift-click to delete permanently)${scopeHint}`)"
         :disabled="!paneStore.canDeleteInActivePane"
         @click="paneStore.requestAction('delete', $event.shiftKey)"
       >
@@ -102,8 +103,8 @@ async function openTerminalHere() {
     <div class="group">
       <button
         type="button"
-        :title="canSync ? '同步左右两个文件夹' : `无法同步：${syncDisabledReason}`"
-        aria-label="同步左右两个文件夹"
+        :title="canSync ? t('同步左右两个文件夹') : t(`无法同步：${syncDisabledReason}`, `Cannot sync: ${syncDisabledReason}`)"
+        :aria-label="t('同步左右两个文件夹')"
         :disabled="!canSync"
         @click="ui.openSync()"
       >
@@ -111,8 +112,8 @@ async function openTerminalHere() {
       </button>
       <button
         type="button"
-        :title="`在当前文件夹打开系统终端${scopeHint}`"
-        :aria-label="`在当前文件夹打开系统终端${scopeHint}`"
+        :title="t(`在当前文件夹打开系统终端${scopeHint}`, `Open system terminal in current folder${scopeHint}`)"
+        :aria-label="t(`在当前文件夹打开系统终端${scopeHint}`, `Open system terminal in current folder${scopeHint}`)"
         :disabled="!canOpenTerminal"
         @click="openTerminalHere"
       >
@@ -130,8 +131,8 @@ async function openTerminalHere() {
         type="button"
         class="toggle"
         :class="{ on: viewMode === m.key }"
-        :title="`${m.title}视图${scopeHint}`"
-        :aria-label="`${m.title}视图${scopeHint}`"
+        :title="t(`${m.title}视图${scopeHint}`, `${m.titleEn} view${scopeHint}`)"
+        :aria-label="t(`${m.title}视图${scopeHint}`, `${m.titleEn} view${scopeHint}`)"
         :aria-pressed="viewMode === m.key"
         @click="paneStore.setViewMode(paneStore.activePaneId, m.key)"
       >

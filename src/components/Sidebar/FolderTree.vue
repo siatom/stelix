@@ -20,9 +20,17 @@ import type { QuickLocation, RecentDirectory, TreeNodeData } from './shared'
 import Icon from '../icons/Icon.vue'
 import FileIcon from '../icons/FileIcon.vue'
 import { RECYCLE_BIN_SHELL_PATH } from '../Pane/utils'
+import { t } from '../../i18n'
 
 const pane = usePaneStore()
 const ui = useUiStore()
+function systemLocationLabel(label: string): string {
+  const english: Record<string, string> = {
+    'C 盘根目录': 'C: drive', '公共用户': 'Public users', '根目录': 'Root', '用户主目录': 'Home',
+    '应用程序': 'Applications', '主目录': 'Home', '桌面': 'Desktop', '下载': 'Downloads', '文档': 'Documents', '图片': 'Pictures',
+  }
+  return t(label, english[label] ?? label)
+}
 
 const SECTION_KEY = 'stelix.navSections'
 type SectionKey = 'system' | 'favorites' | 'recent' | 'computer' | 'network'
@@ -103,10 +111,10 @@ async function refreshRootsIfChanged() {
 async function ejectDrive(path: string) {
   try {
     await api.ejectDrive(path)
-    ui.setStatusText(`已弹出 ${path}`)
+    ui.setStatusText(t(`已弹出 ${path}`, `Ejected ${path}`))
     window.setTimeout(() => void refreshRootsIfChanged(), 800)
   } catch (cause) {
-    ui.setStatusText(`无法弹出 ${path}：${String(cause)}`)
+    ui.setStatusText(t(`无法弹出 ${path}：${String(cause)}`, `Could not eject ${path}: ${String(cause)}`))
   }
 }
 
@@ -143,7 +151,7 @@ async function loadLocations() {
 }
 
 function go(path: string) {
-  ui.setStatusText(`导航到 ${path}`)
+  ui.setStatusText(t(`导航到 ${path}`, `Navigating to ${path}`))
   void pane.navigate(path)
 }
 
@@ -156,9 +164,9 @@ async function onLocationContextMenu(event: MouseEvent, path: string) {
       y: event.clientY,
       scale: window.devicePixelRatio || 1,
     })
-    if (!shown) ui.setStatusText('没有可用的系统菜单项')
+    if (!shown) ui.setStatusText(t('没有可用的系统菜单项'))
   } catch (cause) {
-    ui.setStatusText(`无法打开系统菜单：${String(cause)}`)
+    ui.setStatusText(t(`无法打开系统菜单：${String(cause)}`, `Could not open system menu: ${String(cause)}`))
   }
 }
 
@@ -354,17 +362,17 @@ onBeforeUnmount(() => {
     <section class="nav-section system-section">
       <div class="nav-head">
         <button class="nav-toggle" :aria-expanded="sections.system" @click="sections.system = !sections.system">
-          <Icon name="chevron-right" :size="11" :class="{ open: sections.system }" /><Icon name="home" class="section-icon system" :size="18" /><span class="nav-title">常用位置</span>
+          <Icon name="chevron-right" :size="11" :class="{ open: sections.system }" /><Icon name="home" class="section-icon system" :size="18" /><span class="nav-title">{{ t('常用位置') }}</span>
         </button>
       </div>
-      <div v-if="sections.system && locLoading" class="state">加载中…</div>
-      <div v-else-if="sections.system && locError" class="state err">系统路径不可用：{{ locError }}</div>
+      <div v-if="sections.system && locLoading" class="state">{{ t('加载中…') }}</div>
+      <div v-else-if="sections.system && locError" class="state err">{{ t('系统路径不可用：') }}{{ locError }}</div>
       <ul v-else-if="sections.system" class="nav-list">
         <li v-for="loc in system" :key="loc.path" :title="loc.path" @click="go(loc.path)" @contextmenu="onLocationContextMenu($event, loc.path)">
           <span class="ico system-ico" :class="`system-${loc.icon}`">
             <FileIcon :path="loc.path" :is-dir="true" :ext="null" :use-path-icon="true" :fallback="loc.icon" :size="18" />
           </span>
-          <span class="label">{{ loc.label }}</span>
+          <span class="label">{{ systemLocationLabel(loc.label) }}</span>
         </li>
       </ul>
     </section>
@@ -373,10 +381,10 @@ onBeforeUnmount(() => {
     <section class="nav-section favorites-section">
       <div class="nav-head">
         <button class="nav-toggle" :aria-expanded="sections.favorites" @click="sections.favorites = !sections.favorites">
-          <Icon name="chevron-right" :size="11" :class="{ open: sections.favorites }" /><Icon name="star" class="section-icon favorites" :size="18" /><span class="nav-title">收藏</span>
+          <Icon name="chevron-right" :size="11" :class="{ open: sections.favorites }" /><Icon name="star" class="section-icon favorites" :size="18" /><span class="nav-title">{{ t('收藏') }}</span>
         </button>
       </div>
-      <div v-if="sections.favorites && !favorites.length" class="state">暂无收藏，可从窗格工具栏添加当前目录</div>
+      <div v-if="sections.favorites && !favorites.length" class="state">{{ t('暂无收藏，可从窗格工具栏添加当前目录') }}</div>
       <TransitionGroup v-else-if="sections.favorites" tag="ul" name="favorite-sort" class="nav-list">
         <li
           v-for="(fav, index) in favorites"
@@ -403,8 +411,8 @@ onBeforeUnmount(() => {
           >
             <button
               class="fav-more"
-              title="更多操作"
-              :aria-label="`${fav.label}更多操作`"
+              :title="t('更多操作')"
+              :aria-label="`${fav.label} ${t('更多操作')}`"
               aria-haspopup="menu"
               :aria-expanded="openFavoriteMenu === fav.path"
               @click="toggleFavoriteMenu($event, fav.path)"
@@ -412,7 +420,7 @@ onBeforeUnmount(() => {
               <Icon name="more" :size="14" />
             </button>
             <div v-if="openFavoriteMenu === fav.path" class="fav-menu" role="menu" @click.stop>
-              <button role="menuitem" @click="removeFavorite(fav.path)"><Icon name="x" :size="13" />取消收藏</button>
+              <button role="menuitem" @click="removeFavorite(fav.path)"><Icon name="x" :size="13" />{{ t('取消收藏') }}</button>
             </div>
           </div>
         </li>
@@ -423,15 +431,15 @@ onBeforeUnmount(() => {
     <section class="nav-section recent-section">
       <div class="nav-head">
         <button class="nav-toggle" :aria-expanded="sections.recent" @click="sections.recent = !sections.recent">
-          <Icon name="chevron-right" :size="11" :class="{ open: sections.recent }" /><Icon name="clock" class="section-icon recent" :size="18" /><span class="nav-title">最近常用</span>
+          <Icon name="chevron-right" :size="11" :class="{ open: sections.recent }" /><Icon name="clock" class="section-icon recent" :size="18" /><span class="nav-title">{{ t('最近常用') }}</span>
         </button>
       </div>
-      <div v-if="sections.recent && !recentDirectories.length" class="state">双击打开文件后，这里会显示常用目录</div>
+      <div v-if="sections.recent && !recentDirectories.length" class="state">{{ t('双击打开文件后，这里会显示常用目录') }}</div>
       <ul v-else-if="sections.recent" class="nav-list">
         <li
           v-for="directory in recentDirectories"
           :key="directory.path"
-          :title="`${directory.path}（所选 24 小时窗口打开 ${directory.count} 次）`"
+          :title="t(`${directory.path}（所选 24 小时窗口打开 ${directory.count} 次）`, `${directory.path} (opened ${directory.count} times in the selected 24-hour window)` )"
           @click="go(directory.path)"
           @contextmenu="onLocationContextMenu($event, directory.path)"
         >
@@ -446,7 +454,7 @@ onBeforeUnmount(() => {
             />
           </span>
           <span class="label">{{ directory.label }}</span>
-          <span class="count">{{ directory.count }} 次</span>
+          <span class="count">{{ t(`${directory.count} 次`, `${directory.count} times`) }}</span>
         </li>
       </ul>
     </section>
@@ -455,14 +463,14 @@ onBeforeUnmount(() => {
     <section class="nav-section">
       <div class="nav-head">
         <button class="nav-toggle" :aria-expanded="sections.computer" @click="sections.computer = !sections.computer">
-          <Icon name="chevron-right" :size="11" :class="{ open: sections.computer }" /><Icon name="laptop-minimal" class="section-icon computer" :size="18" /><span class="nav-title">本机</span>
+          <Icon name="chevron-right" :size="11" :class="{ open: sections.computer }" /><Icon name="laptop-minimal" class="section-icon computer" :size="18" /><span class="nav-title">{{ t('本机') }}</span>
         </button>
-        <button class="mini" title="刷新驱动器和 WSL 实例" :disabled="loading || wslLoading" @click="refreshComputer">
+        <button class="mini" :title="t('刷新驱动器和 WSL 实例')" :disabled="loading || wslLoading" @click="refreshComputer">
           <Icon name="refresh" :size="13" />
         </button>
       </div>
-      <div v-if="sections.computer && loading && !roots.length" class="state">正在读取驱动器…</div>
-      <div v-if="sections.computer && error" class="state err">驱动器读取失败：{{ error }}</div>
+      <div v-if="sections.computer && loading && !roots.length" class="state">{{ t('正在读取驱动器…') }}</div>
+      <div v-if="sections.computer && error" class="state err">{{ t('驱动器读取失败：') }}{{ error }}</div>
       <div v-show="sections.computer" class="tree-body">
         <TreeNode
           v-for="root in roots"
@@ -475,7 +483,7 @@ onBeforeUnmount(() => {
           @eject="ejectDrive"
         />
         <div v-if="wslDistros.length" class="wsl-tree">
-          <button class="wsl-row" :title="`Linux（${wslDistros.length} 个 WSL 实例）`" @click="wslExpanded = !wslExpanded">
+          <button class="wsl-row" :title="t(`Linux（${wslDistros.length} 个 WSL 实例）`, `Linux (${wslDistros.length} WSL instances)`)" @click="wslExpanded = !wslExpanded">
             <span class="wsl-twist" :class="{ open: wslExpanded }"><Icon name="chevron-right" :size="11" /></span>
             <span class="wsl-icon" aria-hidden="true">
               <img class="wsl-logo" src="/wsl-tux.svg" alt="" aria-hidden="true" />
@@ -492,7 +500,7 @@ onBeforeUnmount(() => {
           />
         </div>
         <div class="tree-sep" aria-hidden="true" />
-        <button class="trash-row" title="回收站" @click="pane.openTrash()">
+        <button class="trash-row" :title="t('回收站')" @click="pane.openTrash()">
           <span class="trash-twist" aria-hidden="true" />
           <span class="trash-icon">
             <FileIcon
@@ -504,18 +512,18 @@ onBeforeUnmount(() => {
               :size="18"
             />
           </span>
-          <span class="label">回收站</span>
+          <span class="label">{{ t('回收站') }}</span>
         </button>
       </div>
-      <div v-if="sections.computer && !loading && !wslLoading && !roots.length && !wslDistros.length && !error" class="state">未检测到驱动器或 WSL 实例</div>
-      <div v-if="sections.computer && wslError" class="state err">WSL 实例读取失败：{{ wslError }}</div>
+      <div v-if="sections.computer && !loading && !wslLoading && !roots.length && !wslDistros.length && !error" class="state">{{ t('未检测到驱动器或 WSL 实例') }}</div>
+      <div v-if="sections.computer && wslError" class="state err">{{ t('WSL 实例读取失败：') }}{{ wslError }}</div>
     </section>
 
     <!-- 网络 -->
     <section class="nav-section">
       <div class="nav-head">
         <button class="nav-toggle" :aria-expanded="sections.network" @click="sections.network = !sections.network">
-          <Icon name="chevron-right" :size="11" :class="{ open: sections.network }" /><Icon name="network" class="section-icon network" :size="18" /><span class="nav-title">网络</span>
+          <Icon name="chevron-right" :size="11" :class="{ open: sections.network }" /><Icon name="network" class="section-icon network" :size="18" /><span class="nav-title">{{ t('网络') }}</span>
         </button>
       </div>
       <NetworkPanel v-show="sections.network" />

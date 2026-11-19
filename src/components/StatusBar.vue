@@ -6,6 +6,7 @@ import { useUiStore } from '../stores/ui'
 import Icon from './icons/Icon.vue'
 import FileIcon from './icons/FileIcon.vue'
 import { RECYCLE_BIN_SHELL_PATH } from './Pane/utils'
+import { t } from '../i18n'
 
 const props = defineProps<{
   paneId: string
@@ -46,8 +47,8 @@ const isActivePane = computed(() => paneStore.activePaneId === props.paneId)
     <template v-if="tab?.kind === 'trash'">
       <span
         class="seg count"
-        :title="`回收站 ${trashSelectedCount ?? 0} / ${trashCount ?? 0} 项`"
-        aria-label="回收站条目数量"
+        :title="t(`回收站 ${trashSelectedCount ?? 0} / ${trashCount ?? 0} 项`, `Recycle Bin: ${trashSelectedCount ?? 0} / ${trashCount ?? 0} items`)"
+        :aria-label="t('回收站条目数量')"
       >
         <FileIcon
           :path="RECYCLE_BIN_SHELL_PATH"
@@ -61,11 +62,11 @@ const isActivePane = computed(() => paneStore.activePaneId === props.paneId)
       </span>
     </template>
     <template v-else-if="tab?.kind !== 'terminal'">
-      <span class="seg count" :title="`文件夹 ${folderStats.selected} / ${folderStats.total}`" aria-label="文件夹数量">
+      <span class="seg count" :title="t(`文件夹 ${folderStats.selected} / ${folderStats.total}`, `Folders: ${folderStats.selected} / ${folderStats.total}`)" :aria-label="t('文件夹数量')">
         <Icon name="folder" :size="14" />
         <span>{{ folderStats.selected }} / {{ folderStats.total }}</span>
       </span>
-      <span class="seg count" :title="`文件 ${fileStats.selected} / ${fileStats.total}`" aria-label="文件数量">
+      <span class="seg count" :title="t(`文件 ${fileStats.selected} / ${fileStats.total}`, `Files: ${fileStats.selected} / ${fileStats.total}`)" :aria-label="t('文件数量')">
         <Icon name="file" :size="14" />
         <span>{{ fileStats.selected }} / {{ fileStats.total }}</span>
       </span>

@@ -17,6 +17,7 @@ import Icon from '../icons/Icon.vue'
 import FileIcon from '../icons/FileIcon.vue'
 import BatchRenameDialog from './BatchRenameDialog.vue'
 import { recordOpenedFileDirectory } from '../Sidebar/shared'
+import { t as translate } from '../../i18n'
 
 /** 由顶部标题栏发起的一次「新建」请求（FileList 处理后回发 create-handled）。 */
 interface CreateRequest {
@@ -504,7 +505,7 @@ async function onBatchRenameConfirm(plans: { from: string; to: string }[]) {
   const needsTemp = plans.some((plan) => sourceNames.has(lower(plan.to)))
   const undoOps: FsOp[] = []
   let failures = 0
-  ui.setStatusText(`正在重命名 ${plans.length} 项…`)
+  ui.setStatusText(translate(`正在重命名 ${plans.length} 项…`, `Renaming ${plans.length} items…`))
 
   const renameOne = async (from: string, to: string) =>
     paneStore.runFs(
@@ -918,10 +919,10 @@ function startCreate(kind: 'mkdir' | 'mkdirMove' | 'createFile') {
   editSeq += 1
   editing.value = { mode: kind, name: '', selStart: 0, selEnd: 0 }
   if (kind === 'mkdir') {
-    ui.setStatusText('新建文件夹：每行一个名称，Shift+Enter 换行，Enter 创建，Esc 取消')
+    ui.setStatusText(translate('新建文件夹：每行一个名称，Shift+Enter 换行，Enter 创建，Esc 取消', 'New folders: one name per line; Shift+Enter for a new line, Enter to create, Esc to cancel'))
   } else if (kind === 'mkdirMove') {
     const count = props.tab.selected.length
-    ui.setStatusText(`移动到新建文件夹：输入名称，Enter 创建并移动 ${count} 项，Esc 取消`)
+    ui.setStatusText(translate(`移动到新建文件夹：输入名称，Enter 创建并移动 ${count} 项，Esc 取消`, `Move to new folder: enter a name, press Enter to create and move ${count} items, or Esc to cancel`))
   }
   focusEdit()
 }
@@ -979,12 +980,13 @@ async function commitEdit(reopenFailed = false) {
       failures.push(...result.failures)
     }
     if (failures.length) {
-      const details = failures.map((item) => `${item.name}（${item.reason}）`).join('；')
+      const detailsZh = failures.map((item) => `${item.name}（${item.reason}）`).join('；')
+      const detailsEn = failures.map((item) => `${item.name} (${item.reason})`).join('; ')
       emit(
         'error',
         failures.length === 1
-          ? `无法创建文件夹：${details}`
-          : `有 ${failures.length} 个文件夹创建失败：${details}`,
+          ? translate(`无法创建文件夹：${detailsZh}`, `Could not create folder: ${detailsEn}`)
+          : translate(`有 ${failures.length} 个文件夹创建失败：${detailsZh}`, `${failures.length} folders could not be created: ${detailsEn}`),
       )
     } else {
       emit('error', null)
@@ -1004,7 +1006,7 @@ async function commitEdit(reopenFailed = false) {
     if (!name) return
     const nameError = validateEntryName(name)
     if (nameError) {
-      emit('error', `无法创建文件夹「${name}」：${nameError}`)
+      emit('error', translate(`无法创建文件夹「${name}」：${nameError}`, `Could not create folder "${name}": ${nameError}`))
       if (reopenFailed && editSeq === seq && !editing.value) {
         editing.value = { mode: 'mkdirMove', name, selStart: 0, selEnd: name.length }
         focusEdit()
@@ -1013,12 +1015,12 @@ async function commitEdit(reopenFailed = false) {
     }
     const result = await paneStore.createFolderAndMove(props.paneId, name)
     if (!result.ok) {
-      const reason = result.reason || '未知原因'
+      const reason = result.reason || translate('未知原因', 'Unknown reason')
       emit(
         'error',
         result.created
-          ? `文件夹「${name}」已创建，但所选条目移动失败：${reason}`
-          : `无法创建文件夹「${name}」：${reason}`,
+          ? translate(`文件夹「${name}」已创建，但所选条目移动失败：${reason}`, `Folder "${name}" was created, but the selected items could not be moved: ${reason}`)
+          : translate(`无法创建文件夹「${name}」：${reason}`, `Could not create folder "${name}": ${reason}`),
       )
     } else {
       emit('error', null)
@@ -1078,7 +1080,7 @@ async function commitEdit(reopenFailed = false) {
   // 扩展名决定文件类型（图标 / 打开方式），变更后提示一次。
   const oldExt = extOf(basename(e.path))
   if (oldExt && oldExt !== extOf(name)) {
-    ui.setStatusText('已重命名：扩展名已变更，文件类型可能改变')
+    ui.setStatusText(translate('已重命名：扩展名已变更，文件类型可能改变', 'Renamed: the extension changed, so the file type may have changed'))
   }
 }
 
@@ -1191,23 +1193,23 @@ function contextMenuItems(entry: FileEntry): { id: string; label: string }[] {
   const items = isWindows ? [] : standardContextMenuItems(entry)
   if (props.tab.kind === 'trash') return items
   const selected = props.tab.selected.length
-  items.push({ id: 'undo', label: paneStore.canUndo ? `撤销${paneStore.undoLabel}` : '撤销上一步' })
+  items.push({ id: 'undo', label: paneStore.canUndo ? translate(`撤销${paneStore.undoLabel}`, `Undo ${paneStore.undoLabel}`) : translate('撤销上一步', 'Undo previous operation') })
   // 单选文件时把「预览」放在最前：这是最常用的一项。
   const single =
     selected === 1 ? props.tab.entries.find((entry) => entry.path === props.tab.selected[0]) : undefined
   // 非 Windows 的标准项里已经有「预览」，不要重复添加。
-  if (isWindows && single && !single.isDir) items.unshift({ id: 'preview', label: '预览' })
+  if (isWindows && single && !single.isDir) items.unshift({ id: 'preview', label: translate('预览', 'Preview') })
   // 重做只在撤销栈里确实有可重做项时出现（系统菜单不支持禁用项）。
-  if (paneStore.canRedo) items.push({ id: 'redo', label: `重做${paneStore.redoLabel}` })
+  if (paneStore.canRedo) items.push({ id: 'redo', label: translate(`重做${paneStore.redoLabel}`, `Redo ${paneStore.redoLabel}`) })
   if (selected) {
-    items.push({ id: 'copy-name', label: selected > 1 ? `复制文件名（${selected} 项）` : '复制文件名' })
-    items.push({ id: 'copy-path', label: selected > 1 ? `复制路径（${selected} 项）` : '复制路径' })
-    items.push({ id: 'duplicate', label: '复制副本' })
-    items.push({ id: 'copy-to', label: '复制到…' })
-    items.push({ id: 'move-to', label: '移动到…' })
+    items.push({ id: 'copy-name', label: translate(selected > 1 ? `复制文件名（${selected} 项）` : '复制文件名', selected > 1 ? `Copy file names (${selected} items)` : 'Copy file name') })
+    items.push({ id: 'copy-path', label: translate(selected > 1 ? `复制路径（${selected} 项）` : '复制路径', selected > 1 ? `Copy paths (${selected} items)` : 'Copy path') })
+    items.push({ id: 'duplicate', label: translate('复制副本', 'Duplicate') })
+    items.push({ id: 'copy-to', label: translate('复制到…', 'Copy to…') })
+    items.push({ id: 'move-to', label: translate('移动到…', 'Move to…') })
   }
-  if (selected >= 2) items.push({ id: 'batch-rename', label: '批量重命名…' })
-  if (showPathColumn.value) items.push({ id: 'open-containing', label: '打开所在文件夹' })
+  if (selected >= 2) items.push({ id: 'batch-rename', label: translate('批量重命名…', 'Batch rename…') })
+  if (showPathColumn.value) items.push({ id: 'open-containing', label: translate('打开所在文件夹', 'Open containing folder') })
   return items
 }
 
@@ -1219,10 +1221,10 @@ function copySelectedText(kind: 'name' | 'path') {
   const sel = props.tab.selected
   if (!sel.length) return
   const text = sel.map((path) => (kind === 'name' ? basename(path) : path)).join('\r\n')
-  const label = kind === 'name' ? '文件名' : '路径'
+  const label = kind === 'name' ? translate('文件名', 'file names') : translate('路径', 'paths')
   void navigator.clipboard.writeText(text).then(
-    () => ui.setStatusText(sel.length > 1 ? `已复制 ${sel.length} 个${label}` : `已复制${label}`),
-    (error) => ui.setStatusText(`复制${label}失败：${String(error)}`),
+    () => ui.setStatusText(translate(sel.length > 1 ? `已复制 ${sel.length} 个${label}` : `已复制${label}`, `Copied ${sel.length > 1 ? `${sel.length} ` : ''}${label}`)),
+    (error) => ui.setStatusText(translate(`复制${label}失败：${String(error)}`, `Failed to copy ${label}: ${String(error)}`)),
   )
 }
 
@@ -1234,17 +1236,17 @@ function handleCtxAction(id: string, entry: FileEntry) {
       return
     case 'open-with':
       void api.showOpenWith(entry.path).catch((error) => {
-        ui.setStatusText(`无法打开「打开方式」：${String(error)}`)
+        ui.setStatusText(translate(`无法打开「打开方式」：${String(error)}`, `Could not open “Open with”: ${String(error)}`))
       })
       return
     case 'terminal':
       void api.openInTerminal(entry.isDir ? entry.path : dirname(entry.path)).catch((error) => {
-        ui.setStatusText(`无法打开终端：${String(error)}`)
+        ui.setStatusText(translate(`无法打开终端：${String(error)}`, `Could not open terminal: ${String(error)}`))
       })
       return
     case 'properties':
       void api.showItemProperties(entry.path).catch((error) => {
-        ui.setStatusText(`无法查看属性：${String(error)}`)
+        ui.setStatusText(translate(`无法查看属性：${String(error)}`, `Could not view properties: ${String(error)}`))
       })
       return
     case 'copy':
@@ -1388,7 +1390,7 @@ async function showNativeCtx(event: MouseEvent, entry: FileEntry) {
     }
   } catch (error) {
     pendingCtxEntry = null
-    ui.setStatusText(`无法打开系统菜单：${String(error)}`)
+    ui.setStatusText(translate(`无法打开系统菜单：${String(error)}`, `Could not open system menu: ${String(error)}`))
   }
 }
 // ---- 剪贴板 / 重命名快捷键（仅作用于当前活动窗格） ----
@@ -1556,7 +1558,7 @@ onBeforeUnmount(() => {
 function onBatchRenameRequest() {
   if (paneStore.activePaneId !== props.paneId) return
   if (!canFileOp.value || props.tab.selected.length < 2) {
-    ui.setStatusText('请先选择至少两个本地条目')
+    ui.setStatusText(translate('请先选择至少两个本地条目', 'Select at least two local items first'))
     return
   }
   batchRenameOpen.value = true
@@ -1623,17 +1625,17 @@ const emptyByFilter = computed(
 )
 const emptyText = computed(() =>
   props.tab.kind === 'search'
-    ? '没有找到匹配项'
+    ? translate('没有找到匹配项', 'No matching items found')
     : isRemote.value
-      ? '远程目录为空（右键可上传文件）'
-      : '此目录为空',
+      ? translate('远程目录为空（右键可上传文件）', 'This remote folder is empty (right-click to upload files)')
+      : translate('此目录为空', 'This folder is empty'),
 )
 const emptyFilterText = computed(() =>
   props.tab.filter.trim()
-    ? `没有匹配「${props.tab.filter}」的条目`
+    ? translate(`没有匹配「${props.tab.filter}」的条目`, `No items match “${props.tab.filter}”`)
     : props.tab.filterRule?.recursive
-      ? '没有符合筛选条件的条目（已包含子文件夹）'
-      : '没有符合筛选条件的条目',
+      ? translate('没有符合筛选条件的条目（已包含子文件夹）', 'No items match the filters (including subfolders)')
+      : translate('没有符合筛选条件的条目', 'No items match the filters'),
 )
 
 // ---- 详情视图：文件夹大小按需统计（仅可见行） ----
@@ -1750,12 +1752,12 @@ function onDragStart(ev: DragEvent, entry: FileEntry) {
   void invoke<string>('start_file_drag', { paths })
     .then((result) => {
       window.dispatchEvent(new CustomEvent('stelix:file-drag-end'))
-      if (result !== 'dropped') ui.setStatusText('文件未被目标应用接收')
+      if (result !== 'dropped') ui.setStatusText(translate('文件未被目标应用接收', 'The target app did not accept the files'))
     })
     .catch((error: unknown) => {
       window.dispatchEvent(new CustomEvent('stelix:file-drag-end'))
       console.error('无法启动文件拖拽', error)
-      ui.setStatusText(`文件拖拽启动失败：${String(error)}`)
+      ui.setStatusText(translate(`文件拖拽启动失败：${String(error)}`, `Could not start file drag: ${String(error)}`))
     })
 }
 
@@ -1815,7 +1817,7 @@ async function onEntryDrop(ev: DragEvent, entry: FileEntry) {
     const target = props.tab.remote
     if (!target) return
     if (payload.remote) {
-      ui.setStatusText('暂不支持在远程服务器之间直接传输，请先下载到本地')
+      ui.setStatusText(translate('暂不支持在远程服务器之间直接传输，请先下载到本地', 'Direct transfers between remote servers are not supported. Download files locally first.'))
       return
     }
     await paneStore.uploadToRemote(props.paneId, target, payload.items, entry.path, 'copy')
@@ -1850,7 +1852,7 @@ function onDrop(ev: DragEvent) {
     const target = props.tab.remote
     if (!target) return
     if (payload.remote) {
-      ui.setStatusText('暂不支持在远程服务器之间直接传输，请先下载到本地')
+      ui.setStatusText(translate('暂不支持在远程服务器之间直接传输，请先下载到本地', 'Direct transfers between remote servers are not supported. Download files locally first.'))
       return
     }
     // 跨设备默认复制：不因拖拽意外删除本地源文件。
@@ -1888,14 +1890,14 @@ function onDrop(ev: DragEvent) {
     <!-- 加载中 -->
     <div v-if="tab.loading" class="state">
       <span class="spinner" />
-      <p>正在读取…</p>
+      <p>{{ translate('正在读取…', 'Loading…') }}</p>
     </div>
 
     <!-- 错误 -->
     <div v-else-if="tab.error" class="state error">
       <Icon name="alert-triangle" :size="30" class="big-ico" />
       <p class="msg">{{ tab.error }}</p>
-      <button class="retry" @click="paneStore.refresh(paneId)">重试</button>
+      <button class="retry" @click="paneStore.refresh(paneId)">{{ translate('重试', 'Retry') }}</button>
     </div>
 
     <!-- 空目录 / 无匹配 -->
@@ -1905,7 +1907,7 @@ function onDrop(ev: DragEvent) {
     </div>
     <div v-else-if="emptyByHidden && !editingCreate" class="state">
       <Icon name="folder-open" :size="30" class="big-ico" />
-      <p>{{ !ui.showHidden ? '已隐藏隐藏文件' : '已隐藏受保护的操作系统文件' }}</p>
+      <p>{{ !ui.showHidden ? translate('已隐藏隐藏文件', 'Hidden files are hidden') : translate('已隐藏受保护的操作系统文件', 'Protected operating system files are hidden') }}</p>
     </div>
     <div v-else-if="emptyByFilter && !editingCreate" class="state">
       <Icon name="search" :size="30" class="big-ico" />
@@ -1917,65 +1919,65 @@ function onDrop(ev: DragEvent) {
       <div v-if="viewMode === 'details'" class="header-clip">
         <div class="header" :style="headerStyle">
           <button class="col name" data-col="name" @click="paneStore.toggleSort(tab, 'name')">
-            名称 <Icon v-if="tab.sortKey === 'name'" :name="tab.sortAsc ? 'chevron-up' : 'chevron-down'" :size="11" />
+            {{ translate('名称', 'Name') }} <Icon v-if="tab.sortKey === 'name'" :name="tab.sortAsc ? 'chevron-up' : 'chevron-down'" :size="11" />
             <span
               class="col-resizer"
               role="separator"
               aria-orientation="vertical"
-              aria-label="调整名称列宽度"
-              title="拖动调整「名称」列宽，双击恢复默认"
+              :aria-label="translate('调整名称列宽度', 'Resize name column')"
+              :title="translate('拖动调整「名称」列宽，双击恢复默认', 'Drag to resize the name column; double-click to reset')"
               @mousedown="startColumnResize($event, 'name')"
               @click.stop
               @dblclick.stop="ui.resetDetailColumnWidth('name')"
             />
           </button>
           <button v-if="showPathColumn" class="col path" data-col="path" @click="paneStore.toggleSort(tab, 'path')">
-            路径 <Icon v-if="tab.sortKey === 'path'" :name="tab.sortAsc ? 'chevron-up' : 'chevron-down'" :size="11" />
+            {{ translate('路径', 'Path') }} <Icon v-if="tab.sortKey === 'path'" :name="tab.sortAsc ? 'chevron-up' : 'chevron-down'" :size="11" />
             <span
               class="col-resizer"
               role="separator"
               aria-orientation="vertical"
-              aria-label="调整路径列宽度"
-              title="拖动调整「路径」列宽，双击恢复默认"
+              :aria-label="translate('调整路径列宽度', 'Resize path column')"
+              :title="translate('拖动调整「路径」列宽，双击恢复默认', 'Drag to resize the path column; double-click to reset')"
               @mousedown="startColumnResize($event, 'path')"
               @click.stop
               @dblclick.stop="ui.resetDetailColumnWidth('path')"
             />
           </button>
           <button class="col size" data-col="size" @click="paneStore.toggleSort(tab, 'size')">
-            大小 <Icon v-if="tab.sortKey === 'size'" :name="tab.sortAsc ? 'chevron-up' : 'chevron-down'" :size="11" />
+            {{ translate('大小', 'Size') }} <Icon v-if="tab.sortKey === 'size'" :name="tab.sortAsc ? 'chevron-up' : 'chevron-down'" :size="11" />
             <span
               class="col-resizer"
               role="separator"
               aria-orientation="vertical"
-              aria-label="调整大小列宽度"
-              title="拖动调整「大小」列宽，双击恢复默认"
+              :aria-label="translate('调整大小列宽度', 'Resize size column')"
+              :title="translate('拖动调整「大小」列宽，双击恢复默认', 'Drag to resize the size column; double-click to reset')"
               @mousedown="startColumnResize($event, 'size')"
               @click.stop
               @dblclick.stop="ui.resetDetailColumnWidth('size')"
             />
           </button>
           <button class="col time" data-col="time" @click="paneStore.toggleSort(tab, 'modified')">
-            修改时间 <Icon v-if="tab.sortKey === 'modified'" :name="tab.sortAsc ? 'chevron-up' : 'chevron-down'" :size="11" />
+            {{ translate('修改时间', 'Modified') }} <Icon v-if="tab.sortKey === 'modified'" :name="tab.sortAsc ? 'chevron-up' : 'chevron-down'" :size="11" />
             <span
               class="col-resizer"
               role="separator"
               aria-orientation="vertical"
-              aria-label="调整修改时间列宽度"
-              title="拖动调整「修改时间」列宽，双击恢复默认"
+              :aria-label="translate('调整修改时间列宽度', 'Resize modified column')"
+              :title="translate('拖动调整「修改时间」列宽，双击恢复默认', 'Drag to resize the modified column; double-click to reset')"
               @mousedown="startColumnResize($event, 'time')"
               @click.stop
               @dblclick.stop="ui.resetDetailColumnWidth('time')"
             />
           </button>
           <button class="col type" data-col="type" @click="paneStore.toggleSort(tab, 'ext')">
-            类型 <Icon v-if="tab.sortKey === 'ext'" :name="tab.sortAsc ? 'chevron-up' : 'chevron-down'" :size="11" />
+            {{ translate('类型', 'Type') }} <Icon v-if="tab.sortKey === 'ext'" :name="tab.sortAsc ? 'chevron-up' : 'chevron-down'" :size="11" />
             <span
               class="col-resizer"
               role="separator"
               aria-orientation="vertical"
-              aria-label="调整类型列宽度"
-              title="拖动调整「类型」列宽，双击恢复默认"
+              :aria-label="translate('调整类型列宽度', 'Resize type column')"
+              :title="translate('拖动调整「类型」列宽，双击恢复默认', 'Drag to resize the type column; double-click to reset')"
               @mousedown="startColumnResize($event, 'type')"
               @click.stop
               @dblclick.stop="ui.resetDetailColumnWidth('type')"
@@ -2003,7 +2005,7 @@ function onDrop(ev: DragEvent) {
               class="inline-edit inline-edit-multi"
               spellcheck="false"
               rows="1"
-              placeholder="每行一个名称"
+              :placeholder="translate('每行一个名称', 'One name per line')"
               @keydown="onInlineKeydown"
               @input="onInlineInput"
               @blur="commitEdit()"
@@ -2014,7 +2016,7 @@ function onDrop(ev: DragEvent) {
               v-model="editing.name"
               class="inline-edit"
               spellcheck="false"
-              :placeholder="editing.mode === 'mkdirMove' ? '新文件夹名称' : undefined"
+              :placeholder="editing.mode === 'mkdirMove' ? translate('新文件夹名称', 'New folder name') : undefined"
               @keydown="onInlineKeydown"
               @blur="commitEdit()"
               @click.stop
@@ -2095,8 +2097,8 @@ function onDrop(ev: DragEvent) {
                 v-if="vr.row.entry.isDir && !isRemote && !tab.filterRule?.recursive"
                 class="twisty"
                 :class="{ expanded: vr.row.expanded }"
-                :title="vr.row.expanded ? '折叠' : '展开'"
-                :aria-label="vr.row.expanded ? '折叠' : '展开'"
+                :title="vr.row.expanded ? translate('折叠', 'Collapse') : translate('展开', 'Expand')"
+                :aria-label="vr.row.expanded ? translate('折叠', 'Collapse') : translate('展开', 'Expand')"
                 @click.stop="paneStore.toggleExpand(tab.id, vr.row.entry.path)"
                 @dblclick.stop
               >
@@ -2154,7 +2156,7 @@ function onDrop(ev: DragEvent) {
             class="inline-edit inline-edit-multi"
             spellcheck="false"
             rows="1"
-            placeholder="每行一个名称"
+            :placeholder="translate('每行一个名称', 'One name per line')"
             @keydown="onInlineKeydown"
             @input="onInlineInput"
             @blur="commitEdit()"
@@ -2165,7 +2167,7 @@ function onDrop(ev: DragEvent) {
             v-model="editing.name"
             class="inline-edit"
             spellcheck="false"
-            :placeholder="editing.mode === 'mkdirMove' ? '新文件夹名称' : undefined"
+            :placeholder="editing.mode === 'mkdirMove' ? translate('新文件夹名称', 'New folder name') : undefined"
             @keydown="onInlineKeydown"
             @blur="commitEdit()"
             @click.stop
@@ -2211,7 +2213,7 @@ function onDrop(ev: DragEvent) {
         </div>
       </div>
       <p v-if="rows.length > ICON_CAP" class="cap-hint">
-        条目较多，仅显示前 {{ ICON_CAP }} 项（共 {{ rows.length }} 项）
+        {{ translate(`条目较多，仅显示前 ${ICON_CAP} 项（共 ${rows.length} 项）`, `Large folder: showing the first ${ICON_CAP} of ${rows.length} items`) }}
       </p>
     </div>
 

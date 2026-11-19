@@ -17,8 +17,22 @@ import {
   setCapturing,
 } from '../../stores/shortcuts'
 import type { ShortcutGroup, ShortcutItem } from '../../stores/shortcuts'
+import { t } from '../../i18n'
 
 const GROUP_ORDER: ShortcutGroup[] = ['tabs', 'files', 'window', 'global']
+const labelEn: Record<string, string> = {
+  '标签页': 'Tabs', '文件': 'Files', '文件操作': 'File operations', '窗口': 'Window', '全局': 'Global',
+  '新建标签页': 'New tab', '关闭当前标签页': 'Close current tab',
+  '复制': 'Copy', '剪切': 'Cut', '粘贴': 'Paste', '复制路径': 'Copy path', '复制文件名': 'Copy file name',
+  '复制到…': 'Copy to…', '移动到…': 'Move to…', '撤销上一步操作': 'Undo last action', '重做': 'Redo',
+  '复制副本': 'Duplicate', '重命名': 'Rename', '删除（移到回收站）': 'Delete (move to Recycle Bin)',
+  '永久删除（跳过回收站）': 'Delete permanently (skip Recycle Bin)', '预览文件': 'Preview file',
+  '关闭窗口': 'Close window', '在另一栏打开当前文件夹': 'Open current folder in other pane',
+  '交换左右栏': 'Swap panes', '打开搜索面板': 'Open search panel', '打开命令面板': 'Open command palette',
+}
+function localizedLabel(value: string): string {
+  return t(value, labelEn[value] ?? value)
+}
 
 const ui = useUiStore()
 const error = ref<string | null>(null)
@@ -32,7 +46,7 @@ const items = computed<ShortcutItem[]>(() => {
 const groups = computed(() =>
   GROUP_ORDER.map((group) => ({
     group,
-    label: SHORTCUT_GROUP_LABELS[group],
+    label: localizedLabel(SHORTCUT_GROUP_LABELS[group]),
     items: items.value.filter((item) => item.group === group),
   })).filter((g) => g.items.length > 0),
 )
@@ -101,33 +115,33 @@ onBeforeUnmount(() => setCapturing(null))
 <template>
   <section class="sc-card">
     <header class="sc-head">
-      <span>快捷键</span>
+      <span>{{ t('__legacy_21a782d018bb') }}</span>
       <button
         v-if="customizedCount"
         class="head-action"
         type="button"
-        title="全部恢复默认"
+        :title="t('全部恢复默认')"
         @click="resetAll"
       >
-        全部恢复默认
+        {{ t('全部恢复默认') }}
       </button>
     </header>
     <div class="sc-body">
       <div v-for="g in groups" :key="g.group" class="group">
-        <div class="group-label">{{ g.label }}</div>
+        <div class="group-label">{{ localizedLabel(g.label) }}</div>
         <div
           v-for="item in g.items"
           :key="item.id"
           class="sc-row"
           :class="{ capturing: capturingId === item.id }"
         >
-          <span class="sc-label">{{ item.label }}</span>
+          <span class="sc-label">{{ localizedLabel(item.label) }}</span>
           <div class="sc-actions">
             <button
               v-if="isCustomized(item.id)"
               class="sc-reset"
               type="button"
-              :title="`恢复「${item.label}」为默认`"
+              :title="t(`恢复「${item.label}」为默认`, `Reset ${localizedLabel(item.label)} to default`)"
               @click="resetOne(item)"
             >
               <Icon name="refresh" :size="12" />
@@ -136,18 +150,18 @@ onBeforeUnmount(() => setCapturing(null))
               class="sc-combo"
               type="button"
               :class="{ capture: capturingId === item.id, unset: !item.current.key }"
-              :title="capturingId === item.id ? '按下新的组合键，Esc 取消，退格清除' : '点击修改键位'"
+              :title="capturingId === item.id ? t('按下新的组合键，Esc 取消，退格清除') : t('点击修改键位')"
               @click="beginCapture(item)"
               @keydown="capturingId === item.id ? onCaptureKeydown($event, item) : undefined"
               @blur="onComboBlur(item)"
             >
-              {{ capturingId === item.id ? '按下新键…' : formatCombo(item.current) }}
+              {{ capturingId === item.id ? t('按下新键…') : formatCombo(item.current) }}
             </button>
           </div>
         </div>
       </div>
       <p v-if="error" class="sc-error">{{ error }}</p>
-      <p class="sc-hint">点击键位后按下新的组合键；退格清除绑定，Esc 取消。</p>
+      <p class="sc-hint">{{ t('点击键位后按下新的组合键；退格清除绑定，Esc 取消。') }}</p>
     </div>
   </section>
 </template>

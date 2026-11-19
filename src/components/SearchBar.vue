@@ -4,10 +4,11 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useSearchStore } from '../stores/search'
 import { usePaneStore } from '../stores/pane'
 import { useUiStore } from '../stores/ui'
-import { SEARCH_CATEGORIES } from '../searchFilters'
+import { categoryLabel, SEARCH_CATEGORIES } from '../searchFilters'
 import { basename } from './Pane/utils'
 import Icon from './icons/Icon.vue'
 import type { IconName } from './icons/paths'
+import { t } from '../i18n'
 
 const search = useSearchStore()
 const paneStore = usePaneStore()
@@ -45,16 +46,16 @@ watch(() => ui.searchFocusRequest, consumeFocusRequest)
 /** 索引状态（统一在此展示：条目数 / 已扫描 / 状态） */
 const isWindows = typeof navigator !== 'undefined' && /Windows/i.test(navigator.userAgent)
 const indexText = computed(() => {
-  if (isWindows && ui.usingEverything) return 'Everything 索引'
-  if (isWindows && ui.waitingForEverything) return '正在连接 Everything…'
-  return ui.scanning ? `正在扫描 ${ui.scanned.toLocaleString()} 项` : `索引 ${ui.indexTotal.toLocaleString()} 项`
+  if (isWindows && ui.usingEverything) return t('Everything 索引')
+  if (isWindows && ui.waitingForEverything) return t('正在连接 Everything…')
+  return ui.scanning ? t(`正在扫描 ${ui.scanned.toLocaleString()} 项`, `Scanning ${ui.scanned.toLocaleString()} items`) : t(`索引 ${ui.indexTotal.toLocaleString()} 项`, `${ui.indexTotal.toLocaleString()} indexed`)
 })
 const indexTitle = computed(
   () => (isWindows && ui.usingEverything)
-    ? '正在使用本机 Everything 的实时索引'
+    ? t('正在使用本机 Everything 的实时索引')
     : (isWindows && ui.waitingForEverything)
-      ? '正在等待 Everything 启动，不会扫描本地目录'
-      : `索引条目 ${ui.indexTotal.toLocaleString()}，已扫描 ${ui.scanned.toLocaleString()}，${ui.scanning ? '扫描中' : '空闲'}`,
+      ? t('正在等待 Everything 启动，不会扫描本地目录')
+      : t(`索引条目 ${ui.indexTotal.toLocaleString()}，已扫描 ${ui.scanned.toLocaleString()}，${ui.scanning ? '扫描中' : '空闲'}`, `${ui.indexTotal.toLocaleString()} indexed, ${ui.scanned.toLocaleString()} scanned, ${ui.scanning ? 'scanning' : 'idle'}`),
 )
 /** 扫描进度（仅在已知总量时展示百分比） */
 const scanPercent = computed(() => {
@@ -62,13 +63,13 @@ const scanPercent = computed(() => {
   return `${Math.min(100, Math.round((ui.scanned / ui.indexTotal) * 100))}%`
 })
 
-const placeholder = computed(() => (scope.value === 'global' ? '搜索文件…' : '筛选当前目录…'))
+const placeholder = computed(() => (scope.value === 'global' ? t('搜索文件…') : t('筛选当前目录…')))
 const syntaxHint = computed(() =>
-  scope.value === 'global' ? 'Enter 搜索 · 支持 ext: size: 语法' : 'Enter 应用筛选',
+  scope.value === 'global' ? t('Enter 搜索 · 支持 ext: size: 语法') : t('Enter 应用筛选'),
 )
 const resultMeta = computed(() => {
   if (scope.value !== 'global' || search.searching || !search.searched) return ''
-  return `${search.hits.length} 项 · ${Math.round(search.elapsedMs)} ms`
+  return `${search.hits.length} ${t('项')} · ${Math.round(search.elapsedMs)} ms`
 })
 /** 输入框右侧的提交按钮：仅在有可执行条件时出现 */
 const canSearch = computed(() =>
@@ -123,11 +124,11 @@ const TYPE_GROUPS = [
 
 const activeVisual = computed(() => (search.typeKey ? visualOf(search.typeKey) : null))
 
-const syntaxExamples = [
-  { label: '按类型', value: 'ext:pdf' },
-  { label: '按大小', value: 'size:>100mb' },
-  { label: '按时间', value: 'modified:today' },
-]
+const syntaxExamples = computed(() => [
+  { label: t('按类型'), value: 'ext:pdf' },
+  { label: t('按大小'), value: 'size:>100mb' },
+  { label: t('按时间'), value: 'modified:today' },
+])
 
 /** 点击语法示例：填入并立即检索 */
 async function applyExample(value: string) {
@@ -172,10 +173,10 @@ async function runGlobalSearch(value: string) {
   await search.run(trimmed)
   if (currentRequest !== requestId || scope.value !== 'global') return
   if (search.error) {
-    ui.statusText = `搜索失败：${search.error}`
+    ui.statusText = t(`搜索失败：${search.error}`, `Search failed: ${search.error}`)
     return
   }
-  const title = search.typeLabel ? `搜索结果 · ${search.typeLabel}` : '搜索结果'
+  const title = search.typeLabel ? t(`搜索结果 · ${search.typeLabel}`, `Search results · ${search.typeLabel}`) : t('搜索结果')
   resultTabId = paneStore.showSearchResults(trimmed, search.hits, resultTabId, title)
 }
 
@@ -301,9 +302,9 @@ async function submit() {
           ref="inputEl"
           v-model="text"
           :placeholder="placeholder"
-          :title="scope === 'global' ? '支持 ext:pdf、size:>100mb 等语法' : '在当前目录内按名称过滤'"
+          :title="scope === 'global' ? t('支持 ext:pdf、size:>100mb 等语法') : t('在当前目录内按名称过滤')"
           spellcheck="false"
-          aria-label="搜索关键词"
+          :aria-label="t('搜索关键词')"
           @focus="open = true"
           @blur="open = false"
           @keydown.enter="onEnter"
@@ -315,8 +316,8 @@ async function submit() {
             v-if="text"
             type="button"
             class="field-btn clear"
-            title="清空"
-            aria-label="清空搜索"
+            :title="t('__legacy_c69ad09e1cbb')"
+            :aria-label="t('清空搜索')"
             @mousedown.prevent
             @click="clearAll"
           >
@@ -326,8 +327,8 @@ async function submit() {
             v-if="canSearch"
             type="button"
             class="field-btn go"
-            title="搜索（Enter）"
-            aria-label="搜索"
+            :title="t('搜索（Enter）')"
+            :aria-label="t('搜索')"
             @mousedown.prevent
             @click="submit"
           >
@@ -337,14 +338,14 @@ async function submit() {
       </div>
 
       <div class="toolbar">
-        <div class="scope-switch" role="group" aria-label="搜索范围">
+        <div class="scope-switch" role="group" :aria-label="t('搜索范围')">
           <button
             type="button"
             :class="{ on: scope === 'global' }"
             :aria-pressed="scope === 'global'"
             @click="setScope('global')"
           >
-            全局
+            {{ t('全局') }}
           </button>
           <button
             type="button"
@@ -352,7 +353,7 @@ async function submit() {
             :aria-pressed="scope === 'current'"
             @click="setScope('current')"
           >
-            当前目录
+            {{ t('当前目录') }}
           </button>
         </div>
 
@@ -362,20 +363,20 @@ async function submit() {
             type="button"
             class="type-btn"
             :class="{ on: !!search.typeKey, open: typeMenuOpen }"
-            title="按文件类型筛选"
+            :title="t('按文件类型筛选')"
             aria-haspopup="true"
             :aria-expanded="typeMenuOpen"
             @mousedown.prevent
             @click="toggleTypeMenu"
           >
-            <span>类型</span>
+            <span>{{ t('类型') }}</span>
             <Icon name="chevron-down" :size="13" class="chev" />
           </button>
 
           <transition name="pop">
-            <div v-if="typeMenuOpen" class="type-menu" role="group" aria-label="按文件类型筛选">
+            <div v-if="typeMenuOpen" class="type-menu" role="group" :aria-label="t('按文件类型筛选')">
               <div class="type-menu-head">
-                <span class="t">文件类型</span>
+                <span class="t">{{ t('文件类型') }}</span>
                 <button
                   v-if="search.typeKey"
                   type="button"
@@ -383,7 +384,7 @@ async function submit() {
                   @mousedown.prevent
                   @click="pickType('all')"
                 >
-                  重置
+                  {{ t('重置') }}
                 </button>
               </div>
               <div class="type-grid">
@@ -409,7 +410,7 @@ async function submit() {
                     <span v-else class="ti-badge" :style="{ color: c.visual.color }">
                       {{ c.visual.badge }}
                     </span>
-                    <span class="ti-label">{{ c.label }}</span>
+                    <span class="ti-label">{{ categoryLabel(c.key) }}</span>
                     <Icon
                       v-if="(search.typeKey ?? 'all') === c.key"
                       name="check"
@@ -429,7 +430,7 @@ async function submit() {
           v-if="search.typeKey"
           type="button"
           class="active-filter"
-          :title="`清除类型筛选：${search.typeLabel}`"
+          :title="t(`清除类型筛选：${search.typeLabel}`, `Clear type filter: ${search.typeLabel}`)"
           @click="setType('all')"
         >
           <Icon
@@ -455,9 +456,9 @@ async function submit() {
         <div class="empty-icon" :class="{ folder: scope === 'current' }">
           <Icon :name="scope === 'current' ? 'folder' : 'search'" :size="18" />
         </div>
-        <p class="empty-title">{{ scope === 'global' ? '搜索这台电脑' : '筛选当前目录' }}</p>
+        <p class="empty-title">{{ scope === 'global' ? t('搜索这台电脑') : t('筛选当前目录') }}</p>
         <p class="empty-sub">
-          {{ scope === 'global' ? '输入文件名，或组合语法精确筛选' : '输入关键词，仅在当前文件夹内过滤' }}
+          {{ scope === 'global' ? t('输入文件名，或组合语法精确筛选') : t('输入关键词，仅在当前文件夹内过滤') }}
         </p>
 
         <div v-if="scope === 'current' && currentPathLabel" class="scope-path" :title="currentPath">
@@ -467,8 +468,8 @@ async function submit() {
 
         <div v-else-if="scope === 'global'" class="syntax-card">
           <div class="syntax-head">
-            <span>快捷语法</span>
-            <span class="note">点击立即搜索</span>
+            <span>{{ t('快捷语法') }}</span>
+            <span class="note">{{ t('点击立即搜索') }}</span>
           </div>
           <button
             v-for="ex in syntaxExamples"
@@ -485,7 +486,7 @@ async function submit() {
       </div>
     </div>
 
-    <footer class="search-status" :title="indexTitle" aria-label="索引状态">
+    <footer class="search-status" :title="indexTitle" :aria-label="t('索引状态')">
       <span class="dot" :class="{ scanning: ui.scanning }" />
       <span class="txt">{{ indexText }}</span>
       <span class="spacer" />

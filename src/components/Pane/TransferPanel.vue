@@ -4,6 +4,7 @@
 import { computed } from 'vue'
 import { usePaneStore, type FsQueueItem } from '../../stores/pane'
 import { basename, formatSize } from './utils'
+import { t } from '../../i18n'
 
 const pane = usePaneStore()
 
@@ -37,13 +38,13 @@ const percent = computed<number | null>(() => {
 const stateText = computed(() => {
   switch (current.value?.state) {
     case 'running':
-      return '进行中'
+      return t('进行中')
     case 'done':
-      return '已完成'
+      return t('已完成')
     case 'failed':
-      return '失败'
+      return t('失败')
     case 'cancelled':
-      return '已取消'
+      return t('已取消')
     default:
       return ''
   }
@@ -54,7 +55,7 @@ const detail = computed(() => {
   const progress = current.value?.progress
   if (!progress) return ''
   if (progress.bytesTotal > 0) return `${formatSize(progress.bytesDone)} / ${formatSize(progress.bytesTotal)}`
-  if (progress.filesTotal > 0) return `${progress.filesDone} / ${progress.filesTotal} 个文件`
+  if (progress.filesTotal > 0) return `${progress.filesDone} / ${progress.filesTotal} ${t('个文件')}`
   return ''
 })
 
@@ -74,8 +75,8 @@ function cancel() {
     <header class="tp-head">
       <span class="tp-label" :title="current.label">{{ current.label }}</span>
       <span class="tp-state" :class="`is-${current.state}`">{{ stateText }}</span>
-      <button v-if="isRunning" class="tp-cancel" type="button" title="取消当前操作" @click="cancel">
-        取消
+      <button v-if="isRunning" class="tp-cancel" type="button" :title="t('取消当前操作')" @click="cancel">
+        {{ t('取消') }}
       </button>
     </header>
 
@@ -95,12 +96,12 @@ function cancel() {
     </div>
 
     <div class="tp-meta">
-      <span class="tp-percent">{{ percent === null ? (isRunning ? '正在统计…' : '') : `${percent}%` }}</span>
+      <span class="tp-percent">{{ percent === null ? (isRunning ? t('正在统计…') : '') : `${percent}%` }}</span>
       <span v-if="detail" class="tp-detail">{{ detail }}</span>
     </div>
 
     <p v-if="currentName" class="tp-current" :title="current.progress?.current">{{ currentName }}</p>
-    <p v-if="waiting > 0" class="tp-waiting">还有 {{ waiting }} 项等待</p>
+    <p v-if="waiting > 0" class="tp-waiting">{{ t(`还有 ${waiting} 项等待`, `${waiting} waiting`) }}</p>
   </section>
 </template>
 

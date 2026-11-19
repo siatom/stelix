@@ -5,6 +5,7 @@
 import { computed } from 'vue'
 import { usePaneStore } from '../../stores/pane'
 import Icon from '../icons/Icon.vue'
+import { t } from '../../i18n'
 
 const props = defineProps<{ paneId: string }>()
 
@@ -20,16 +21,16 @@ const isTrash = computed(() => {
 <template>
   <div class="pane-toolbar">
     <div class="group">
-      <button title="后退" :disabled="!paneStore.canGoBack(paneId)" @click="paneStore.goBack(paneId)">
+      <button :title="t('后退')" :disabled="!paneStore.canGoBack(paneId)" @click="paneStore.goBack(paneId)">
         <Icon name="arrow-left" :size="15" />
       </button>
-      <button title="前进" :disabled="!paneStore.canGoForward(paneId)" @click="paneStore.goForward(paneId)">
+      <button :title="t('前进')" :disabled="!paneStore.canGoForward(paneId)" @click="paneStore.goForward(paneId)">
         <Icon name="arrow-right" :size="15" />
       </button>
-      <button title="上级目录" :disabled="isTrash" @click="paneStore.goUp(paneId)">
+      <button :title="t('上级目录')" :disabled="isTrash" @click="paneStore.goUp(paneId)">
         <Icon name="arrow-up" :size="15" />
       </button>
-      <button title="刷新" @click="paneStore.refresh(paneId)">
+      <button :title="t('刷新')" @click="paneStore.refresh(paneId)">
         <Icon name="refresh" :size="15" />
       </button>
     </div>

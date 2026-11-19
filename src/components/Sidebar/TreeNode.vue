@@ -5,6 +5,7 @@ import { api } from '../../api'
 import { useUiStore } from '../../stores/ui'
 import type { FileEntry } from '../../types'
 import type { TreeNodeData } from './shared'
+import { t } from '../../i18n'
 import { clearWatchSource, FS_CHANGED_EVENT, normalizePath, setWatchSource } from '../../shell/dirWatch'
 import { compareNames } from '../../naturalSort'
 import Icon from '../icons/Icon.vue'
@@ -133,17 +134,17 @@ const childPad = (d: number) => `${d * 12 + 22}px`
         />
       </span>
       <span class="label">{{ node.name }}</span>
-      <button v-if="depth === 0 && ejectable" class="eject" title="弹出此驱动器" aria-label="弹出此驱动器" @click.stop="emit('eject', node.path)">
+      <button v-if="depth === 0 && ejectable" class="eject" :title="t('弹出此驱动器')" :aria-label="t('弹出此驱动器')" @click.stop="emit('eject', node.path)">
         <Icon name="eject" :size="14" />
       </button>
     </div>
 
     <div v-if="expanded">
       <div v-if="loading" class="state" :style="{ paddingLeft: childPad(depth + 1) }">
-        加载中…
+        {{ t('加载中…') }}
       </div>
       <div v-else-if="error" class="state err" :style="{ paddingLeft: childPad(depth + 1) }">
-        无法读取：{{ error }}
+        {{ t('无法读取：') }}{{ error }}
       </div>
       <TreeNode
         v-for="child in children"

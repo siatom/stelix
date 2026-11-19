@@ -5,6 +5,7 @@ import Icon from './icons/Icon.vue'
 import MacWindowLights from './MacWindowLights.vue'
 import SettingsPanel from './Sidebar/SettingsPanel.vue'
 import { IS_MACOS } from '../utils/platform'
+import { t } from '../i18n'
 
 const ui = useUiStore()
 
@@ -93,16 +94,16 @@ onBeforeUnmount(() => {
           <div class="dialog-head-main">
             <MacWindowLights class="dialog-lights" close-only @close="ui.closeSettings()" />
             <div>
-              <h2 id="settings-title">设置</h2>
-              <p>管理界面、文件索引与 AI 大模型接入</p>
+              <h2 id="settings-title">{{ t('设置') }}</h2>
+              <p>{{ t('管理界面、文件索引与 AI 大模型接入') }}</p>
             </div>
           </div>
           <button
             v-if="!IS_MACOS"
             type="button"
             class="close-btn"
-            title="关闭设置"
-            aria-label="关闭设置"
+            :title="t('关闭设置')"
+            :aria-label="t('关闭设置')"
             @click="ui.closeSettings()"
           >
             <Icon name="x" :size="16" />

@@ -1,5 +1,6 @@
 // 远程（FTP / SFTP / SSH 终端）连接的前端辅助：凭据内存缓存 + POSIX 路径工具。
 import { api } from '../api'
+import { t } from '../i18n'
 import type { CloudProvider, RemoteLocation } from '../types'
 
 /** 云存储协议：令牌由后端按 `accountId` 从系统凭据库读取，前端不持有密码。 */
@@ -8,7 +9,7 @@ export function isCloudProtocol(protocol: string): protocol is CloudProvider {
 }
 
 export function cloudProviderName(provider: CloudProvider): string {
-  return provider === 'baidu' ? '百度网盘' : '迅雷云盘'
+  return provider === 'baidu' ? t('百度网盘') : t('迅雷云盘')
 }
 
 /**

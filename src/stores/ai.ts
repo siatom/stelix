@@ -4,6 +4,7 @@ import { api } from '../api'
 import type { AiApproval, AiApprovalDecision, AiChatMessage, AiConfig, AiConversation, AiMessage } from '../types'
 import { usePaneStore } from './pane'
 import { useUiStore } from './ui'
+import { locale, t } from '../i18n'
 
 const CONTEXT_KEY = 'stelix.ai.context'
 
@@ -52,7 +53,7 @@ export const useAiStore = defineStore('ai', () => {
   const modelLabel = computed(() => {
     const provider = config.value.providers.find(p => p.id === config.value.activeProviderId)
     const model = provider?.models.find(m => m.id === config.value.activeModelId)
-    return config.value.enabled && provider && model ? `${provider.name} · ${model.name || model.id}` : '离线规则模式'
+    return config.value.enabled && provider && model ? `${provider.name} · ${model.name || model.id}` : t('离线规则模式')
   })
 
   let configLoaded = false
@@ -76,10 +77,10 @@ export const useAiStore = defineStore('ai', () => {
       config.value = JSON.parse(JSON.stringify(next)) as AiConfig
       error.value = null
       configLoaded = true
-      useUiStore().statusText = 'AI 配置已保存'
+      useUiStore().statusText = t('AI 配置已保存')
     } catch (e) {
       error.value = String(e)
-      useUiStore().statusText = `配置保存失败：${String(e)}`
+      useUiStore().statusText = t(`配置保存失败：${String(e)}`, `Failed to save settings: ${String(e)}`)
       throw e
     }
   }
@@ -92,7 +93,7 @@ export const useAiStore = defineStore('ai', () => {
       await write
       return true
     } catch (e) {
-      historyError.value = `历史保存失败，当前消息仍保留在内存中：${String(e)}`
+      historyError.value = t(`历史保存失败，当前消息仍保留在内存中：${String(e)}`, `Could not save conversation history. The current messages remain in memory: ${String(e)}`)
       return false
     }
   }
@@ -115,7 +116,7 @@ export const useAiStore = defineStore('ai', () => {
     expirePending()
     if (current.value && !current.value.messages.length) return
     const now = Date.now()
-    const conversation: AiConversation = { id: crypto.randomUUID(), title: '新对话', createdAt: now, updatedAt: now, messages: [] }
+    const conversation: AiConversation = { id: crypto.randomUUID(), title: t('新对话'), createdAt: now, updatedAt: now, messages: [] }
     conversations.value.push(conversation)
     activeId.value = conversation.id
   }
@@ -138,7 +139,7 @@ export const useAiStore = defineStore('ai', () => {
           for (const message of conversation.messages) {
             if (message.status === 'pending') {
               message.status = 'interrupted'
-              if (!message.content) message.content = '上次回复未完成，可以重试。'
+              if (!message.content) message.content = t('上次回复未完成，可以重试。')
             }
             if (message.operation === 'pending') message.operation = 'expired'
           }
@@ -151,7 +152,7 @@ export const useAiStore = defineStore('ai', () => {
         pendingMessageId = ''
         // 每次打开 AI 助手都从「新对话」开始；历史对话仍可在「历史对话」列表里选择。
         newConversation()
-      } catch (e) { historyError.value = `读取历史对话失败：${String(e)}` }
+      } catch (e) { historyError.value = t(`读取历史对话失败：${String(e)}`, `Could not load conversation history: ${String(e)}`) }
       finally { historyLoading.value = false; historyPromise = null }
     })()
     return historyPromise
@@ -197,7 +198,7 @@ export const useAiStore = defineStore('ai', () => {
         }
       }
       return true
-    } catch (e) { historyError.value = `删除历史对话失败：${String(e)}`; return false }
+    } catch (e) { historyError.value = t(`删除历史对话失败：${String(e)}`, `Could not delete conversation history: ${String(e)}`); return false }
     finally { historyMutating.value = false }
   }
 
@@ -216,6 +217,7 @@ export const useAiStore = defineStore('ai', () => {
     return {
       activePath: contextToggles.value.activeDir ? localTab?.path ?? null : null,
       selected: Array.from(new Set(merged)),
+      language: locale.value,
     }
   }
 
@@ -245,7 +247,7 @@ export const useAiStore = defineStore('ai', () => {
     if (!id || stopping.value) return
     stopping.value = true
     try { await api.aiChatCancel(id) }
-    catch (e) { useUiStore().setStatusText(`停止生成失败：${String(e)}`) }
+    catch (e) { useUiStore().setStatusText(t(`停止生成失败：${String(e)}`, `Failed to stop generation: ${String(e)}`)) }
   }
 
   async function requestReply(conversation: AiConversation, assistant: AiChatMessage) {
@@ -261,7 +263,7 @@ export const useAiStore = defineStore('ai', () => {
     conversation.updatedAt = Date.now()
     const payload: AiMessage[] = conversation.messages.filter(m => m.id !== assistant.id && m.status === 'complete').map(m => ({
       role: m.role,
-      content: m.operation === 'expired' ? `${m.content}\n（此操作未执行，原确认已失效。）` : m.content,
+      content: m.operation === 'expired' ? `${m.content}\n${t('（此操作未执行，原确认已失效。）')}` : m.content,
     }))
     const context = buildContext()
     const requestId = crypto.randomUUID()
@@ -272,7 +274,7 @@ export const useAiStore = defineStore('ai', () => {
     await persist(conversation)
     try {
       const reply = await api.aiChat(payload, context, requestId)
-      assistant.content = reply.text || '模型没有返回文本，请检查模型配置后重试。'
+      assistant.content = reply.text || t('模型没有返回文本，请检查模型配置后重试。')
       assistant.status = reply.interrupted ? 'interrupted' : (reply.text ? 'complete' : 'error')
       assistant.usage = reply.usage ?? null
       assistant.durationMs = Date.now() - startedAt
@@ -291,7 +293,7 @@ export const useAiStore = defineStore('ai', () => {
       }
     } catch (e) {
       assistant.status = 'error'
-      assistant.content = `请求失败：${String(e)}`
+      assistant.content = t(`请求失败：${String(e)}`, `Request failed: ${String(e)}`)
     } finally {
       conversation.updatedAt = Date.now()
       responding.value = false
@@ -369,7 +371,7 @@ export const useAiStore = defineStore('ai', () => {
       const anyRejected = decisions.some(item => !item.approved)
       const failed = (reply.steps ?? []).some(step => !step.ok)
       message.operation = anyApproved ? (failed ? 'error' : 'completed') : 'cancelled'
-      continuation.content = reply.text || (anyApproved ? '操作已完成。' : '已取消该操作，文件未作更改。')
+      continuation.content = reply.text || (anyApproved ? t('操作已完成。') : t('已取消该操作，文件未作更改。'))
       continuation.status = reply.interrupted ? 'interrupted' : (reply.text ? 'complete' : 'error')
       continuation.usage = reply.usage ?? null
       continuation.durationMs = Date.now() - startedAt
@@ -389,13 +391,13 @@ export const useAiStore = defineStore('ai', () => {
       if (anyApproved) {
         const pane = usePaneStore()
         try { await pane.refresh(pane.activePaneId) }
-        catch (e) { useUiStore().setStatusText(`文件操作已结束，刷新窗格失败：${String(e)}`) }
+        catch (e) { useUiStore().setStatusText(t(`文件操作已结束，刷新窗格失败：${String(e)}`, `File operation completed, but pane refresh failed: ${String(e)}`)) }
       }
-      if (anyApproved && anyRejected) useUiStore().statusText = '部分写操作已取消'
+      if (anyApproved && anyRejected) useUiStore().statusText = t('部分写操作已取消')
     } catch (e) {
       message.operation = 'error'
       continuation.status = 'error'
-      continuation.content = `操作失败：${String(e)}`
+      continuation.content = t(`操作失败：${String(e)}`, `Operation failed: ${String(e)}`)
     } finally {
       conversation.updatedAt = Date.now()
       responding.value = false

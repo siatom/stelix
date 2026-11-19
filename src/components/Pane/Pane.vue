@@ -17,6 +17,7 @@ import FileIcon from '../icons/FileIcon.vue'
 import { useTerminalStore } from '../../stores/terminal'
 import type { TabState } from '../../types'
 import type { TerminalSession } from '../../stores/terminal'
+import { t } from '../../i18n'
 
 const props = defineProps<{ paneId: string }>()
 
@@ -60,13 +61,13 @@ const terminalTabs = computed(() =>
 const terminalStatusText = computed(() => {
   switch (terminalSession.value?.status) {
     case 'connecting':
-      return '连接中'
+      return t('连接中')
     case 'connected':
-      return '已连接'
+      return t('已连接')
     case 'closed':
-      return '已断开'
+      return t('已断开')
     case 'error':
-      return '连接失败'
+      return t('连接失败')
     default:
       return ''
   }
@@ -231,7 +232,7 @@ async function confirmDelete() {
         <template v-else>
           <PaneToolbar :pane-id="paneId" />
           <div v-if="tab.kind === 'search'" class="search-heading" :title="tab.searchQuery">
-            搜索结果：{{ tab.searchQuery }}
+            {{ t('搜索结果：') }}{{ tab.searchQuery }}
           </div>
           <div v-else-if="tab.kind === 'trash'" class="trash-heading">
             <FileIcon
@@ -242,37 +243,37 @@ async function confirmDelete() {
               fallback="trash"
               :size="15"
             />
-            <span class="trash-title">回收站</span>
+            <span class="trash-title">{{ t('回收站') }}</span>
             <div class="trash-actions">
               <button
                 :disabled="!trashView?.canRestore"
-                title="还原所选到原位置"
+                :title="t('还原所选到原位置')"
                 @click="trashView?.restoreSelected()"
               >
-                <Icon name="restore" :size="15" /><span>还原</span>
+                <Icon name="restore" :size="15" /><span>{{ t('还原') }}</span>
               </button>
               <button
                 :disabled="!trashView?.canOpenOriginal"
-                title="打开所选条目的原位置"
+                :title="t('打开所选条目的原位置')"
                 @click="trashView?.openOriginalSelected()"
               >
-                <Icon name="folder-arrow" :size="15" /><span>原位置</span>
+                <Icon name="folder-arrow" :size="15" /><span>{{ t('原位置') }}</span>
               </button>
               <button
                 class="danger"
                 :disabled="!trashView?.canPurge"
-                title="跳过回收站永久删除所选"
+                :title="t('跳过回收站永久删除所选')"
                 @click="trashView?.askPurgeSelected()"
               >
-                <Icon name="trash" :size="15" /><span>永久删除</span>
+                <Icon name="trash" :size="15" /><span>{{ t('永久删除') }}</span>
               </button>
               <button
                 class="danger"
                 :disabled="!trashView?.canEmpty"
-                title="永久删除回收站中的全部条目"
+                :title="t('永久删除回收站中的全部条目')"
                 @click="trashView?.askEmpty()"
               >
-                <Icon name="trash" :size="15" /><span>清空</span>
+                <Icon name="trash" :size="15" /><span>{{ t('__legacy_7af620d07483') }}</span>
               </button>
             </div>
           </div>
@@ -298,7 +299,7 @@ async function confirmDelete() {
         :active="isActivePane && tab.id === item.tab.id"
       />
     </template>
-    <div v-else class="state">没有可用标签</div>
+    <div v-else class="state">{{ t('没有可用标签') }}</div>
     <TabBar :pane-id="paneId" />
     <StatusBar
       :pane-id="paneId"
@@ -309,7 +310,7 @@ async function confirmDelete() {
     <div v-if="errorMsg" class="error-bar" role="alert">
       <Icon name="alert-triangle" :size="14" />
       <span>{{ errorMsg }}</span>
-      <button type="button" aria-label="关闭提示" title="关闭提示" @click="dismissError">
+      <button type="button" :aria-label="t('关闭提示')" :title="t('关闭提示')" @click="dismissError">
         <Icon name="x" :size="13" />
       </button>
     </div>
@@ -317,22 +318,22 @@ async function confirmDelete() {
     <!-- 删除确认 -->
     <div v-if="deleteDialog" class="mask" @mousedown.stop @click.self="closeDialogs">
       <div class="dialog">
-        <h3>{{ permanentDelete ? '确认永久删除' : '确认删除' }}</h3>
+        <h3>{{ permanentDelete ? t('确认永久删除') : t('确认删除') }}</h3>
         <p v-if="permanentDelete" class="warn-text danger">
-          将永久删除以下 {{ deleteDialog.length }} 项，不进入回收站，此操作不可撤销：
+          {{ t(`将永久删除以下 ${deleteDialog.length} 项，不进入回收站，此操作不可撤销：`, `Permanently delete these ${deleteDialog.length} items without moving them to the Recycle Bin. This cannot be undone:`) }}
         </p>
-        <p v-else class="warn-text">将把以下 {{ deleteDialog.length }} 项移到系统回收站，之后可在回收站中还原：</p>
+        <p v-else class="warn-text">{{ t(`将把以下 ${deleteDialog.length} 项移到系统回收站，之后可在回收站中还原：`, `Move these ${deleteDialog.length} items to the system Recycle Bin, where they can be restored later:`) }}</p>
         <ul class="del-list">
           <li v-for="p in deleteDialog.slice(0, 8)" :key="p">{{ basename(p) }}</li>
         </ul>
-        <p v-if="deleteDialog.length > 8" class="more">… 等共 {{ deleteDialog.length }} 项</p>
+        <p v-if="deleteDialog.length > 8" class="more">{{ t(`… 等共 ${deleteDialog.length} 项`, `… and ${deleteDialog.length} items total`) }}</p>
         <div class="actions">
           <button class="mode-toggle" :disabled="busy" @click="permanentDelete = !permanentDelete">
-            {{ permanentDelete ? '改为移到回收站' : '永久删除…' }}
+            {{ permanentDelete ? t('改为移到回收站') : t('永久删除…') }}
           </button>
-          <button :disabled="busy" @click="closeDialogs">取消</button>
+          <button :disabled="busy" @click="closeDialogs">{{ t('取消') }}</button>
           <button class="danger" :disabled="busy" @click="confirmDelete">
-            {{ permanentDelete ? '永久删除' : '移到回收站' }}
+            {{ permanentDelete ? t('永久删除') : t('移到回收站') }}
           </button>
         </div>
       </div>

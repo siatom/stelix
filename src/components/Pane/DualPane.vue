@@ -6,6 +6,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 import Pane from './Pane.vue'
 import { usePaneStore } from '../../stores/pane'
 import { useUiStore } from '../../stores/ui'
+import { t } from '../../i18n'
 
 const paneStore = usePaneStore()
 const ui = useUiStore()
@@ -232,7 +233,7 @@ onBeforeUnmount(() => {
       v-show="!aiSplit || paneStore.activePaneId === 'left'"
       pane-id="left"
     />
-    <div v-if="!singleView" class="divider" title="拖拽调整宽度，双击均分" @mousedown="startDrag" @dblclick="resetRatio" />
+    <div v-if="!singleView" class="divider" :title="t('拖拽调整宽度，双击均分')" @mousedown="startDrag" @dblclick="resetRatio" />
     <Pane
       v-if="!paneStore.singlePane || paneStore.activePaneId === 'right'"
       v-show="!aiSplit || paneStore.activePaneId === 'right'"

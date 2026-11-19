@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { api } from '../api'
 import type { SearchHit, SearchQuery } from '../types'
-import { categoryOf } from '../searchFilters'
+import { categoryLabel, categoryOf } from '../searchFilters'
 
 /** 全局检索状态 —— 由 **WS-D (feat/ui-panes)** 实现。 */
 export const useSearchStore = defineStore('search', () => {
@@ -13,7 +13,7 @@ export const useSearchStore = defineStore('search', () => {
   const error = ref<string | null>(null)
   /** 类型筛选（searchFilters 分类 key；null = 全部）。跨范围保持。 */
   const typeKey = ref<string | null>(null)
-  const typeLabel = computed(() => categoryOf(typeKey.value)?.label ?? null)
+  const typeLabel = computed(() => typeKey.value ? categoryLabel(typeKey.value) : null)
   /** 是否已执行过一次查询（用于只在有结果时才展示命中数） */
   const searched = ref(false)
 

@@ -6,10 +6,12 @@ import type { TabState, TrashEntry, TrashOpResult } from '../../types'
 import { usePaneStore } from '../../stores/pane'
 import { useUiStore, type TrashColumnKey } from '../../stores/ui'
 import { isCapturingShortcut } from '../../stores/shortcuts'
+import { compareNames } from '../../naturalSort'
 import { formatSize, formatTime, RECYCLE_BIN_SHELL_PATH } from './utils'
 import Icon from '../icons/Icon.vue'
 import FileIcon from '../icons/FileIcon.vue'
 import { refreshTrashIcon } from '../icons/fileIconCache'
+import { t } from '../../i18n'
 
 const props = defineProps<{ paneId: string; tab: TabState }>()
 const paneStore = usePaneStore()
@@ -29,7 +31,6 @@ const selectedEntries = computed(() => entries.value.filter((item) => selected.v
 // ---- 排序（点击表头切换，默认按删除时间从新到旧） ----
 const sortKey = ref<TrashColumnKey>('deleted')
 const sortAsc = ref(false)
-const collator = new Intl.Collator('zh-CN', { numeric: true, sensitivity: 'base' })
 
 const sortedEntries = computed(() => {
   const dir = sortAsc.value ? 1 : -1
@@ -39,18 +40,18 @@ const sortedEntries = computed(() => {
     let cmp = 0
     switch (sortKey.value) {
       case 'origin':
-        cmp = collator.compare(a.originalParent, b.originalParent)
-        if (cmp === 0) cmp = collator.compare(a.name, b.name)
+        cmp = compareNames(a.originalParent, b.originalParent)
+        if (cmp === 0) cmp = compareNames(a.name, b.name)
         break
       case 'deleted':
         cmp = a.deletedAt - b.deletedAt
-        if (cmp === 0) cmp = collator.compare(a.name, b.name)
+        if (cmp === 0) cmp = compareNames(a.name, b.name)
         break
       case 'size':
         cmp = (a.isDir ? a.itemCount : a.size) - (b.isDir ? b.itemCount : b.size)
         break
       default:
-        cmp = collator.compare(a.name, b.name)
+        cmp = compareNames(a.name, b.name)
     }
     return cmp * dir
   })
@@ -180,7 +181,7 @@ function extOf(name: string): string | null {
 }
 
 function sizeLabel(item: TrashEntry): string {
-  return item.isDir ? `${item.itemCount} 项` : formatSize(item.size)
+  return item.isDir ? t(`${item.itemCount} 项`, `${item.itemCount} items`) : formatSize(item.size)
 }
 
 async function load() {
@@ -232,7 +233,7 @@ function onRowClick(event: MouseEvent, item: TrashEntry) {
 
 function openOriginal(item: TrashEntry) {
   if (!item.originalParent) {
-    error.value = '无法确定该条目的原位置'
+    error.value = t('无法确定该条目的原位置')
     return
   }
   paneStore.addTab(props.paneId, item.originalParent)
@@ -246,7 +247,7 @@ async function restore(ids: string[]) {
     const result = await api.trashRestore(ids)
     // 先重载列表（会清空旧错误），再报告本次操作结果，避免错误提示被清掉。
     await load()
-    report(result, '已还原')
+    report(result, t('已还原'))
   } catch (cause) {
     error.value = String(cause)
   } finally {
@@ -255,7 +256,7 @@ async function restore(ids: string[]) {
 }
 
 function report(result: TrashOpResult, action: string) {
-  if (result.ok > 0) ui.setStatusText(`${action} ${result.ok} 项`)
+  if (result.ok > 0) ui.setStatusText(t(`${action} ${result.ok} 项`, `${action} ${result.ok} items`))
   if (result.errors.length) error.value = result.errors.join('；')
 }
 
@@ -313,7 +314,7 @@ async function confirmPurge() {
     confirm.value = null
     clearSelection()
     await load()
-    report(result, target.kind === 'empty' ? '已清空回收站并删除' : '已永久删除')
+    report(result, target.kind === 'empty' ? t('已清空回收站并删除') : t('已永久删除'))
   } catch (cause) {
     error.value = String(cause)
   } finally {
@@ -382,11 +383,11 @@ onBeforeUnmount(() => {
     <div v-if="error" class="error-bar" role="alert">
       <Icon name="alert-circle" :size="13" />
       <span>{{ error }}</span>
-      <button title="关闭" @click="error = null"><Icon name="x" :size="12" /></button>
+      <button :title="t('关闭')" @click="error = null"><Icon name="x" :size="12" /></button>
     </div>
 
-    <div v-if="loading && !entries.length" class="state">正在读取回收站…</div>
-    <div v-else-if="!entries.length && error" class="state">回收站读取失败，请稍后重试。</div>
+    <div v-if="loading && !entries.length" class="state">{{ t('正在读取回收站…') }}</div>
+    <div v-else-if="!entries.length && error" class="state">{{ t('回收站读取失败，请稍后重试。') }}</div>
     <div v-else-if="!entries.length" class="empty-state">
       <div class="empty-icon">
         <FileIcon
@@ -399,8 +400,8 @@ onBeforeUnmount(() => {
           :size="34"
         />
       </div>
-      <p>回收站是空的</p>
-      <span>删除的文件会先放到这里，之后可以随时还原。</span>
+      <p>{{ t('回收站是空的') }}</p>
+      <span>{{ t('删除的文件会先放到这里，之后可以随时还原。') }}</span>
     </div>
 
     <template v-else>
@@ -408,52 +409,52 @@ onBeforeUnmount(() => {
       <div class="header-clip">
         <div class="header" :style="headerStyle">
           <button class="col name" data-col="name" @click="toggleSort('name')">
-            名称 <Icon v-if="sortKey === 'name'" :name="sortAsc ? 'chevron-up' : 'chevron-down'" :size="11" />
+            {{ t('名称') }} <Icon v-if="sortKey === 'name'" :name="sortAsc ? 'chevron-up' : 'chevron-down'" :size="11" />
             <span
               class="col-resizer"
               role="separator"
               aria-orientation="vertical"
-              aria-label="调整名称列宽度"
-              title="拖动调整「名称」列宽，双击恢复默认"
+              :aria-label="t('调整名称列宽度')"
+              :title="t('拖动调整「名称」列宽，双击恢复默认')"
               @mousedown="startColumnResize($event, 'name')"
               @click.stop
               @dblclick.stop="ui.resetTrashColumnWidth('name')"
             />
           </button>
           <button class="col origin" data-col="origin" @click="toggleSort('origin')">
-            原位置 <Icon v-if="sortKey === 'origin'" :name="sortAsc ? 'chevron-up' : 'chevron-down'" :size="11" />
+            {{ t('原位置') }} <Icon v-if="sortKey === 'origin'" :name="sortAsc ? 'chevron-up' : 'chevron-down'" :size="11" />
             <span
               class="col-resizer"
               role="separator"
               aria-orientation="vertical"
-              aria-label="调整原位置列宽度"
-              title="拖动调整「原位置」列宽，双击恢复默认"
+              :aria-label="t('调整原位置列宽度')"
+              :title="t('拖动调整「原位置」列宽，双击恢复默认')"
               @mousedown="startColumnResize($event, 'origin')"
               @click.stop
               @dblclick.stop="ui.resetTrashColumnWidth('origin')"
             />
           </button>
           <button class="col deleted" data-col="deleted" @click="toggleSort('deleted')">
-            删除时间 <Icon v-if="sortKey === 'deleted'" :name="sortAsc ? 'chevron-up' : 'chevron-down'" :size="11" />
+            {{ t('删除时间') }} <Icon v-if="sortKey === 'deleted'" :name="sortAsc ? 'chevron-up' : 'chevron-down'" :size="11" />
             <span
               class="col-resizer"
               role="separator"
               aria-orientation="vertical"
-              aria-label="调整删除时间列宽度"
-              title="拖动调整「删除时间」列宽，双击恢复默认"
+              :aria-label="t('调整删除时间列宽度')"
+              :title="t('拖动调整「删除时间」列宽，双击恢复默认')"
               @mousedown="startColumnResize($event, 'deleted')"
               @click.stop
               @dblclick.stop="ui.resetTrashColumnWidth('deleted')"
             />
           </button>
           <button class="col size num" data-col="size" @click="toggleSort('size')">
-            大小 <Icon v-if="sortKey === 'size'" :name="sortAsc ? 'chevron-up' : 'chevron-down'" :size="11" />
+            {{ t('大小') }} <Icon v-if="sortKey === 'size'" :name="sortAsc ? 'chevron-up' : 'chevron-down'" :size="11" />
             <span
               class="col-resizer"
               role="separator"
               aria-orientation="vertical"
-              aria-label="调整大小列宽度"
-              title="拖动调整「大小」列宽，双击恢复默认"
+              :aria-label="t('调整大小列宽度')"
+              :title="t('拖动调整「大小」列宽，双击恢复默认')"
               @mousedown="startColumnResize($event, 'size')"
               @click.stop
               @dblclick.stop="ui.resetTrashColumnWidth('size')"
@@ -481,9 +482,9 @@ onBeforeUnmount(() => {
             <span class="time-cell">{{ formatTime(item.deletedAt) }}</span>
             <span class="size-cell num">{{ sizeLabel(item) }}</span>
             <span class="row-actions">
-              <button title="还原" @click.stop="restore([item.id])"><Icon name="restore" :size="12" /></button>
-              <button title="打开原位置" @click.stop="openOriginal(item)"><Icon name="folder-arrow" :size="12" /></button>
-              <button class="danger" title="永久删除" @click.stop="askPurge([item.id])"><Icon name="trash" :size="12" /></button>
+              <button :title="t('还原')" @click.stop="restore([item.id])"><Icon name="restore" :size="12" /></button>
+              <button :title="t('打开原位置')" @click.stop="openOriginal(item)"><Icon name="folder-arrow" :size="12" /></button>
+              <button class="danger" :title="t('永久删除')" @click.stop="askPurge([item.id])"><Icon name="trash" :size="12" /></button>
             </span>
           </div>
         </div>
@@ -504,9 +505,9 @@ onBeforeUnmount(() => {
             <span class="name">{{ ui.displayFileName(item.name, item.isDir) }}</span>
           </div>
           <span class="row-actions">
-            <button title="还原" @click.stop="restore([item.id])"><Icon name="restore" :size="12" /></button>
-            <button title="打开原位置" @click.stop="openOriginal(item)"><Icon name="folder-arrow" :size="12" /></button>
-            <button class="danger" title="永久删除" @click.stop="askPurge([item.id])"><Icon name="trash" :size="12" /></button>
+            <button :title="t('还原')" @click.stop="restore([item.id])"><Icon name="restore" :size="12" /></button>
+            <button :title="t('打开原位置')" @click.stop="openOriginal(item)"><Icon name="folder-arrow" :size="12" /></button>
+            <button class="danger" :title="t('永久删除')" @click.stop="askPurge([item.id])"><Icon name="trash" :size="12" /></button>
           </span>
         </div>
       </div>
@@ -528,25 +529,25 @@ onBeforeUnmount(() => {
           </div>
         </div>
         <p v-if="sortedEntries.length > ICON_CAP" class="cap-hint">
-          条目较多，仅显示前 {{ ICON_CAP }} 项（共 {{ sortedEntries.length }} 项）
+          {{ t(`条目较多，仅显示前 ${ICON_CAP} 项（共 ${sortedEntries.length} 项）`, `Showing the first ${ICON_CAP} of ${sortedEntries.length} items`) }}
         </p>
       </div>
     </template>
 
     <div v-if="confirm" class="mask" @mousedown.stop @click.self="closeConfirm">
       <div class="dialog">
-        <h3>{{ confirm.kind === 'empty' ? '清空回收站' : '确认永久删除' }}</h3>
+        <h3>{{ confirm.kind === 'empty' ? t('清空回收站') : t('确认永久删除') }}</h3>
         <p class="warn-text danger">
           {{
             confirm.kind === 'empty'
-              ? `将永久删除回收站中的全部 ${confirmCount} 项，此操作不可撤销。`
-              : `将永久删除选中的 ${confirmCount} 项，此操作不可撤销。`
+              ? t(`将永久删除回收站中的全部 ${confirmCount} 项，此操作不可撤销。`, `Permanently delete all ${confirmCount} items in the Recycle Bin. This cannot be undone.`)
+              : t(`将永久删除选中的 ${confirmCount} 项，此操作不可撤销。`, `Permanently delete the ${confirmCount} selected items. This cannot be undone.`)
           }}
         </p>
         <div class="dialog-actions">
-          <button :disabled="busy" @click="closeConfirm">取消</button>
+          <button :disabled="busy" @click="closeConfirm">{{ t('取消') }}</button>
           <button class="danger" :disabled="busy" @click="confirmPurge">
-            {{ confirm.kind === 'empty' ? '清空回收站' : '永久删除' }}
+            {{ confirm.kind === 'empty' ? t('清空回收站') : t('永久删除') }}
           </button>
         </div>
       </div>

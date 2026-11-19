@@ -5,14 +5,24 @@ import { useUiStore } from '../../stores/ui'
 import type { AiChatMessage } from '../../types'
 import Icon from '../icons/Icon.vue'
 import { renderMarkdown } from './markdown'
+import { locale, t } from '../../i18n'
 
 const props = defineProps<{ message: AiChatMessage; canRetry: boolean; busy: boolean; step?: string }>()
 const emit = defineEmits<{ retry: [id: string] }>()
 const copied = ref(false)
 const markdown = computed(() => props.message.status === 'pending' ? '' : renderMarkdown(props.message.content))
-const time = computed(() => new Date(props.message.createdAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false }))
-const operationText = computed(() => ({ pending: '等待确认', completed: '操作已结束', cancelled: '已取消', expired: '原确认已失效，文件未执行更改', error: '操作失败' })[props.message.operation ?? 'expired'])
-const stepText = computed(() => props.step?.trim() || '正在思考…')
+const time = computed(() => new Date(props.message.createdAt).toLocaleTimeString(locale.value, { hour: '2-digit', minute: '2-digit', hour12: false }))
+const operationText = computed(() => {
+  const labels = {
+    pending: t('等待确认'),
+    completed: t('操作已结束'),
+    cancelled: t('已取消'),
+    expired: t('原确认已失效，文件未执行更改'),
+    error: t('操作失败'),
+  }
+  return labels[props.message.operation ?? 'expired']
+})
+const stepText = computed(() => props.step?.trim() || t('正在思考…'))
 const stats = computed(() => {
   const parts: string[] = []
   const usage = props.message.usage
@@ -25,7 +35,7 @@ async function copy() {
   try {
     await navigator.clipboard.writeText(props.message.content)
     copied.value = true
-  } catch (e) { useUiStore().setStatusText(`复制失败：${String(e)}`) }
+  } catch (e) { useUiStore().setStatusText(t(`复制失败：${String(e)}`, `Copy failed: ${String(e)}`)) }
 }
 async function onLink(event: MouseEvent) {
   const link = (event.target as HTMLElement).closest('a')
@@ -34,17 +44,17 @@ async function onLink(event: MouseEvent) {
   const href = link.getAttribute('href')
   if (!href || !/^https?:\/\//i.test(href)) return
   try { await openUrl(href) }
-  catch (e) { useUiStore().setStatusText(`打开链接失败：${String(e)}`) }
+  catch (e) { useUiStore().setStatusText(t(`打开链接失败：${String(e)}`, `Could not open link: ${String(e)}`)) }
 }
 </script>
 
 <template>
   <article class="chat-message" :class="[message.role, { failed: message.status === 'error' || message.status === 'interrupted', operation: message.kind === 'operation' }]">
-    <div class="message-meta"><span class="speaker"><Icon v-if="message.role === 'assistant'" :name="message.kind === 'operation' ? 'check-circle' : 'sparkles'" :size="12" />{{ message.role === 'user' ? '你' : message.kind === 'operation' ? '执行结果' : 'AI 助手' }}</span><time :datetime="new Date(message.createdAt).toISOString()">{{ time }}</time></div>
+    <div class="message-meta"><span class="speaker"><Icon v-if="message.role === 'assistant'" :name="message.kind === 'operation' ? 'check-circle' : 'sparkles'" :size="12" />{{ message.role === 'user' ? t('你') : message.kind === 'operation' ? t('执行结果') : t('AI 助手') }}</span><time :datetime="new Date(message.createdAt).toISOString()">{{ time }}</time></div>
     <div v-if="message.status === 'pending'" class="pending" role="status"><span class="thinking-dots"><i /><i /><i /></span>{{ stepText }}</div>
     <div v-else-if="message.role === 'user'" class="message-content user-content">{{ message.content }}</div>
     <div v-else class="message-content markdown" data-native-context-menu @click="onLink" v-html="markdown" />
-    <ul v-if="message.steps?.length" class="tool-steps" aria-label="工具步骤">
+    <ul v-if="message.steps?.length" class="tool-steps" :aria-label="t('工具步骤')">
       <li v-for="(item, index) in message.steps" :key="index" :class="{ failed: !item.ok }">
         <Icon :name="item.ok ? 'check' : 'x'" :size="10" />
         <span>{{ item.summary }}</span>
@@ -54,9 +64,9 @@ async function onLink(event: MouseEvent) {
     <div v-if="message.model && message.role === 'assistant' && message.kind !== 'operation'" class="message-model" :title="message.model">{{ message.model }}<template v-if="stats"> · {{ stats }}</template></div>
     <div v-if="message.operation" class="operation-status" :class="message.operation">{{ operationText }}</div>
     <div v-if="message.status !== 'pending'" class="message-actions">
-      <button :title="copied ? '已复制' : '复制消息'" :aria-label="copied ? '已复制消息' : '复制消息'" @click="copy"><Icon :name="copied ? 'check' : 'copy'" :size="12" />{{ copied ? '已复制' : '复制' }}</button>
-      <button v-if="canRetry" :disabled="busy" @click="emit('retry', message.id)"><Icon name="refresh" :size="12" />重试</button>
-      <span v-if="message.status === 'interrupted'" class="interrupted">回复已中断</span>
+      <button :title="copied ? t('已复制') : t('复制消息')" :aria-label="copied ? t('已复制消息') : t('复制消息')" @click="copy"><Icon :name="copied ? 'check' : 'copy'" :size="12" />{{ copied ? t('已复制') : t('__legacy_51b2bc4bd068') }}</button>
+      <button v-if="canRetry" :disabled="busy" @click="emit('retry', message.id)"><Icon name="refresh" :size="12" />{{ t('重试') }}</button>
+      <span v-if="message.status === 'interrupted'" class="interrupted">{{ t('回复已中断') }}</span>
     </div>
   </article>
 </template>

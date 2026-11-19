@@ -11,6 +11,7 @@ import Icon from '../icons/Icon.vue'
 import MacWindowLights from '../MacWindowLights.vue'
 import { IS_MACOS } from '../../utils/platform'
 import { formatSize } from './utils'
+import { t } from '../../i18n'
 
 const pane = usePaneStore()
 const ui = useUiStore()
@@ -34,17 +35,17 @@ const opId = ref('')
 const progress = ref<FsProgress | null>(null)
 const result = ref<SyncResult | null>(null)
 
-const modeOptions: { value: SyncMode; label: string }[] = [
-  { value: 'oneWay', label: '单向' },
-  { value: 'twoWay', label: '双向' },
-  { value: 'mirror', label: '镜像' },
-]
-const filters: { value: typeof filter.value; label: string }[] = [
-  { value: 'all', label: '全部' },
-  { value: 'copy', label: '复制' },
-  { value: 'delete', label: '删除' },
-  { value: 'conflict', label: '冲突' },
-]
+const modeOptions = computed<{ value: SyncMode; label: string }[]>(() => [
+  { value: 'oneWay', label: t('单向') },
+  { value: 'twoWay', label: t('双向') },
+  { value: 'mirror', label: t('镜像') },
+])
+const filters = computed<{ value: typeof filter.value; label: string }[]>(() => [
+  { value: 'all', label: t('全部') },
+  { value: 'copy', label: t('__legacy_51b2bc4bd068') },
+  { value: 'delete', label: t('__legacy_6cba6a2c0801') },
+  { value: 'conflict', label: t('__legacy_332b694ee854') },
+])
 
 function keyOf(entry: SyncEntry): string {
   return entry.path.toLowerCase()
@@ -103,22 +104,22 @@ const progressDetail = computed(() => {
   const value = progress.value
   if (!value) return ''
   if (value.bytesTotal > 0) return `${formatSize(value.bytesDone)} / ${formatSize(value.bytesTotal)}`
-  return `${value.filesDone} / ${value.filesTotal} 个文件`
+  return `${value.filesDone} / ${value.filesTotal} ${t('个文件')}`
 })
 
 const resultText = computed(() => {
   const value = result.value
   if (!value) return ''
-  const head = value.cancelled ? '已取消' : value.ok ? '同步完成' : '同步结束'
-  const errors = value.errors.length ? `，${value.errors.length} 个错误` : ''
-  return `${head}：复制 ${value.copied} 项、删除 ${value.deleted} 项${errors}`
+  const head = value.cancelled ? t('已取消') : value.ok ? t('同步完成') : t('同步结束')
+  const errors = value.errors.length ? t(`，${value.errors.length} 个错误`, `, ${value.errors.length} errors`) : ''
+  return t(`${head}：复制 ${value.copied} 项、删除 ${value.deleted} 项${errors}`, `${head}: copied ${value.copied}, deleted ${value.deleted}${errors}`)
 })
 
 const hint = computed(() => {
-  if (scanning.value) return '正在扫描两侧目录…'
-  if (mode.value === 'mirror') return '镜像会删除目标侧多余项，默认移到回收站'
-  if (mode.value === 'twoWay') return '双向不会删除任何一边，时间相同但内容不同的项需要手动指定方向'
-  return '单向只补齐 / 更新目标，不删除目标多余项'
+  if (scanning.value) return t('正在扫描两侧目录…')
+  if (mode.value === 'mirror') return t('镜像会删除目标侧多余项，默认移到回收站')
+  if (mode.value === 'twoWay') return t('双向不会删除任何一边，时间相同但内容不同的项需要手动指定方向')
+  return t('单向只补齐 / 更新目标，不删除目标多余项')
 })
 
 let scanSeq = 0
@@ -137,7 +138,7 @@ async function scan() {
   const leftPath = left.value.trim()
   const rightPath = right.value.trim()
   if (!leftPath || !rightPath) {
-    error.value = '请填写左右两个文件夹'
+    error.value = t('请填写左右两个文件夹')
     return
   }
   const seq = ++scanSeq
@@ -226,10 +227,10 @@ async function execute() {
     result.value = res
     ui.setStatusText(
       res.cancelled
-        ? `同步已取消：复制 ${res.copied} 项，删除 ${res.deleted} 项`
+        ? t(`同步已取消：复制 ${res.copied} 项，删除 ${res.deleted} 项`, `Sync cancelled: copied ${res.copied}, deleted ${res.deleted}`)
         : res.ok
-          ? `同步完成：复制 ${res.copied} 项，删除 ${res.deleted} 项`
-          : `同步结束：${res.errors.length} 个错误`,
+          ? t(`同步完成：复制 ${res.copied} 项，删除 ${res.deleted} 项`, `Sync complete: copied ${res.copied}, deleted ${res.deleted}`)
+          : t(`同步结束：${res.errors.length} 个错误`, `Sync finished with ${res.errors.length} errors`),
     )
   } catch (e) {
     error.value = String(e)
@@ -263,13 +264,13 @@ function actionLabel(action: SyncEntry['action']): string {
     case 'copyToLeft':
       return '右 → 左'
     case 'deleteRight':
-      return '删除右侧'
+      return t('删除右侧')
     case 'deleteLeft':
-      return '删除左侧'
+      return t('删除左侧')
     case 'conflict':
-      return '冲突'
+      return t('__legacy_951c1ee08adb')
     default:
-      return '相同'
+      return t('__legacy_63b9fff214a6')
   }
 }
 
@@ -309,32 +310,32 @@ watch([mode, direction, compareHash], () => {
         <MacWindowLights :disabled="running" @close="close" />
         <h3 id="sync-title">
           <Icon name="folder-sync" :size="15" class="head-icon" />
-          文件夹同步
+          {{ t('文件夹同步') }}
         </h3>
         <span v-if="plan" class="sd-total">
-          {{ plan.stats.copy + plan.stats.delete + plan.stats.conflict }} 项差异
+          {{ t(`${plan.stats.copy + plan.stats.delete + plan.stats.conflict} 项差异`, `${plan.stats.copy + plan.stats.delete + plan.stats.conflict} differences`) }}
         </span>
-        <button v-if="!IS_MACOS" class="sd-close" type="button" :disabled="running" aria-label="关闭" @click="close">
+        <button v-if="!IS_MACOS" class="sd-close" type="button" :disabled="running" :aria-label="t('关闭')" @click="close">
           <Icon name="x" :size="14" />
         </button>
       </header>
 
       <div class="sd-dirs">
         <label class="dir">
-          <span class="dir-label">左侧</span>
+          <span class="dir-label">{{ t('左侧') }}</span>
           <input v-model="left" spellcheck="false" :disabled="running" @change="scan" />
         </label>
-        <button class="swap" type="button" title="交换左右" :disabled="running" @click="swap">
+        <button class="swap" type="button" :title="t('交换左右')" :disabled="running" @click="swap">
           <Icon name="arrow-right-left" :size="14" />
         </button>
         <label class="dir">
-          <span class="dir-label">右侧</span>
+          <span class="dir-label">{{ t('右侧') }}</span>
           <input v-model="right" spellcheck="false" :disabled="running" @change="scan" />
         </label>
       </div>
 
       <div class="sd-options">
-        <div class="seg" role="group" aria-label="同步模式">
+        <div class="seg" role="group" :aria-label="t('同步模式')">
           <button
             v-for="option in modeOptions"
             :key="option.value"
@@ -346,14 +347,14 @@ watch([mode, direction, compareHash], () => {
             {{ option.label }}
           </button>
         </div>
-        <div v-if="mode !== 'twoWay'" class="seg" role="group" aria-label="同步方向">
+        <div v-if="mode !== 'twoWay'" class="seg" role="group" :aria-label="t('同步方向')">
           <button
             type="button"
             :class="{ on: direction === 'leftToRight' }"
             :disabled="running"
             @click="direction = 'leftToRight'"
           >
-            左 → 右
+            {{ t('左 → 右') }}
           </button>
           <button
             type="button"
@@ -361,25 +362,25 @@ watch([mode, direction, compareHash], () => {
             :disabled="running"
             @click="direction = 'rightToLeft'"
           >
-            右 → 左
+            {{ t('右 → 左') }}
           </button>
         </div>
         <label class="chk">
           <input v-model="compareHash" type="checkbox" :disabled="running" />
-          内容校验
+            {{ t('内容校验') }}
         </label>
         <label v-if="mode === 'mirror'" class="chk">
           <input v-model="permanent" type="checkbox" :disabled="running" />
-          永久删除
+          {{ t('永久删除') }}
         </label>
       </div>
 
       <div v-if="plan" class="sd-stats">
-        <span><b>{{ plan.stats.copy }}</b> 复制</span>
-        <span><b>{{ plan.stats.delete }}</b> 删除</span>
-        <span :class="{ warn: plan.stats.conflict > 0 }"><b>{{ plan.stats.conflict }}</b> 冲突</span>
-        <span><b>{{ plan.stats.equal }}</b> 相同</span>
-        <span class="bytes">待传 {{ formatSize(plan.stats.bytes) }}</span>
+        <span><b>{{ plan.stats.copy }}</b> {{ t('__legacy_2242d42a7e42') }}</span>
+        <span><b>{{ plan.stats.delete }}</b> {{ t('__legacy_80b1958f5e85') }}</span>
+        <span :class="{ warn: plan.stats.conflict > 0 }"><b>{{ plan.stats.conflict }}</b> {{ t('__legacy_9fbd9ecfa240') }}</span>
+        <span><b>{{ plan.stats.equal }}</b> {{ t('__legacy_2b500f25044d') }}</span>
+        <span class="bytes">{{ t('待传') }} {{ formatSize(plan.stats.bytes) }}</span>
       </div>
 
       <div v-if="error" class="sd-error">{{ error }}</div>
@@ -388,7 +389,7 @@ watch([mode, direction, compareHash], () => {
         <div class="sd-list-head">
           <label class="chk">
             <input type="checkbox" :checked="allSelected" :disabled="running || scanning" @change="toggleAll" />
-            全选
+            {{ t('全选') }}
           </label>
           <div class="seg small">
             <button
@@ -401,12 +402,12 @@ watch([mode, direction, compareHash], () => {
               {{ option.label }}
             </button>
           </div>
-          <span class="sd-sel">已选 {{ selectedCount }} 项</span>
+          <span class="sd-sel">{{ t(`已选 ${selectedCount} 项`, `${selectedCount} selected`) }}</span>
         </div>
 
         <div ref="scrollRef" class="sd-scroll">
-          <div v-if="scanning" class="sd-empty">正在扫描…</div>
-          <div v-else-if="!visibleEntries.length" class="sd-empty">没有差异</div>
+          <div v-if="scanning" class="sd-empty">{{ t('正在扫描…') }}</div>
+          <div v-else-if="!visibleEntries.length" class="sd-empty">{{ t('没有差异') }}</div>
           <div
             v-else
             class="sd-canvas"
@@ -428,8 +429,8 @@ watch([mode, direction, compareHash], () => {
               <Icon :name="row.entry.isDir ? 'folder' : 'file'" :size="13" class="kind" />
               <span class="path" :title="row.entry.path">{{ row.entry.path }}</span>
               <span v-if="row.entry.action === 'conflict'" class="resolve">
-                <button type="button" :disabled="running" @click="resolve(row.entry, 'copyToRight')">用左</button>
-                <button type="button" :disabled="running" @click="resolve(row.entry, 'copyToLeft')">用右</button>
+                <button type="button" :disabled="running" @click="resolve(row.entry, 'copyToRight')">{{ t('用左') }}</button>
+                <button type="button" :disabled="running" @click="resolve(row.entry, 'copyToLeft')">{{ t('用右') }}</button>
               </span>
               <span class="badge" :class="row.entry.action">{{ actionLabel(row.entry.action) }}</span>
               <span class="size">{{ row.entry.isDir ? '—' : formatSize(row.entry.size) }}</span>
@@ -443,18 +444,18 @@ watch([mode, direction, compareHash], () => {
           <div class="bar"><div class="fill" :style="{ width: `${percent}%` }" /></div>
           <span class="pct">{{ percent }}%</span>
           <span class="detail">{{ progressDetail }}</span>
-          <button type="button" @click="cancel">取消</button>
+          <button type="button" @click="cancel">{{ t('取消') }}</button>
         </div>
         <p v-else-if="result" class="sd-result">{{ resultText }}</p>
         <span v-else class="sd-hint">{{ hint }}</span>
-        <button type="button" :disabled="scanning || running" @click="scan">重新扫描</button>
+        <button type="button" :disabled="scanning || running" @click="scan">{{ t('重新扫描') }}</button>
         <button
           type="button"
           class="primary"
           :disabled="!selectedCount || running || scanning"
           @click="execute"
         >
-          {{ running ? '同步中…' : `开始同步（${selectedCount} 项）` }}
+          {{ running ? t('同步中…') : t(`开始同步（${selectedCount} 项）`, `Sync ${selectedCount} items`) }}
         </button>
       </footer>
     </section>

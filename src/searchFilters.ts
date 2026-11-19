@@ -2,6 +2,7 @@
 // 单一事实来源：搜索面板的 chips、search store（全局查询）、pane store（当前目录本地过滤）共用。
 import type { FileEntry } from './types'
 import { extsOfKind } from './components/Pane/utils'
+import { t } from './i18n'
 
 export interface SearchTypeCategory {
   key: string
@@ -34,6 +35,16 @@ export const SEARCH_CATEGORIES: SearchTypeCategory[] = [
 export function categoryOf(key: string | null | undefined): SearchTypeCategory | undefined {
   if (!key || key === 'all') return undefined
   return SEARCH_CATEGORIES.find((c) => c.key === key)
+}
+
+export function categoryLabel(key: string | null | undefined): string {
+  const category = categoryOf(key)
+  if (!category) return t('全部')
+  const english: Record<string, string> = {
+    folder: 'Folders', doc: 'Documents', image: 'Images', audio: 'Audio', video: 'Videos',
+    archive: 'Archives', app: 'Applications', code: 'Code',
+  }
+  return t(category.label, english[category.key] ?? category.label)
 }
 
 /** 条目是否命中类型筛选（规则与后端 search_engine::matches 一致：目录无扩展名，选扩展名类时自动排除目录） */

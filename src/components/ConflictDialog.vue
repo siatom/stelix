@@ -6,6 +6,7 @@ import type { ConflictItem, ConflictPolicy } from '../types'
 import Icon from './icons/Icon.vue'
 import MacWindowLights from './MacWindowLights.vue'
 import type { IconName } from './icons/paths'
+import { t } from '../i18n'
 
 const props = defineProps<{
   /** 预检到的冲突项。 */
@@ -25,18 +26,18 @@ interface Option {
   icon: IconName
 }
 
-const options: Option[] = [
-  { value: 'keepBoth', label: '保留两者', desc: '自动为新项改名，如「报告 (1).docx」', icon: 'copy' },
-  { value: 'replace', label: '替换目标', desc: '删除目标位置的同名项，写入新项', icon: 'refresh' },
-  { value: 'skip', label: '跳过冲突项', desc: '保留目标位置的原文件，不改动它', icon: 'arrow-right' },
-]
+const options = computed<Option[]>(() => [
+  { value: 'keepBoth', label: t('保留两者'), desc: t('自动为新项改名，如「报告 (1).docx」'), icon: 'copy' },
+  { value: 'replace', label: t('替换目标'), desc: t('删除目标位置的同名项，写入新项'), icon: 'refresh' },
+  { value: 'skip', label: t('跳过冲突项'), desc: t('保留目标位置的原文件，不改动它'), icon: 'arrow-right' },
+])
 
 const policy = ref<ConflictPolicy>('keepBoth')
 
 /** 只列前若干项，避免大批量操作把弹窗撑爆。 */
 const preview = computed(() => props.items.slice(0, 5))
 const restCount = computed(() => Math.max(0, props.items.length - preview.value.length))
-const actionText = computed(() => (props.kind === 'move' ? '移动' : '复制'))
+const actionText = computed(() => (props.kind === 'move' ? t('__legacy_9131857f5955') : t('__legacy_2242d42a7e42')))
 
 /** 路径末段（兼容 / 与 \\ 分隔符）。 */
 function baseName(path: string): string {
@@ -75,14 +76,14 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown, true))
           <MacWindowLights @close="emit('resolve', 'cancel')" />
           <h3 id="conflict-title">
             <Icon name="alert-triangle" :size="14" class="head-icon" />
-            目标位置已存在同名项
+            {{ t('目标位置已存在同名项') }}
           </h3>
         </div>
-        <span class="count">{{ items.length }} 处冲突</span>
+        <span class="count">{{ t(`${items.length} 处冲突`, `${items.length} conflicts`) }}</span>
       </header>
 
       <p class="lead">
-        继续{{ actionText }}前请选择处理方式，将对本次全部冲突统一生效。
+        {{ t(`继续${actionText}前请选择处理方式，将对本次全部冲突统一生效。`, `Choose how to handle conflicts before you ${actionText}; this will apply to all conflicts in this operation.`) }}
       </p>
 
       <div class="preview" role="list">
@@ -92,10 +93,10 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown, true))
           <Icon name="arrow-right" :size="12" class="arrow" />
           <span class="where" :title="item.path">{{ item.path }}</span>
         </div>
-        <div v-if="restCount" class="preview-more">还有 {{ restCount }} 处冲突未列出</div>
+        <div v-if="restCount" class="preview-more">{{ t(`还有 ${restCount} 处冲突未列出`, `${restCount} more conflicts not shown`) }}</div>
       </div>
 
-      <div class="options" role="radiogroup" aria-label="冲突处理方式">
+      <div class="options" role="radiogroup" :aria-label="t('冲突处理方式')">
         <button
           v-for="option in options"
           :key="option.value"
@@ -116,8 +117,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown, true))
       </div>
 
       <footer class="actions">
-        <button type="button" @click="emit('resolve', 'cancel')">取消</button>
-        <button type="button" class="primary" @click="confirm">继续{{ actionText }}</button>
+        <button type="button" @click="emit('resolve', 'cancel')">{{ t('取消') }}</button>
+        <button type="button" class="primary" @click="confirm">{{ t(`继续${actionText}`, `Continue to ${actionText}`) }}</button>
       </footer>
     </div>
   </div>

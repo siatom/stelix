@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useAiStore } from '../../stores/ai'
 import { api } from '../../api'
 import type { AiConfig, AiModel, AiProtocol, AiProvider } from '../../types'
+import { t } from '../../i18n'
 
 const ai = useAiStore()
 const draft = ref<AiConfig>({ enabled: false, providers: [], activeProviderId: '', activeModelId: '' })
@@ -38,7 +39,25 @@ const protocols: { id: AiProtocol; name: string; hint: string }[] = [
 ]
 const provider = computed(() => draft.value.providers.find(p => p.id === editingId.value))
 const activeProvider = computed(() => draft.value.providers.find(p => p.id === draft.value.activeProviderId))
-const protocolHint = computed(() => protocols.find(p => p.id === provider.value?.protocol)?.hint)
+const protocolHint = computed(() => {
+  const protocol = protocols.find(p => p.id === provider.value?.protocol)
+  if (!protocol) return undefined
+  const english: Record<AiProtocol, string> = {
+    'openai-chat': 'Include /v1 in the base URL if required; the app appends /chat/completions.',
+    'openai-responses': 'Include /v1 in the base URL if required; the app appends /responses.',
+    anthropic: 'For example, https://api.anthropic.com/v1; the app appends /messages.',
+    gemini: 'For example, https://generativelanguage.googleapis.com/v1beta; the app appends the model request path.',
+  }
+  return t(protocol.hint, english[protocol.id])
+})
+
+function vendorName(id: string, zh: string): string {
+  const english: Record<string, string> = {
+    qwen: 'Alibaba Cloud / Qwen', zhipu: 'Zhipu / GLM', siliconflow: 'SiliconFlow',
+    ollama: 'Ollama / Local model', custom: 'Custom / Proxy service',
+  }
+  return t(zh, english[id] ?? zh)
+}
 
 async function load() {
   loading.value = true
@@ -55,7 +74,7 @@ onMounted(load)
 function addProvider() {
   const entry = vendors.find(v => v.id === preset.value) ?? vendors[0]
   const id = crypto.randomUUID()
-  draft.value.providers.push({ id, name: entry.name, vendor: entry.id, protocol: entry.protocol,
+  draft.value.providers.push({ id, name: vendorName(entry.id, entry.name), vendor: entry.id, protocol: entry.protocol,
     baseUrl: entry.url, apiKey: '', models: [] })
   selectProvider(id)
 }
@@ -82,7 +101,7 @@ function addModel() {
   const p = provider.value
   const id = modelId.value.trim()
   if (!p || !id) return
-  if (p.models.some(m => m.id === id)) { error.value = '该 Provider 已包含此模型 ID'; return }
+  if (p.models.some(m => m.id === id)) { error.value = t('该 Provider 已包含此模型 ID'); return }
   p.models.push({ id, name: modelName.value.trim() || id, vendor: modelVendor.value.trim() })
   if (!draft.value.activeProviderId) {
     draft.value.activeProviderId = p.id
@@ -113,9 +132,9 @@ async function save() {
   saving.value = true
   error.value = feedback.value = ''
   try {
-    if (modelId.value.trim()) throw new Error('请先添加填写中的模型，或清空模型 ID')
+    if (modelId.value.trim()) throw new Error(t('请先添加填写中的模型，或清空模型 ID'))
     await ai.saveConfig(JSON.parse(JSON.stringify(draft.value)) as AiConfig)
-    feedback.value = '配置已保存，AI 对话和定时任务规划将使用当前模型。'
+    feedback.value = t('配置已保存，AI 对话和定时任务规划将使用当前模型。')
   } catch (e) { error.value = String(e) }
   finally { saving.value = false }
 }
@@ -139,7 +158,7 @@ async function fetchModels() {
     } else if (draft.value.activeProviderId === p.id && !draft.value.activeModelId) {
       draft.value.activeModelId = p.models[0]?.id ?? ''
     }
-    feedback.value = `已获取 ${models.length} 个模型，新增 ${added} 个。`
+    feedback.value = t(`已获取 ${models.length} 个模型，新增 ${added} 个。`, `Fetched ${models.length} models; added ${added}.`)
   } catch (e) { error.value = String(e) }
   finally { fetching.value = false }
 }
@@ -163,50 +182,50 @@ async function testConnection() {
 
 <template>
   <div class="ai-settings">
-    <p class="intro">管理多个接入服务，每个 Provider 可使用独立的地址、协议、密钥和模型列表。</p>
-    <p v-if="loading" class="hint">正在读取配置…</p>
-    <div v-else-if="loadFailed" class="error" role="alert">{{ error }}<button @click="load">重新读取配置</button></div>
+    <p class="intro">{{ t('管理多个接入服务，每个 Provider 可使用独立的地址、协议、密钥和模型列表。') }}</p>
+    <p v-if="loading" class="hint">{{ t('正在读取配置…') }}</p>
+    <div v-else-if="loadFailed" class="error" role="alert">{{ error }}<button @click="load">{{ t('重新读取配置') }}</button></div>
     <fieldset v-else class="config-fields" :disabled="saving || testing || fetching">
       <section class="ai-card">
-        <div class="section-head"><h3>当前使用</h3><label class="enable"><input v-model="draft.enabled" type="checkbox" />启用 AI</label></div>
+        <div class="section-head"><h3>{{ t('当前使用') }}</h3><label class="enable"><input v-model="draft.enabled" type="checkbox" />{{ t('启用 AI') }}</label></div>
         <div class="field-grid">
-          <label class="field"><span>Provider</span><select v-model="draft.activeProviderId" @change="setActiveProvider"><option value="">请选择接入服务</option><option v-for="p in draft.providers" :key="p.id" :value="p.id">{{ p.name }}</option></select></label>
-          <label class="field"><span>模型</span><select v-model="draft.activeModelId" :disabled="!activeProvider"><option value="">请选择模型</option><option v-for="m in activeProvider?.models ?? []" :key="m.id" :value="m.id">{{ m.name || m.id }}</option></select></label>
+          <label class="field"><span>Provider</span><select v-model="draft.activeProviderId" @change="setActiveProvider"><option value="">{{ t('请选择接入服务') }}</option><option v-for="p in draft.providers" :key="p.id" :value="p.id">{{ p.name }}</option></select></label>
+          <label class="field"><span>{{ t('模型') }}</span><select v-model="draft.activeModelId" :disabled="!activeProvider"><option value="">{{ t('请选择模型') }}</option><option v-for="m in activeProvider?.models ?? []" :key="m.id" :value="m.id">{{ m.name || m.id }}</option></select></label>
         </div>
-        <p class="hint">关闭 AI 时使用离线规则解析。密钥可留空，用于无需认证的本地服务。</p>
+        <p class="hint">{{ t('关闭 AI 时使用离线规则解析。密钥可留空，用于无需认证的本地服务。') }}</p>
       </section>
       <section class="ai-card">
-        <div class="section-head"><h3>接入服务</h3><span class="count">{{ draft.providers.length }} 个 Provider</span></div>
-        <div class="add-provider"><select v-model="preset" aria-label="新 Provider 厂商"><option v-for="v in vendors" :key="v.id" :value="v.id">{{ v.name }}</option></select><button @click="addProvider">添加 Provider</button></div>
-        <div v-if="draft.providers.length" class="provider-list" aria-label="Provider 列表">
-          <button v-for="p in draft.providers" :key="p.id" class="provider-chip" :class="{ selected: p.id === editingId }" :aria-pressed="p.id === editingId" @click="selectProvider(p.id)">{{ p.name }}<span v-if="p.id === draft.activeProviderId" class="badge">当前</span></button>
+        <div class="section-head"><h3>{{ t('接入服务') }}</h3><span class="count">{{ t(`${draft.providers.length} 个 Provider`, `${draft.providers.length} providers`) }}</span></div>
+        <div class="add-provider"><select v-model="preset" :aria-label="t('新 Provider 厂商')"><option v-for="v in vendors" :key="v.id" :value="v.id">{{ vendorName(v.id, v.name) }}</option></select><button @click="addProvider">{{ t('添加 Provider') }}</button></div>
+        <div v-if="draft.providers.length" class="provider-list" :aria-label="t('Provider 列表')">
+          <button v-for="p in draft.providers" :key="p.id" class="provider-chip" :class="{ selected: p.id === editingId }" :aria-pressed="p.id === editingId" @click="selectProvider(p.id)">{{ p.name }}<span v-if="p.id === draft.activeProviderId" class="badge">{{ t('当前') }}</span></button>
         </div>
-        <p v-else class="hint">添加一个 Provider，然后填写模型 ID。</p>
+        <p v-else class="hint">{{ t('添加一个 Provider，然后填写模型 ID。') }}</p>
         <div v-if="provider" class="provider-editor">
           <div class="field-grid">
-            <label class="field"><span>接入名称</span><input v-model="provider.name" placeholder="例如：公司网关 / 本地模型" /></label>
-            <label class="field"><span>服务厂商</span><select v-model="provider.vendor"><option v-for="v in vendors" :key="v.id" :value="v.id">{{ v.name }}</option></select></label>
+            <label class="field"><span>{{ t('接入名称') }}</span><input v-model="provider.name" :placeholder="t('例如：公司网关 / 本地模型')" /></label>
+            <label class="field"><span>{{ t('服务厂商') }}</span><select v-model="provider.vendor"><option v-for="v in vendors" :key="v.id" :value="v.id">{{ vendorName(v.id, v.name) }}</option></select></label>
           </div>
-          <label class="field"><span>接口协议</span><select v-model="provider.protocol"><option v-for="p in protocols" :key="p.id" :value="p.id">{{ p.name }}</option></select></label>
-          <label class="field"><span>API 基础地址</span><input v-model="provider.baseUrl" type="url" placeholder="https://your-provider.example/v1" spellcheck="false" /><small>{{ protocolHint }}</small></label>
-          <label class="field"><span>API Key</span><input v-model="provider.apiKey" type="password" placeholder="本地服务无需认证时可留空" autocomplete="off" spellcheck="false" /></label>
-          <div class="section-head model-head"><h3>模型列表</h3><div class="model-head-actions"><span class="count">{{ provider.models.length }} 个模型</span><button :disabled="fetching || !provider.baseUrl.trim()" :title="provider.baseUrl.trim() ? '从该接入拉取可用模型' : '请先填写 API 基础地址'" @click="fetchModels">{{ fetching ? '拉取中…' : '拉取模型列表' }}</button></div></div>
-          <p class="hint">模型 ID 按服务商实际提供的值填写；中转服务可添加不同厂商的模型。AI 文件操作需要模型支持工具调用。</p>
+          <label class="field"><span>{{ t('接口协议') }}</span><select v-model="provider.protocol"><option v-for="p in protocols" :key="p.id" :value="p.id">{{ p.name }}</option></select></label>
+          <label class="field"><span>{{ t('API 基础地址') }}</span><input v-model="provider.baseUrl" type="url" placeholder="https://your-provider.example/v1" spellcheck="false" /><small>{{ protocolHint }}</small></label>
+          <label class="field"><span>API Key</span><input v-model="provider.apiKey" type="password" :placeholder="t('本地服务无需认证时可留空')" autocomplete="off" spellcheck="false" /></label>
+          <div class="section-head model-head"><h3>{{ t('模型列表') }}</h3><div class="model-head-actions"><span class="count">{{ t(`${provider.models.length} 个模型`, `${provider.models.length} models`) }}</span><button :disabled="fetching || !provider.baseUrl.trim()" :title="provider.baseUrl.trim() ? t('从该接入拉取可用模型') : t('请先填写 API 基础地址')" @click="fetchModels">{{ fetching ? t('拉取中…') : t('拉取模型列表') }}</button></div></div>
+          <p class="hint">{{ t('模型 ID 按服务商实际提供的值填写；中转服务可添加不同厂商的模型。AI 文件操作需要模型支持工具调用。') }}</p>
           <div v-for="(m, index) in provider.models" :key="index" class="model-row">
-            <label class="field"><span>模型 ID</span><input :value="m.id" spellcheck="false" @input="updateModelId(m, $event)" /></label>
-            <label class="field"><span>显示名称</span><input v-model="m.name" /></label>
-            <label class="field"><span>模型厂商</span><input v-model="m.vendor" placeholder="可选" /></label>
-            <button class="danger" :aria-label="`移除模型 ${m.name || m.id}`" @click="removeModel(m)">移除</button>
+            <label class="field"><span>Model ID</span><input :value="m.id" spellcheck="false" @input="updateModelId(m, $event)" /></label>
+            <label class="field"><span>{{ t('显示名称') }}</span><input v-model="m.name" /></label>
+            <label class="field"><span>{{ t('模型厂商') }}</span><input v-model="m.vendor" :placeholder="t('可选')" /></label>
+            <button class="danger" :aria-label="t(`移除模型 ${m.name || m.id}`, `Remove model ${m.name || m.id}`)" @click="removeModel(m)">{{ t('移除') }}</button>
           </div>
           <div class="model-add">
-            <div class="field-grid"><label class="field"><span>新模型 ID</span><input v-model="modelId" placeholder="服务商提供的模型 ID" spellcheck="false" @keydown.enter="addModel" /></label><label class="field"><span>显示名称</span><input v-model="modelName" placeholder="可选，默认使用模型 ID" /></label></div>
-            <div class="add-provider"><input v-model="modelVendor" aria-label="新模型厂商" placeholder="模型厂商（可选）" /><button :disabled="!modelId.trim()" @click="addModel">添加模型</button></div>
+            <div class="field-grid"><label class="field"><span>{{ t('新模型 ID') }}</span><input v-model="modelId" :placeholder="t('服务商提供的模型 ID')" spellcheck="false" @keydown.enter="addModel" /></label><label class="field"><span>{{ t('显示名称') }}</span><input v-model="modelName" :placeholder="t('可选，默认使用模型 ID')" /></label></div>
+            <div class="add-provider"><input v-model="modelVendor" :aria-label="t('新模型厂商')" :placeholder="t('模型厂商（可选）')" /><button :disabled="!modelId.trim()" @click="addModel">{{ t('添加模型') }}</button></div>
           </div>
-          <div class="provider-actions"><button :disabled="testing || !provider.models.length" @click="testConnection">{{ testing ? '测试中…' : '测试连接' }}</button><button class="danger" @click="removeProvider">移除 Provider</button></div>
-          <p class="hint">测试会发送一条简短请求，可能产生少量接口费用，不发送文件内容。</p>
+          <div class="provider-actions"><button :disabled="testing || !provider.models.length" @click="testConnection">{{ testing ? t('测试中…') : t('测试连接') }}</button><button class="danger" @click="removeProvider">{{ t('移除 Provider') }}</button></div>
+          <p class="hint">{{ t('测试会发送一条简短请求，可能产生少量接口费用，不发送文件内容。') }}</p>
         </div>
       </section>
-      <div class="save-bar"><p v-if="error" class="error" role="alert">{{ error }}</p><p v-else-if="feedback" class="success" role="status">{{ feedback }}</p><button class="primary" @click="save">{{ saving ? '保存中…' : '保存 AI 配置' }}</button></div>
+      <div class="save-bar"><p v-if="error" class="error" role="alert">{{ error }}</p><p v-else-if="feedback" class="success" role="status">{{ feedback }}</p><button class="primary" @click="save">{{ saving ? t('保存中…') : t('保存 AI 配置') }}</button></div>
     </fieldset>
   </div>
 </template>

@@ -4,8 +4,9 @@ import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import type { TabState } from '../../types'
 import { usePaneStore } from '../../stores/pane'
 import { useUiStore } from '../../stores/ui'
-import { SEARCH_CATEGORIES, categoryOf } from '../../searchFilters'
+import { SEARCH_CATEGORIES, categoryLabel, categoryOf } from '../../searchFilters'
 import Icon from '../icons/Icon.vue'
+import { t } from '../../i18n'
 
 const props = defineProps<{ tab: TabState }>()
 const paneStore = usePaneStore()
@@ -20,13 +21,13 @@ const UNIT_SIZE: Record<SizeUnit, number> = {
 }
 const UNIT_LABEL: Record<SizeUnit, string> = { b: 'B', kb: 'KB', mb: 'MB', gb: 'GB' }
 const SIZE_UNITS: SizeUnit[] = ['b', 'kb', 'mb', 'gb']
-const MODIFIED_OPTIONS = [
-  { value: null, label: '不限' },
-  { value: 1, label: '最近 1 天' },
-  { value: 7, label: '最近 7 天' },
-  { value: 30, label: '最近 30 天' },
-  { value: 365, label: '最近一年' },
-] as const
+const MODIFIED_OPTIONS = computed(() => [
+  { value: null, label: t('不限') },
+  { value: 1, label: t('最近 1 天') },
+  { value: 7, label: t('最近 7 天') },
+  { value: 30, label: t('最近 30 天') },
+  { value: 365, label: t('最近一年') },
+] as const)
 
 const triggerRef = ref<HTMLButtonElement | null>(null)
 const panelRef = ref<HTMLElement | null>(null)
@@ -48,20 +49,20 @@ const isLocal = computed(() => (props.tab.kind ?? 'files') === 'files')
 const active = computed(() => paneStore.hasTabFilter(props.tab))
 const summary = computed(() => {
   const parts: string[] = []
-  if (props.tab.filter.trim()) parts.push(`名称「${props.tab.filter.trim()}」`)
+  if (props.tab.filter.trim()) parts.push(t(`名称「${props.tab.filter.trim()}」`, `Name: “${props.tab.filter.trim()}”`))
   const type = categoryOf(props.tab.typeFilter)
-  if (type) parts.push(type.label)
+  if (type) parts.push(categoryLabel(type.key))
   const rule = props.tab.filterRule
-  if (rule?.exts.length) parts.push(`扩展名 ${rule.exts.join(', ')}`)
+  if (rule?.exts.length) parts.push(t(`扩展名 ${rule.exts.join(', ')}`, `Extensions: ${rule.exts.join(', ')}`))
   if (rule?.minSize != null || rule?.maxSize != null) {
-    parts.push(`大小 ${rule?.minSize != null ? formatBytes(rule.minSize) : '不限'}–${rule?.maxSize != null ? formatBytes(rule.maxSize) : '不限'}`)
+    parts.push(t(`大小 ${rule?.minSize != null ? formatBytes(rule.minSize) : '不限'}–${rule?.maxSize != null ? formatBytes(rule.maxSize) : '不限'}`, `Size: ${rule?.minSize != null ? formatBytes(rule.minSize) : 'Any'}–${rule?.maxSize != null ? formatBytes(rule.maxSize) : 'Any'}`))
   }
-  if (rule?.modifiedWithinDays != null) parts.push(`最近 ${rule.modifiedWithinDays} 天`)
-  if (rule?.recursive) parts.push('含子文件夹')
+  if (rule?.modifiedWithinDays != null) parts.push(t(`最近 ${rule.modifiedWithinDays} 天`, `Last ${rule.modifiedWithinDays} days`))
+  if (rule?.recursive) parts.push(t('含子文件夹'))
   return parts.join(' · ')
 })
 const triggerTitle = computed(() =>
-  active.value ? `筛选中：${summary.value}` : '筛选当前文件夹',
+  active.value ? t(`筛选中：${summary.value}`, `Filtering: ${summary.value}`) : t('筛选当前文件夹'),
 )
 
 function formatBytes(bytes: number): string {
@@ -195,7 +196,7 @@ async function apply() {
   const minSize = parseSize(form.minSize, form.minUnit)
   const maxSize = parseSize(form.maxSize, form.maxUnit)
   if (minSize !== null && maxSize !== null && minSize > maxSize) {
-    ui.setStatusText('筛选失败：最小大小不能大于最大大小')
+    ui.setStatusText(t('筛选失败：最小大小不能大于最大大小'))
     return
   }
   const rule = {
@@ -243,7 +244,7 @@ onBeforeUnmount(closePanel)
       class="filter-button"
       :class="{ active }"
       :title="triggerTitle"
-      aria-label="筛选当前文件夹"
+      :aria-label="t('筛选当前文件夹')"
       :aria-expanded="open"
       @click="togglePanel"
     >
@@ -263,19 +264,19 @@ onBeforeUnmount(closePanel)
             width: `${position.width}px`,
           }"
           role="dialog"
-          aria-label="筛选当前文件夹"
+          :aria-label="t('筛选当前文件夹')"
           @submit.prevent="apply"
         >
           <header class="fp-head">
             <span class="fp-title">
               <Icon name="filter" :size="14" />
-              筛选文件
+              {{ t('筛选文件') }}
             </span>
             <button
               type="button"
               class="fp-close"
-              title="关闭"
-              aria-label="关闭筛选面板"
+              :title="t('关闭')"
+              :aria-label="t('关闭筛选面板')"
               @click="closePanel"
             >
               <Icon name="x" :size="14" />
@@ -284,44 +285,44 @@ onBeforeUnmount(closePanel)
 
           <div class="fp-body">
             <label class="fp-field">
-              <span class="fp-label">名称</span>
+              <span class="fp-label">{{ t('名称') }}</span>
               <input
                 v-model="form.text"
                 class="fp-input"
                 spellcheck="false"
-                placeholder="文件名包含…（空格分隔多个关键词）"
+                :placeholder="t('文件名包含…（空格分隔多个关键词）')"
               />
             </label>
 
             <div class="fp-field">
-              <span class="fp-label">类型</span>
+              <span class="fp-label">{{ t('类型') }}</span>
               <select v-model="form.type" class="fp-select">
                 <option v-for="category in SEARCH_CATEGORIES" :key="category.key" :value="category.key">
-                  {{ category.label }}
+                  {{ categoryLabel(category.key) }}
                 </option>
               </select>
             </div>
 
             <label class="fp-field">
-              <span class="fp-label">扩展名</span>
+              <span class="fp-label">{{ t('__legacy_0a109b4cc99c') }}</span>
               <input
                 v-model="form.exts"
                 class="fp-input"
                 spellcheck="false"
-                placeholder="如 psd, ai（留空则按类型）"
+                :placeholder="t('如 psd, ai（留空则按类型）')"
               />
             </label>
 
             <div class="fp-field">
-              <span class="fp-label">大小</span>
+              <span class="fp-label">{{ t('大小') }}</span>
               <div class="fp-size-row">
                 <input
                   v-model="form.minSize"
                   class="fp-input size"
                   inputmode="decimal"
-                  placeholder="最小"
+                  :placeholder="t('最小')"
                 />
-                <select v-model="form.minUnit" class="fp-unit" aria-label="最小大小的单位">
+                <select v-model="form.minUnit" class="fp-unit" :aria-label="t('最小大小的单位')">
                   <option v-for="unit in SIZE_UNITS" :key="unit" :value="unit">
                     {{ UNIT_LABEL[unit] }}
                   </option>
@@ -331,9 +332,9 @@ onBeforeUnmount(closePanel)
                   v-model="form.maxSize"
                   class="fp-input size"
                   inputmode="decimal"
-                  placeholder="最大"
+                  :placeholder="t('最大')"
                 />
-                <select v-model="form.maxUnit" class="fp-unit" aria-label="最大大小的单位">
+                <select v-model="form.maxUnit" class="fp-unit" :aria-label="t('最大大小的单位')">
                   <option v-for="unit in SIZE_UNITS" :key="unit" :value="unit">
                     {{ UNIT_LABEL[unit] }}
                   </option>
@@ -342,7 +343,7 @@ onBeforeUnmount(closePanel)
             </div>
 
             <div class="fp-field">
-              <span class="fp-label">修改时间</span>
+              <span class="fp-label">{{ t('修改时间') }}</span>
               <select v-model="form.modifiedDays" class="fp-select">
                 <option v-for="option in MODIFIED_OPTIONS" :key="String(option.value)" :value="option.value">
                   {{ option.label }}
@@ -355,7 +356,7 @@ onBeforeUnmount(closePanel)
               class="fp-recursive"
               :class="{ on: form.recursive }"
               :disabled="!isLocal"
-              :title="isLocal ? '同时扫描当前目录下的所有子文件夹' : '仅本地目录支持递归筛选'"
+              :title="isLocal ? t('同时扫描当前目录下的所有子文件夹') : t('仅本地目录支持递归筛选')"
               :aria-pressed="form.recursive"
               @click="form.recursive = !form.recursive"
             >
@@ -363,16 +364,16 @@ onBeforeUnmount(closePanel)
                 <span class="fp-knob" />
               </span>
               <span class="fp-recursive-text">
-                <span class="t">包含子文件夹</span>
-                <span class="h">{{ isLocal ? '递归扫描所有层级' : '仅本地目录支持递归' }}</span>
+                <span class="t">{{ t('包含子文件夹') }}</span>
+                <span class="h">{{ isLocal ? t('递归扫描所有层级') : t('仅本地目录支持递归') }}</span>
               </span>
             </button>
           </div>
 
           <footer class="fp-foot">
-            <span class="fp-hint">自定义扩展名优先于类型</span>
-            <button type="button" class="fp-reset" @click="reset">重置</button>
-            <button type="submit" class="fp-apply">应用</button>
+            <span class="fp-hint">{{ t('自定义扩展名优先于类型') }}</span>
+            <button type="button" class="fp-reset" @click="reset">{{ t('重置') }}</button>
+            <button type="submit" class="fp-apply">{{ t('应用') }}</button>
           </footer>
         </form>
       </transition>

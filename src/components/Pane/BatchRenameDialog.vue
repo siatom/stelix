@@ -5,6 +5,7 @@ import type { FileEntry } from '../../types'
 import { dirname, joinPath } from './utils'
 import Icon from '../icons/Icon.vue'
 import MacWindowLights from '../MacWindowLights.vue'
+import { t } from '../../i18n'
 
 const props = defineProps<{
   /** 当前选中的条目。 */
@@ -67,12 +68,12 @@ const plans = computed<Plan[]>(() => {
       .replace(/\{n\}/g, () => seq)
     const changed = newName !== entry.name
     let error: string | null = null
-    if (!newName.trim()) error = '名称不能为空'
-    else if (newName.length > 255) error = '名称过长'
-    else if (INVALID_CHARS.test(newName)) error = '包含非法字符'
-    else if (IS_WINDOWS && (newName.endsWith('.') || newName.endsWith(' '))) error = '不能以句点或空格结尾'
-    else if (IS_WINDOWS && RESERVED_NAMES.test(newName)) error = 'Windows 保留名称'
-    else if (changed && siblingNames.value.has(newName.toLowerCase())) error = '已存在同名项'
+    if (!newName.trim()) error = t('名称不能为空')
+    else if (newName.length > 255) error = t('名称过长')
+    else if (INVALID_CHARS.test(newName)) error = t('包含非法字符')
+    else if (IS_WINDOWS && (newName.endsWith('.') || newName.endsWith(' '))) error = t('不能以句点或空格结尾')
+    else if (IS_WINDOWS && RESERVED_NAMES.test(newName)) error = t('Windows 保留名称')
+    else if (changed && siblingNames.value.has(newName.toLowerCase())) error = t('已存在同名项')
     return { entry, oldName: entry.name, newName, changed, error }
   })
 
@@ -85,7 +86,7 @@ const plans = computed<Plan[]>(() => {
   }
   for (const plan of list) {
     if (!plan.error && (counts.get(plan.newName.toLowerCase()) ?? 0) > 1) {
-      plan.error = '目标名称重复'
+      plan.error = t('目标名称重复')
     }
   }
   return list
@@ -136,27 +137,27 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown, true))
       <header class="dialog-head">
         <div class="dialog-head-main">
           <MacWindowLights @close="emit('cancel')" />
-          <h3 id="batch-rename-title">批量重命名</h3>
+          <h3 id="batch-rename-title">{{ t('批量重命名') }}</h3>
         </div>
-        <span class="count">{{ entries.length }} 项</span>
+        <span class="count">{{ t(`${entries.length} 项`, `${entries.length} items`) }}</span>
       </header>
 
       <label class="field">
-        <span class="field-label">命名模板</span>
+        <span class="field-label">{{ t('命名模板') }}</span>
         <input ref="inputEl" v-model="template" spellcheck="false" placeholder="{name}{ext}" />
       </label>
       <p class="hint">
-        占位符：<code>{name}</code> 原名、<code>{ext}</code> 扩展名、<code>{n}</code> 序号
+        {{ t('占位符：') }}<code>{name}</code> {{ t('原名') }}{{ t('、') }}<code>{ext}</code> {{ t('__legacy_764f344e2c79') }}{{ t('、') }}<code>{n}</code> {{ t('序号') }}
       </p>
-      <p v-if="missingExt" class="hint warn">模板未包含 <code>{ext}</code>，文件将失去原扩展名。</p>
+      <p v-if="missingExt" class="hint warn">{{ t('模板未包含') }} <code>{ext}</code>{{ t('，文件将失去原扩展名。') }}</p>
 
       <div class="number-row">
         <label class="field compact">
-          <span class="field-label">起始序号</span>
+          <span class="field-label">{{ t('起始序号') }}</span>
           <input v-model.number="start" type="number" min="0" step="1" />
         </label>
         <label class="field compact">
-          <span class="field-label">序号位数</span>
+          <span class="field-label">{{ t('序号位数') }}</span>
           <input v-model.number="width" type="number" min="1" max="6" step="1" />
         </label>
       </div>
@@ -178,10 +179,10 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown, true))
 
       <footer class="actions">
         <span class="summary" :class="{ bad: errorCount > 0 }">
-          {{ errorCount ? `${errorCount} 项有问题` : `${changedPlans.length} 项将被重命名` }}
+          {{ errorCount ? t(`${errorCount} 项有问题`, `${errorCount} items have errors`) : t(`${changedPlans.length} 项将被重命名`, `${changedPlans.length} items will be renamed`) }}
         </span>
-        <button type="button" @click="emit('cancel')">取消</button>
-        <button type="button" class="primary" :disabled="!canApply" @click="confirm">重命名</button>
+        <button type="button" @click="emit('cancel')">{{ t('取消') }}</button>
+        <button type="button" class="primary" :disabled="!canApply" @click="confirm">{{ t('重命名') }}</button>
       </footer>
     </div>
   </div>

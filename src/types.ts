@@ -213,6 +213,7 @@ export interface AiToolCall {
 export interface AiContext {
   activePath?: string | null
   selected?: string[]
+  language?: 'zh-CN' | 'en-US'
 }
 
 export interface AiReply {

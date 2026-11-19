@@ -2,19 +2,20 @@
 // 红点执行关闭；黄 / 绿为视觉装饰（应用内弹窗不是独立原生窗口）。
 <script setup lang="ts">
 import { IS_MACOS } from '../utils/platform'
+import { t } from '../i18n'
 
 defineProps<{ disabled?: boolean; closeOnly?: boolean }>()
 const emit = defineEmits<{ (e: 'close'): void }>()
 </script>
 
 <template>
-  <div v-if="IS_MACOS" class="mac-lights" role="group" aria-label="窗口控制">
+  <div v-if="IS_MACOS" class="mac-lights" role="group" :aria-label="t('窗口控制')">
     <button
       type="button"
       class="light red"
       :disabled="disabled"
-      title="关闭"
-      aria-label="关闭"
+      :title="t('关闭')"
+      :aria-label="t('关闭')"
       @click.stop="emit('close')"
     >
       <svg viewBox="0 0 8 8" aria-hidden="true">

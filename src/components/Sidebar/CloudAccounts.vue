@@ -10,6 +10,7 @@ import type { CloudAccount, CloudProvider, RemoteLocation } from '../../types'
 import RemoteTreeNode from './RemoteTreeNode.vue'
 import Icon from '../icons/Icon.vue'
 import MacWindowLights from '../MacWindowLights.vue'
+import { t } from '../../i18n'
 
 const STORAGE_KEY = 'stelix.cloudAccounts'
 
@@ -128,16 +129,16 @@ async function submitLogin() {
   formError.value = ''
   if (provider.value === 'baidu') {
     if (!clientId.value.trim() || !clientSecret.value.trim()) {
-      formError.value = '请填写百度网盘开放平台的 AppKey 和 SecretKey'
+      formError.value = t('请填写百度网盘开放平台的 AppKey 和 SecretKey')
       return
     }
   } else if (xunleiMode.value === 'token') {
     if (!refreshToken.value.trim()) {
-      formError.value = '请粘贴迅雷刷新令牌'
+      formError.value = t('请粘贴迅雷刷新令牌')
       return
     }
   } else if (!username.value.trim() || !password.value) {
-    formError.value = '请填写迅雷账号和密码'
+    formError.value = t('请填写迅雷账号和密码')
     return
   }
 
@@ -239,20 +240,20 @@ defineExpose({ openLogin })
 
 <template>
   <div class="cloud-tree">
-    <p v-if="!accounts.length" class="state">暂无云存储连接</p>
+    <p v-if="!accounts.length" class="state">{{ t('暂无云存储连接') }}</p>
     <div v-for="item in accounts" :key="item.id">
       <div class="tree-row host-row">
         <span
           class="twist"
           :class="{ open: expanded[item.id] }"
           role="button"
-          :title="expanded[item.id] ? '折叠' : '展开下一级'"
-          :aria-label="`${expanded[item.id] ? '折叠' : '展开'}${item.label}`"
+          :title="expanded[item.id] ? t('折叠') : t('展开下一级')"
+          :aria-label="`${expanded[item.id] ? t('折叠') : t('展开')} ${item.label}`"
           @click.stop="toggle(item)"
         >
           <Icon name="chevron-right" :size="11" />
         </span>
-        <button class="row-main" :title="`打开 ${cloudProviderName(item.provider)}`" @click="open(item)">
+        <button class="row-main" :title="t(`打开 ${cloudProviderName(item.provider)}`, `Open ${cloudProviderName(item.provider)}`)" @click="open(item)">
           <Icon
             :name="item.provider === 'baidu' ? 'cloud' : 'cloud-bolt'"
             :size="18"
@@ -265,8 +266,8 @@ defineExpose({ openLogin })
         <div class="row-actions" :class="{ 'menu-open': openMenuId === item.id }" @keydown.esc.stop="openMenuId = null">
           <button
             class="icon-btn"
-            title="刷新"
-            aria-label="刷新云盘目录"
+            :title="t('刷新')"
+            :aria-label="t('刷新云盘目录')"
             :disabled="loading[item.id]"
             @click.stop="refresh(item)"
           >
@@ -275,8 +276,8 @@ defineExpose({ openLogin })
           <div class="menu-wrap">
             <button
               class="icon-btn"
-              title="更多操作"
-              :aria-label="`${item.label}更多操作`"
+              :title="t('更多操作')"
+              :aria-label="`${item.label} ${t('更多操作')}`"
               aria-haspopup="menu"
               :aria-expanded="openMenuId === item.id"
               @click.stop="openMenuId = openMenuId === item.id ? null : item.id"
@@ -284,15 +285,15 @@ defineExpose({ openLogin })
               <Icon name="more" :size="14" />
             </button>
             <div v-if="openMenuId === item.id" class="menu" role="menu" @click.stop>
-              <button role="menuitem" @click="removeAccount(item)"><Icon name="x" :size="13" />删除账号</button>
+              <button role="menuitem" @click="removeAccount(item)"><Icon name="x" :size="13" />{{ t('删除账号') }}</button>
             </div>
           </div>
         </div>
       </div>
       <div v-if="expanded[item.id]">
-        <p v-if="loading[item.id]" class="state nested">正在读取云盘目录…</p>
+        <p v-if="loading[item.id]" class="state nested">{{ t('正在读取云盘目录…') }}</p>
         <p v-else-if="errors[item.id]" class="state nested error">{{ errors[item.id] }}</p>
-        <p v-else-if="!(roots[item.id] ?? []).length" class="state nested">云盘根目录为空</p>
+        <p v-else-if="!(roots[item.id] ?? []).length" class="state nested">{{ t('云盘根目录为空') }}</p>
         <RemoteTreeNode
           v-for="entry in roots[item.id] || []"
           :key="entry.path"
@@ -309,63 +310,63 @@ defineExpose({ openLogin })
         <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="cloud-dialog-title">
           <header class="dialog-head">
             <MacWindowLights :disabled="busy" @close="closeLogin" />
-            <h2 id="cloud-dialog-title">添加云存储账号</h2>
+            <h2 id="cloud-dialog-title">{{ t('添加云存储账号') }}</h2>
           </header>
           <form class="dialog-form" @submit.prevent="submitLogin">
-            <label>服务商
-              <select v-model="provider" aria-label="云存储服务商" @change="formError = ''">
-                <option value="baidu">百度网盘</option>
-                <option value="xunlei">迅雷云盘</option>
+            <label>{{ t('服务商') }}
+              <select v-model="provider" :aria-label="t('云存储服务商')" @change="formError = ''">
+                <option value="baidu">{{ t('百度网盘') }}</option>
+                <option value="xunlei">{{ t('迅雷云盘') }}</option>
               </select>
             </label>
-            <label>名称（可选）
-              <input v-model="label" :placeholder="provider === 'baidu' ? '例如：我的百度网盘' : '例如：我的迅雷云盘'" />
+            <label>{{ t('名称（可选）') }}
+              <input v-model="label" :placeholder="provider === 'baidu' ? t('例如：我的百度网盘') : t('例如：我的迅雷云盘')" />
             </label>
 
             <template v-if="provider === 'baidu'">
               <label>AppKey
-                <input v-model="clientId" placeholder="百度网盘开放平台 AppKey" autocomplete="off" />
+                <input v-model="clientId" :placeholder="t('百度网盘开放平台 AppKey')" autocomplete="off" />
               </label>
               <label>SecretKey
-                <input v-model="clientSecret" type="password" placeholder="百度网盘开放平台 SecretKey" autocomplete="new-password" />
+                <input v-model="clientSecret" type="password" :placeholder="t('百度网盘开放平台 SecretKey')" autocomplete="new-password" />
               </label>
               <p class="dialog-hint">
-                登录会打开系统浏览器完成百度账号授权，令牌保存在系统凭据库。请在百度网盘开放平台创建应用，
-                并将回调地址设为 <code>http://127.0.0.1:17890/oauth/callback</code>。
+                {{ t('登录会打开系统浏览器完成百度账号授权，令牌保存在系统凭据库。请在百度网盘开放平台创建应用，并将回调地址设为') }}
+                <code>http://127.0.0.1:17890/oauth/callback</code>。
               </p>
             </template>
 
             <template v-else>
-              <label>登录方式
-                <select v-model="xunleiMode" aria-label="迅雷登录方式" @change="formError = ''">
-                  <option value="password">账号密码</option>
-                  <option value="token">刷新令牌</option>
+              <label>{{ t('登录方式') }}
+                <select v-model="xunleiMode" :aria-label="t('迅雷登录方式')" @change="formError = ''">
+                  <option value="password">{{ t('账号密码') }}</option>
+                  <option value="token">{{ t('刷新令牌') }}</option>
                 </select>
               </label>
               <template v-if="xunleiMode === 'password'">
-                <label>账号
-                  <input v-model="username" placeholder="迅雷手机号 / 邮箱" autocomplete="username" />
+                <label>{{ t('账号') }}
+                  <input v-model="username" :placeholder="t('迅雷手机号 / 邮箱')" autocomplete="username" />
                 </label>
-                <label>密码
+                <label>{{ t('密码') }}
                   <input v-model="password" type="password" autocomplete="current-password" />
                 </label>
               </template>
-              <label v-else>刷新令牌
-                <input v-model="refreshToken" placeholder="粘贴迅雷 refresh token" autocomplete="off" />
+              <label v-else>{{ t('刷新令牌') }}
+                <input v-model="refreshToken" :placeholder="t('粘贴迅雷 refresh token')" autocomplete="off" />
               </label>
               <p class="dialog-hint">
-                迅雷登录可能触发人机验证；若提示需要验证，请先打开验证链接完成，再改用刷新令牌登录。
+                {{ t('迅雷登录可能触发人机验证；若提示需要验证，请先打开验证链接完成，再改用刷新令牌登录。') }}
               </p>
             </template>
 
             <p v-if="formError" class="dialog-error">{{ formError }}</p>
             <p v-if="captchaUrl" class="dialog-hint">
-              <button type="button" class="link" @click="openCaptcha">打开验证页面</button>
+              <button type="button" class="link" @click="openCaptcha">{{ t('打开验证页面') }}</button>
             </p>
             <div class="dialog-actions">
-              <button type="button" class="secondary" :disabled="busy" @click="closeLogin">取消</button>
+              <button type="button" class="secondary" :disabled="busy" @click="closeLogin">{{ t('取消') }}</button>
               <button type="submit" class="primary" :disabled="busy">
-                {{ busy ? (provider === 'baidu' ? '等待浏览器授权…' : '登录中…') : '登录' }}
+                {{ busy ? (provider === 'baidu' ? t('等待浏览器授权…') : t('登录中…')) : t('登录') }}
               </button>
             </div>
           </form>

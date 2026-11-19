@@ -5,25 +5,27 @@ import type { PanelKey } from '../../stores/ui'
 import { combos, formatCombo } from '../../stores/shortcuts'
 import Icon from '../icons/Icon.vue'
 import type { IconName } from '../icons/paths'
+import { t } from '../../i18n'
 
 const ui = useUiStore()
 
-const items: { key: PanelKey; icon: IconName; title: string }[] = [
-  { key: 'files', icon: 'folder', title: '文件导航' },
-  { key: 'search', icon: 'search', title: '搜索' },
-  { key: 'tasks', icon: 'clock-check', title: '定时任务' },
-  { key: 'ai', icon: 'sparkles', title: 'AI 助手' },
-]
+const items = [
+  { key: 'files', icon: 'folder', title: () => t('文件导航') },
+  { key: 'search', icon: 'search', title: () => t('搜索') },
+  { key: 'tasks', icon: 'clock-check', title: () => t('定时任务') },
+  { key: 'ai', icon: 'sparkles', title: () => t('AI 助手') },
+] satisfies { key: PanelKey; icon: IconName; title: () => string }[]
 
-function titleOf(item: { key: PanelKey; title: string }): string {
-  if (item.key !== 'search') return item.title
+function titleOf(item: (typeof items)[number]): string {
+  if (item.key !== 'search') return item.title()
   const combo = combos.value.search
-  return combo?.key ? `${item.title}（${formatCombo(combo)}）` : item.title
+  const title = item.title()
+  return combo?.key ? `${title} (${formatCombo(combo)})` : title
 }
 </script>
 
 <template>
-  <nav class="activity-bar" aria-label="主工具栏">
+  <nav class="activity-bar" :aria-label="t('主工具栏')">
     <button
       v-for="it in items"
       :key="it.key"
@@ -31,7 +33,7 @@ function titleOf(item: { key: PanelKey; title: string }): string {
       class="activity-btn"
       :class="{ active: ui.activePanel === it.key && !ui.sidebarCollapsed }"
       :title="titleOf(it)"
-      :aria-label="it.title"
+      :aria-label="it.title()"
       @click="ui.setPanel(it.key)"
     >
       <Icon :name="it.icon" :size="19" />
@@ -44,8 +46,8 @@ function titleOf(item: { key: PanelKey; title: string }): string {
       type="button"
       class="activity-btn"
       :class="{ active: ui.feedbackOpen }"
-      title="意见反馈"
-      aria-label="意见反馈"
+      :title="t('意见反馈')"
+      :aria-label="t('意见反馈')"
       @click="ui.openFeedback()"
     >
       <Icon name="megaphone" :size="19" />
@@ -55,8 +57,8 @@ function titleOf(item: { key: PanelKey; title: string }): string {
       type="button"
       class="activity-btn"
       :class="{ active: ui.settingsOpen }"
-      title="设置"
-      aria-label="设置"
+      :title="t('设置')"
+      :aria-label="t('设置')"
       @click="ui.openSettings()"
     >
       <Icon name="settings" :size="19" />
@@ -65,8 +67,8 @@ function titleOf(item: { key: PanelKey; title: string }): string {
     <button
       type="button"
       class="activity-btn"
-      :title="`主题：${ui.theme === 'dark' ? '深色' : '浅色'}，点击切换`"
-      aria-label="切换主题模式"
+      :title="t(`主题：${ui.theme === 'dark' ? '深色' : '浅色'}，点击切换`, `Theme: ${ui.theme === 'dark' ? 'Dark' : 'Light'} (click to toggle)`)"
+      :aria-label="t('切换主题模式')"
       @click="ui.toggleTheme()"
     >
       <Icon :name="ui.theme === 'dark' ? 'sun' : 'moon'" :size="19" />
@@ -74,8 +76,8 @@ function titleOf(item: { key: PanelKey; title: string }): string {
     <button
       type="button"
       class="activity-btn"
-      :title="ui.sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'"
-      :aria-label="ui.sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'"
+      :title="ui.sidebarCollapsed ? t('展开侧边栏') : t('收起侧边栏')"
+      :aria-label="ui.sidebarCollapsed ? t('展开侧边栏') : t('收起侧边栏')"
       @click="ui.toggleSidebar()"
     >
       <Icon :name="ui.sidebarCollapsed ? 'panel-left-open' : 'panel-left-close'" :size="19" />

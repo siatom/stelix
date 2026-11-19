@@ -9,10 +9,16 @@ import Icon from './icons/Icon.vue'
 import MacWindowLights from './MacWindowLights.vue'
 import { IS_MACOS } from '../utils/platform'
 import type { FeedbackAuth, FeedbackCreated } from '../types'
+import { t } from '../i18n'
 
-type FeedbackKind = 'Bug' | '功能建议' | '其它'
+type FeedbackKind = 'Bug' | 'feature' | 'other'
 
-const KINDS: FeedbackKind[] = ['Bug', '功能建议', '其它']
+const KINDS: FeedbackKind[] = ['Bug', 'feature', 'other']
+function kindLabel(value: FeedbackKind): string {
+  if (value === 'feature') return t('功能建议')
+  if (value === 'other') return t('其它')
+  return 'Bug'
+}
 
 const ui = useUiStore()
 const appVersion = __APP_VERSION__
@@ -62,7 +68,7 @@ async function refreshAuth() {
     auth.value = {
       cliFound: false,
       loggedIn: false,
-      message: `无法检查 GitHub CLI 状态：${String(e)}`,
+      message: t(`无法检查 GitHub CLI 状态：${String(e)}`, `Could not check GitHub CLI status: ${String(e)}`),
     }
   }
 }
@@ -73,13 +79,13 @@ async function submit() {
   error.value = ''
   try {
     created.value = await api.feedbackSubmit({
-      kind: kind.value,
+      kind: kindLabel(kind.value),
       title: title.value.trim(),
       description: description.value.trim(),
       appVersion,
       commit: commitId,
     })
-    ui.setStatusText(`反馈已提交：#${created.value.number}`)
+    ui.setStatusText(t(`反馈已提交：#${created.value.number}`, `Feedback submitted: #${created.value.number}`))
   } catch (e) {
     error.value = String(e)
   } finally {
@@ -92,7 +98,7 @@ async function openCreated() {
   try {
     await openUrl(created.value.url)
   } catch (e) {
-    ui.setStatusText(`打开链接失败：${String(e)}`)
+    ui.setStatusText(t(`打开链接失败：${String(e)}`, `Could not open link: ${String(e)}`))
   }
 }
 
@@ -101,9 +107,9 @@ async function copyLink() {
   try {
     await navigator.clipboard.writeText(created.value.url)
     copied.value = true
-    ui.setStatusText('已复制 issue 链接')
+    ui.setStatusText(t('已复制 issue 链接'))
   } catch (e) {
-    ui.setStatusText(`复制失败：${String(e)}`)
+    ui.setStatusText(t(`复制失败：${String(e)}`, `Copy failed: ${String(e)}`))
   }
 }
 </script>
@@ -116,16 +122,16 @@ async function copyLink() {
           <div class="dialog-head-main">
             <MacWindowLights class="dialog-lights" close-only @close="ui.closeFeedback()" />
             <div>
-              <h2 id="feedback-title">意见反馈</h2>
-              <p>经本机 GitHub CLI (gh) 直接创建 issue，提交到 siatom/stelix</p>
+              <h2 id="feedback-title">{{ t('意见反馈') }}</h2>
+              <p>{{ t('经本机 GitHub CLI (gh) 直接创建 issue，提交到 siatom/stelix') }}</p>
             </div>
           </div>
           <button
             v-if="!IS_MACOS"
             type="button"
             class="close-btn"
-            title="关闭"
-            aria-label="关闭反馈"
+            :title="t('关闭')"
+            :aria-label="t('关闭反馈')"
             @click="ui.closeFeedback()"
           >
             <Icon name="x" :size="16" />
@@ -136,7 +142,7 @@ async function copyLink() {
           <!-- 提交成功：展示 issue 编号与链接 -->
           <div v-if="created" class="fb-success">
             <Icon name="check-circle" :size="30" />
-            <p class="fb-success-title">反馈已提交</p>
+            <p class="fb-success-title">{{ t('反馈已提交') }}</p>
             <p class="fb-success-no">#{{ created.number }}</p>
             <button type="button" class="fb-link" :title="created.url" @click="openCreated">
               <Icon name="external-link" :size="13" />
@@ -144,13 +150,13 @@ async function copyLink() {
             </button>
             <div class="fb-actions">
               <button type="button" class="fb-btn ghost" @click="copyLink">
-                <Icon name="copy" :size="13" />{{ copied ? '已复制' : '复制链接' }}
+                <Icon name="copy" :size="13" />{{ copied ? t('已复制') : t('复制链接') }}
               </button>
               <button type="button" class="fb-btn primary" @click="openCreated">
-                <Icon name="external-link" :size="13" />在浏览器打开
+                <Icon name="external-link" :size="13" />{{ t('在浏览器打开') }}
               </button>
             </div>
-            <p class="fb-hint">感谢反馈，可以关闭本窗口继续使用。</p>
+            <p class="fb-hint">{{ t('感谢反馈，可以关闭本窗口继续使用。') }}</p>
           </div>
 
           <template v-else>
@@ -163,7 +169,7 @@ async function copyLink() {
               <Icon :name="auth.cliFound ? 'alert-triangle' : 'alert-circle'" :size="14" />
               <p>{{ auth.message }}</p>
               <button type="button" class="fb-btn ghost sm" @click="refreshAuth">
-                <Icon name="refresh" :size="12" />重新检查
+                <Icon name="refresh" :size="12" />{{ t('重新检查') }}
               </button>
             </div>
             <div v-else-if="auth" class="fb-banner ok">
@@ -172,11 +178,11 @@ async function copyLink() {
             </div>
             <div v-else class="fb-banner">
               <Icon name="loader" :size="14" class="spin" />
-              <p>正在检查 GitHub CLI…</p>
+              <p>{{ t('正在检查 GitHub CLI…') }}</p>
             </div>
 
             <label class="fb-field">
-              <span>反馈类型</span>
+              <span>{{ t('反馈类型') }}</span>
               <div class="fb-kinds">
                 <button
                   v-for="k in KINDS"
@@ -186,37 +192,37 @@ async function copyLink() {
                   :class="{ active: kind === k }"
                   @click="kind = k"
                 >
-                  {{ k }}
+                  {{ kindLabel(k) }}
                 </button>
               </div>
             </label>
 
             <label class="fb-field">
-              <span>标题</span>
-              <input v-model="title" maxlength="120" placeholder="一句话描述问题或建议" spellcheck="false" />
+              <span>{{ t('标题') }}</span>
+              <input v-model="title" maxlength="120" :placeholder="t('一句话描述问题或建议')" spellcheck="false" />
             </label>
 
             <label class="fb-field">
-              <span>详细描述</span>
+              <span>{{ t('详细描述') }}</span>
               <textarea
                 v-model="description"
                 rows="8"
-                placeholder="复现步骤、期望结果、或你的建议…"
+                :placeholder="t('复现步骤、期望结果、或你的建议…')"
                 spellcheck="false"
               />
             </label>
 
             <p class="fb-meta">
-              提交时自动附带：版本 {{ appVersion }} · Commit {{ commitId }} · 操作系统与架构
+              {{ t('提交时自动附带：版本') }} {{ appVersion }} · Commit {{ commitId }} · {{ t('操作系统与架构') }}
             </p>
 
             <p v-if="error" class="fb-error">{{ error }}</p>
 
             <div class="fb-actions">
-              <button type="button" class="fb-btn ghost" @click="ui.closeFeedback()">取消</button>
+              <button type="button" class="fb-btn ghost" @click="ui.closeFeedback()">{{ t('取消') }}</button>
               <button type="button" class="fb-btn primary" :disabled="!canSubmit" @click="submit">
                 <Icon :name="submitting ? 'loader' : 'send'" :size="13" :class="{ spin: submitting }" />
-                {{ submitting ? '提交中…' : '提交反馈' }}
+                {{ submitting ? t('提交中…') : t('提交反馈') }}
               </button>
             </div>
           </template>

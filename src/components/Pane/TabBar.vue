@@ -6,6 +6,7 @@ import { combos, formatCombo } from '../../stores/shortcuts'
 import { basename, RECYCLE_BIN_SHELL_PATH } from './utils'
 import Icon from '../icons/Icon.vue'
 import FileIcon from '../icons/FileIcon.vue'
+import { t as translate } from '../../i18n'
 
 const props = defineProps<{ paneId: string }>()
 const paneStore = usePaneStore()
@@ -19,13 +20,13 @@ function label(tab: { path: string; title?: string }): string {
 /** 动作按钮的提示文案：按窗格方向区分「另一栏」，并附带当前快捷键。 */
 function actionTitle(id: string, text: string): string {
   const combo = combos.value[id]
-  return combo?.key ? `${text}（${formatCombo(combo)}）` : text
+  return combo?.key ? `${text} (${formatCombo(combo)})` : text
 }
 
 const openInOtherPaneTitle = computed(() =>
-  actionTitle('open-in-other-pane', `在${props.paneId === 'left' ? '右' : '左'}侧栏打开当前文件夹`),
+  actionTitle('open-in-other-pane', translate(`在${props.paneId === 'left' ? '右' : '左'}侧栏打开当前文件夹`, `Open current folder in the ${props.paneId === 'left' ? 'right' : 'left'} pane`)),
 )
-const swapPanesTitle = computed(() => actionTitle('swap-panes', '交换左右栏'))
+const swapPanesTitle = computed(() => actionTitle('swap-panes', translate('交换左右栏', 'Swap panes')))
 
 function onMiddle(ev: MouseEvent, tabId: string) {
   if (ev.button === 1) {
@@ -68,13 +69,13 @@ function onContext(ev: MouseEvent, tabId: string) {
         <span
           v-if="(pane?.tabs.length ?? 0) > 1"
           class="tab-close"
-          title="关闭标签"
+          :title="translate('关闭标签', 'Close tab')"
           @click.stop="paneStore.closeTab(paneId, t.id)"
         >
           <Icon name="x" :size="15" />
         </span>
       </button>
-      <button class="tab-add" title="新建标签" @click="paneStore.addTab(paneId)">
+      <button class="tab-add" :title="translate('新建标签', 'New tab')" @click="paneStore.addTab(paneId)">
         <Icon name="plus" :size="15" />
       </button>
     </div>
@@ -91,8 +92,8 @@ function onContext(ev: MouseEvent, tabId: string) {
         </span>
       </button>
       <button
-        title="单窗口"
-        aria-label="单窗口"
+        :title="translate('单窗口', 'Single pane')"
+        :aria-label="translate('单窗口', 'Single pane')"
         :aria-pressed="paneStore.singlePane"
         :class="{ selected: paneStore.singlePane }"
         @click="paneStore.setSinglePane(true)"
@@ -100,8 +101,8 @@ function onContext(ev: MouseEvent, tabId: string) {
         <Icon name="panel-single" :size="15" />
       </button>
       <button
-        title="双窗口"
-        aria-label="双窗口"
+        :title="translate('双窗口', 'Dual panes')"
+        :aria-label="translate('双窗口', 'Dual panes')"
         :aria-pressed="!paneStore.singlePane"
         :class="{ selected: !paneStore.singlePane }"
         @click="paneStore.setSinglePane(false)"

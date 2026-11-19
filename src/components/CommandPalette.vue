@@ -9,6 +9,7 @@ import { formatCombo, match, combos, isCapturingShortcut } from '../stores/short
 import { resolveSystemLocations } from './Sidebar/shared'
 import type { QuickLocation } from './Sidebar/shared'
 import { basename } from './Pane/utils'
+import { locale, t } from '../i18n'
 
 interface Command {
   id: string
@@ -59,9 +60,9 @@ function openSearchPanel() {
 async function reindex() {
   try {
     await api.startIndex(ui.indexRoots)
-    ui.setStatusText(`已重新索引 ${ui.indexRoots.length} 个根目录`)
+    ui.setStatusText(t(`已重新索引 ${ui.indexRoots.length} 个根目录`, `Reindexed ${ui.indexRoots.length} index roots`))
   } catch (e) {
-    ui.setStatusText(`重新索引失败：${String(e)}`)
+    ui.setStatusText(t(`重新索引失败：${String(e)}`, `Reindex failed: ${String(e)}`))
   }
 }
 
@@ -69,15 +70,15 @@ async function reindex() {
 function copySelected(kind: 'name' | 'path') {
   const tab = pane.activeTab
   if (!tab || !tab.selected.length) {
-    ui.setStatusText(`请先选择要复制${kind === 'name' ? '文件名' : '路径'}的条目`)
+    ui.setStatusText(t(`请先选择要复制${kind === 'name' ? '文件名' : '路径'}的条目`, `Select items to copy their ${kind === 'name' ? 'names' : 'paths'} first`))
     return
   }
   const count = tab.selected.length
   const text = tab.selected.map((path) => (kind === 'name' ? basename(path) : path)).join('\r\n')
-  const label = kind === 'name' ? '文件名' : '路径'
+  const label = kind === 'name' ? t('文件名') : t('路径')
   void navigator.clipboard.writeText(text).then(
-    () => ui.setStatusText(count > 1 ? `已复制 ${count} 个${label}` : `已复制${label}`),
-    (error) => ui.setStatusText(`复制${label}失败：${String(error)}`),
+    () => ui.setStatusText(t(count > 1 ? `已复制 ${count} 个${label}` : `已复制${label}`, `Copied ${count > 1 ? `${count} ` : ''}${label}`)),
+    (error) => ui.setStatusText(t(`复制${label}失败：${String(error)}`, `Could not copy ${label}: ${String(error)}`)),
   )
 }
 
@@ -85,13 +86,13 @@ function buildCommands(locations: QuickLocation[]) {
   const list: Command[] = [
     {
       id: 'new-tab',
-      label: '新建标签页',
+      label: t('新建标签页'),
       hint: formatCombo(combos.value['new-tab']),
       run: () => pane.addTab(pane.activePaneId),
     },
     {
       id: 'close-tab',
-      label: '关闭当前标签页',
+      label: t('关闭当前标签页'),
       hint: formatCombo(combos.value['close-tab']),
       run: () => {
         const tab = pane.activeTab
@@ -100,18 +101,18 @@ function buildCommands(locations: QuickLocation[]) {
     },
     {
       id: 'preview',
-      label: '预览所选文件',
+      label: t('预览所选文件'),
       hint: formatCombo(combos.value.preview),
       run: () => {
         const tab = pane.activeTab
         if (!tab) return
         if (tab.selected.length !== 1) {
-          ui.setStatusText('请先选择一个文件再预览')
+          ui.setStatusText(t('请先选择一个文件再预览'))
           return
         }
         const entry = tab.entries.find((item) => item.path === tab.selected[0])
         if (!entry || entry.isDir) {
-          ui.setStatusText('文件夹不支持预览')
+          ui.setStatusText(t('文件夹不支持预览'))
           return
         }
         preview.show(tab.entries, entry.path, { remote: tab.kind === 'remote' })
@@ -119,39 +120,39 @@ function buildCommands(locations: QuickLocation[]) {
     },
     {
       id: 'batch-rename',
-      label: '批量重命名…',
-      hint: `多选后 ${formatCombo(combos.value.rename)}`,
+      label: t('批量重命名…'),
+      hint: t(`多选后 ${formatCombo(combos.value.rename)}`, `Select multiple items, then ${formatCombo(combos.value.rename)}`),
       run: () => window.dispatchEvent(new CustomEvent('stelix:batch-rename')),
     },    {
       id: 'copy-name',
-      label: '复制所选文件名',
-      hint: '每行一项',
+      label: t('复制所选文件名'),
+      hint: t('每行一项'),
       run: () => copySelected('name'),
     },
     {
       id: 'copy-path',
-      label: '复制所选路径',
+      label: t('复制所选路径'),
       hint: formatCombo(combos.value['copy-path']),
       run: () => copySelected('path'),
     },
     {
       id: 'undo',
-      label: '撤销上一步操作',
+      label: t('撤销上一步操作'),
       hint: formatCombo(combos.value.undo),
       run: () => pane.undoLast(),
     },
     {
       id: 'duplicate',
-      label: '复制副本',
+      label: t('复制副本'),
       hint: formatCombo(combos.value.duplicate),
       run: () => {
         const tab = pane.activeTab
         if (!tab || !tab.selected.length) {
-          ui.setStatusText('请先选择要复制副本的条目')
+          ui.setStatusText(t('请先选择要复制副本的条目'))
           return
         }
         if (tab.kind === 'remote' || tab.kind === 'terminal' || tab.kind === 'trash') {
-          ui.setStatusText('该位置不支持此操作')
+          ui.setStatusText(t('该位置不支持此操作'))
           return
         }
         void pane.runFs(pane.activePaneId, { op: 'duplicate', sources: [...tab.selected] })
@@ -159,32 +160,32 @@ function buildCommands(locations: QuickLocation[]) {
     },
     {
       id: 'copy-to',
-      label: '复制所选到…',
+      label: t('复制所选到…'),
       hint: formatCombo(combos.value['copy-to']),
       run: () => pane.copySelectedTo(pane.activePaneId, 'copy'),
     },
     {
       id: 'move-to',
-      label: '移动所选到…',
+      label: t('移动所选到…'),
       hint: formatCombo(combos.value['move-to']),
       run: () => pane.copySelectedTo(pane.activePaneId, 'move'),
     },
     {
       id: 'toggle-hidden',
-      label: ui.showHidden ? '隐藏隐藏文件' : '显示隐藏文件',
+      label: ui.showHidden ? t('隐藏隐藏文件') : t('显示隐藏文件'),
       run: () => {
         ui.toggleShowHidden()
         buildCommands(quickLocations)
       },
     },
-    { id: 'toggle-ai', label: '打开 AI 助手面板', run: () => ui.setPanel('ai') },
-    { id: 'toggle-sidebar', label: '切换侧边栏', run: () => ui.toggleSidebar() },
+    { id: 'toggle-ai', label: t('打开 AI 助手面板'), run: () => ui.setPanel('ai') },
+    { id: 'toggle-sidebar', label: t('切换侧边栏'), run: () => ui.toggleSidebar() },
     {
       id: 'mkdir-move',
-      label: '新建文件夹并移动所选',
+      label: t('新建文件夹并移动所选'),
       run: () => {
         if (!pane.canMoveToNewFolderInActivePane) {
-          ui.setStatusText('请先在本地目录中选择要移动的条目')
+          ui.setStatusText(t('请先在本地目录中选择要移动的条目'))
           return
         }
         pane.requestAction('mkdirMove')
@@ -192,19 +193,19 @@ function buildCommands(locations: QuickLocation[]) {
     },
     {
       id: 'focus-search',
-      label: '打开搜索面板',
+      label: t('打开搜索面板'),
       hint: combos.value.search?.key ? formatCombo(combos.value.search) : undefined,
       run: openSearchPanel,
     },
-    { id: 'reindex', label: '重新建立索引', run: reindex },
+    { id: 'reindex', label: t('重新建立索引'), run: reindex },
   ]
   for (const loc of locations) {
     list.push({
       id: `nav-${loc.path}`,
-      label: `导航到${loc.label}`,
+      label: t(`导航到${loc.label}`, `Go to ${loc.label}`),
       hint: loc.path,
       run: () => {
-        ui.setStatusText(`导航到 ${loc.path}`)
+        ui.setStatusText(t(`导航到 ${loc.path}`, `Navigating to ${loc.path}`))
         void pane.navigate(loc.path)
       },
     })
@@ -225,7 +226,7 @@ async function choose() {
   try {
     await cmd.run()
   } catch (e) {
-    ui.setStatusText(`命令执行失败：${String(e)}`)
+    ui.setStatusText(t(`命令执行失败：${String(e)}`, `Command failed: ${String(e)}`))
   }
 }
 
@@ -262,6 +263,7 @@ watch(query, () => {
 
 // 快捷键改键后，命令条上的提示文案同步刷新。
 watch(combos, () => buildCommands(quickLocations), { deep: true })
+watch(locale, () => buildCommands(quickLocations))
 
 watch(activeIndex, async () => {
   await nextTick()
@@ -281,12 +283,12 @@ onUnmounted(() => {
 
 <template>
   <div v-if="open" class="palette-mask" @click.self="close">
-    <div class="palette" role="dialog" aria-label="命令面板">
+    <div class="palette" role="dialog" :aria-label="t('命令面板')">
       <input
         ref="inputEl"
         v-model="query"
         class="palette-input"
-        placeholder="输入命令…（↑↓ 选择，Enter 执行，Esc 关闭）"
+        :placeholder="t('输入命令…（↑↓ 选择，Enter 执行，Esc 关闭）')"
         @keydown.down.prevent="move(1)"
         @keydown.up.prevent="move(-1)"
         @keydown.enter.prevent="choose"
@@ -304,7 +306,7 @@ onUnmounted(() => {
           <span v-if="cmd.hint" class="cmd-hint">{{ cmd.hint }}</span>
         </li>
       </ul>
-      <div v-else class="palette-empty">无匹配命令</div>
+      <div v-else class="palette-empty">{{ t('无匹配命令') }}</div>
     </div>
   </div>
 </template>

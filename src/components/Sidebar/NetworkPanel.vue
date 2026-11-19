@@ -12,6 +12,7 @@ import CloudAccounts from './CloudAccounts.vue'
 import Icon from '../icons/Icon.vue'
 import MacWindowLights from '../MacWindowLights.vue'
 import { IS_MACOS } from '../../utils/platform'
+import { t } from '../../i18n'
 
 type RemoteAuthMethod = 'password' | 'key'
 
@@ -205,7 +206,7 @@ function closeHostForm() {
 async function pickPrivateKey() {
   try {
     const selected = await openFileDialog({
-      title: '选择 SSH 私钥',
+      title: t('选择 SSH 私钥'),
       multiple: false,
       directory: false,
       defaultPath: privateKeyPath.value || undefined,
@@ -231,16 +232,16 @@ function onProtocolChange() {
 async function testConnection() {
   const address = host.value.trim()
   if (!address || !(port.value >= 1 && port.value <= 65535)) {
-    testResult.value = { ok: false, message: '请填写有效的主机地址和端口' }
+    testResult.value = { ok: false, message: t('请填写有效的主机地址和端口') }
     return
   }
   if (authMethod.value === 'key') {
     if (protocol.value !== 'sftp') {
-      testResult.value = { ok: false, message: '私钥认证仅支持 SFTP' }
+      testResult.value = { ok: false, message: t('私钥认证仅支持 SFTP') }
       return
     }
     if (!privateKeyPath.value.trim()) {
-      testResult.value = { ok: false, message: '请选择 SSH 私钥文件' }
+      testResult.value = { ok: false, message: t('请选择 SSH 私钥文件') }
       return
     }
   }
@@ -264,7 +265,7 @@ async function testConnection() {
     const elapsed = Math.round(performance.now() - started)
     testResult.value = {
       ok: true,
-      message: `连接成功（${elapsed} ms），根目录 ${listing.entries.length} 项`,
+      message: t(`连接成功（${elapsed} ms），根目录 ${listing.entries.length} 项`, `Connected in ${elapsed} ms. Root contains ${listing.entries.length} items.`),
     }
   } catch (cause) {
     if (token !== testToken) return
@@ -309,7 +310,7 @@ function toggleServer(server: string) {
 function saveShare() {
   const path = smbDraft.value.trim().replace(/\//g, '\\').replace(/\\+$/, '')
   if (!/^\\\\[^\\]+\\[^\\]+(?:\\.*)?$/.test(path)) {
-    error.value = '请输入共享路径，例如 \\\\服务器\\共享名'
+    error.value = t('请输入共享路径，例如 \\\\服务器\\共享名')
     return
   }
   if (!shares.value.some((item) => item.toLowerCase() === path.toLowerCase())) {
@@ -330,16 +331,16 @@ function removeShare(path: string) {
 async function saveHost() {
   const address = host.value.trim()
   if (!address || !/^[a-zA-Z0-9.-]+$/.test(address) || !Number.isInteger(port.value) || port.value < 1 || port.value > 65535) {
-    error.value = '请填写有效的主机地址和端口'
+    error.value = t('请填写有效的主机地址和端口')
     return
   }
   if (authMethod.value === 'key') {
     if (protocol.value !== 'sftp') {
-      error.value = '私钥认证仅支持 SFTP'
+      error.value = t('私钥认证仅支持 SFTP')
       return
     }
     if (!privateKeyPath.value.trim()) {
-      error.value = '请选择 SSH 私钥文件'
+      error.value = t('请选择 SSH 私钥文件')
       return
     }
   }
@@ -462,7 +463,7 @@ async function loadHost(item: RemoteHost) {
   } catch (cause) {
     // 凭据统一在「编辑主机」里维护，这里只在未设置时补一句提示。
     const configured = item.authMethod === 'key' ? !!item.privateKey : !!passwords.value[item.id]
-    const hint = configured ? '' : item.authMethod === 'key' ? '（可在「编辑主机」中选择私钥）' : '（可在「编辑主机」中填写密码）'
+    const hint = configured ? '' : item.authMethod === 'key' ? t('（可在「编辑主机」中选择私钥）') : t('（可在「编辑主机」中填写密码）')
     hostErrors.value[item.id] = `${String(cause)}${hint}`
   } finally {
     hostLoading.value[item.id] = false
@@ -514,13 +515,13 @@ function toggleHost(item: RemoteHost) {
       <div class="tree-row category">
         <button class="row-main" @click="toggleSmb">
           <span class="twist" :class="{ open: sections.smb }"><Icon name="chevron-right" :size="11" /></span>
-          <Icon class="category-icon category-smb" name="share-2" :size="18" /><span>局域网</span>
+          <Icon class="category-icon category-smb" name="share-2" :size="18" /><span>{{ t('局域网') }}</span>
         </button>
-        <button class="action" title="刷新网上邻居" aria-label="刷新网上邻居" :disabled="scanLoading" @click="refreshSmb"><Icon name="refresh" :size="13" /></button>
-        <button class="action" title="添加共享" aria-label="添加 SMB 共享" @click="openSmbForm"><Icon name="plus" :size="13" /></button>
+        <button class="action" :title="t('刷新网上邻居')" :aria-label="t('刷新网上邻居')" :disabled="scanLoading" @click="refreshSmb"><Icon name="refresh" :size="13" /></button>
+        <button class="action" :title="t('添加共享')" :aria-label="t('添加 SMB 共享')" @click="openSmbForm"><Icon name="plus" :size="13" /></button>
       </div>
       <div v-if="sections.smb">
-        <p v-if="scanLoading" class="state">正在扫描网上邻居…</p>
+        <p v-if="scanLoading" class="state">{{ t('正在扫描网上邻居…') }}</p>
         <p v-else-if="scanError" class="state error">{{ scanError }}</p>
         <div v-for="neighbor in neighbors" :key="neighbor.server">
           <div class="tree-row server-row">
@@ -530,19 +531,19 @@ function toggleHost(item: RemoteHost) {
             </button>
           </div>
           <div v-if="expandedServers[neighbor.server]">
-            <p v-if="serverLoading[neighbor.server]" class="state nested">正在读取共享…</p>
+            <p v-if="serverLoading[neighbor.server]" class="state nested">{{ t('正在读取共享…') }}</p>
             <p v-else-if="serverErrors[neighbor.server]" class="state nested error">{{ serverErrors[neighbor.server] }}</p>
-            <p v-else-if="!(serverShares[neighbor.server] ?? neighbor.shares).length" class="state nested">未发现可访问的共享</p>
+            <p v-else-if="!(serverShares[neighbor.server] ?? neighbor.shares).length" class="state nested">{{ t('未发现可访问的共享') }}</p>
             <TreeNode v-for="share in serverShares[neighbor.server] ?? neighbor.shares" :key="share"
               :node="{ name: share.split('\\').filter(Boolean).slice(1).join('\\'), path: share }"
               :depth="2" @navigate="pane.navigate($event)" />
           </div>
         </div>
-        <p v-if="!scanLoading && !neighbors.length && !shares.length" class="state">未发现设备，可手动添加共享</p>
-        <p v-if="shares.length" class="state manual-label">手动添加</p>
+        <p v-if="!scanLoading && !neighbors.length && !shares.length" class="state">{{ t('未发现设备，可手动添加共享') }}</p>
+        <p v-if="shares.length" class="state manual-label">{{ t('手动添加') }}</p>
         <div v-for="share in shares" :key="share" class="share-node">
           <TreeNode :node="{ name: share.replace(/^\\\\/, ''), path: share }" :depth="1" @navigate="pane.navigate($event)" />
-          <button class="remove share-remove" title="移除共享" @click="removeShare(share)"><Icon name="x" :size="11" /></button>
+          <button class="remove share-remove" :title="t('移除共享')" @click="removeShare(share)"><Icon name="x" :size="11" /></button>
         </div>
       </div>
     </section>
@@ -551,37 +552,37 @@ function toggleHost(item: RemoteHost) {
       <div class="tree-row category">
         <button class="row-main" @click="sections.remote = !sections.remote">
           <span class="twist" :class="{ open: sections.remote }"><Icon name="chevron-right" :size="11" /></span>
-          <Icon class="category-icon category-remote" name="server-nas" :size="18" /><span>远程服务器</span>
+          <Icon class="category-icon category-remote" name="server-nas" :size="18" /><span>{{ t('远程服务器') }}</span>
         </button>
-        <button class="action" title="添加主机" aria-label="添加 SSH、FTP 或 SFTP 主机" @click="openHostForm"><Icon name="plus" :size="13" /></button>
+        <button class="action" :title="t('添加主机')" :aria-label="t('添加 SSH、FTP 或 SFTP 主机')" @click="openHostForm"><Icon name="plus" :size="13" /></button>
       </div>
       <div v-if="sections.remote">
-        <p v-if="!hosts.length" class="state">暂无主机</p>
+        <p v-if="!hosts.length" class="state">{{ t('暂无主机') }}</p>
         <div v-for="item in hosts" :key="item.id">
           <div class="tree-row host-row">
             <span class="twist" :class="{ open: expandedHosts[item.id] }" role="button"
-              :title="expandedHosts[item.id] ? '折叠' : '展开下一级'"
-              :aria-label="`${expandedHosts[item.id] ? '折叠' : '展开'}${item.label}`"
+              :title="expandedHosts[item.id] ? t('折叠') : t('展开下一级')"
+              :aria-label="`${expandedHosts[item.id] ? t('折叠') : t('展开')} ${item.label}`"
               @click.stop="toggleHost(item)">
               <Icon name="chevron-right" :size="11" />
             </span>
-            <button class="row-main" :title="`打开 ${item.protocol}://${item.host}:${item.port}`" @click="openHostInPane(item)">
-              <Icon name="drive" :size="18" /><span class="label">{{ item.label }}</span><small>{{ item.protocol.toUpperCase() }}{{ item.authMethod === 'key' ? ' · 密钥' : '' }}</small>
+            <button class="row-main" :title="t(`打开 ${item.protocol}://${item.host}:${item.port}`, `Open ${item.protocol}://${item.host}:${item.port}`)" @click="openHostInPane(item)">
+              <Icon name="drive" :size="18" /><span class="label">{{ item.label }}</span><small>{{ item.protocol.toUpperCase() }}{{ item.authMethod === 'key' ? ` · ${t('密钥')}` : '' }}</small>
             </button>
             <div class="host-actions" :class="{ 'menu-open': openHostMenuId === item.id }" @keydown.esc.stop="openHostMenuId = null">
               <div class="host-menu-wrap">
-                <button class="remove" title="更多操作" :aria-label="`${item.label}更多操作`" aria-haspopup="menu" :aria-expanded="openHostMenuId === item.id" @click.stop="toggleHostMenu(item.id)"><Icon name="more" :size="14" /></button>
+                <button class="remove" :title="t('更多操作')" :aria-label="`${item.label} ${t('更多操作')}`" aria-haspopup="menu" :aria-expanded="openHostMenuId === item.id" @click.stop="toggleHostMenu(item.id)"><Icon name="more" :size="14" /></button>
                 <div v-if="openHostMenuId === item.id" class="host-menu" role="menu" @click.stop>
-                  <button role="menuitem" @click="editHostFromMenu(item)"><Icon name="pencil" :size="13" />编辑</button>
-                  <button role="menuitem" @click="removeHostFromMenu(item.id)"><Icon name="x" :size="13" />删除</button>
+                  <button role="menuitem" @click="editHostFromMenu(item)"><Icon name="pencil" :size="13" />{{ t('编辑') }}</button>
+                  <button role="menuitem" @click="removeHostFromMenu(item.id)"><Icon name="x" :size="13" />{{ t('__legacy_ef9dfdc01b86') }}</button>
                 </div>
               </div>
             </div>
           </div>
           <div v-if="expandedHosts[item.id]">
-            <p v-if="hostLoading[item.id]" class="state nested">读取中…</p>
+            <p v-if="hostLoading[item.id]" class="state nested">{{ t('读取中…') }}</p>
             <p v-else-if="hostErrors[item.id]" class="state nested error">{{ hostErrors[item.id] }}</p>
-            <p v-else-if="hostEntries[item.id] && !hostEntries[item.id].length" class="state nested">无子目录</p>
+            <p v-else-if="hostEntries[item.id] && !hostEntries[item.id].length" class="state nested">{{ t('无子目录') }}</p>
             <RemoteTreeNode
               v-for="entry in hostEntries[item.id] || []" :key="entry.path"
               :location="{ id: item.id, protocol: item.protocol, host: item.host, port: item.port, username: item.username, label: item.label, authMethod: item.authMethod, privateKey: item.privateKey }"
@@ -596,9 +597,9 @@ function toggleHost(item: RemoteHost) {
       <div class="tree-row category">
         <button class="row-main" @click="sections.cloud = !sections.cloud">
           <span class="twist" :class="{ open: sections.cloud }"><Icon name="chevron-right" :size="11" /></span>
-          <Icon class="category-icon category-cloud" name="cloud" :size="18" /><span>云存储</span>
+          <Icon class="category-icon category-cloud" name="cloud" :size="18" /><span>{{ t('云存储') }}</span>
         </button>
-        <button class="action" title="添加云存储账号" aria-label="添加云存储账号" @click="openCloudLogin"><Icon name="plus" :size="13" /></button>
+        <button class="action" :title="t('添加云存储账号')" :aria-label="t('添加云存储账号')" @click="openCloudLogin"><Icon name="plus" :size="13" /></button>
       </div>
       <CloudAccounts v-if="sections.cloud" ref="cloudRef" />
     </section>
@@ -607,14 +608,14 @@ function toggleHost(item: RemoteHost) {
         <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="smb-dialog-title">
           <header class="dialog-head">
             <MacWindowLights @close="closeSmbForm" />
-            <h2 id="smb-dialog-title">添加 SMB 共享</h2>
+            <h2 id="smb-dialog-title">{{ t('添加 SMB 共享') }}</h2>
           </header>
           <form class="dialog-form" @submit.prevent="saveShare">
-            <label>共享路径<input v-model="smbDraft" autofocus placeholder="\\服务器\共享名" aria-label="SMB 共享路径" /></label>
+            <label>{{ t('共享路径') }}<input v-model="smbDraft" autofocus placeholder="\\server\share" :aria-label="t('SMB 共享路径')" /></label>
             <p v-if="error" class="dialog-error">{{ error }}</p>
             <div class="dialog-actions">
-              <button type="button" class="secondary" @click="closeSmbForm">取消</button>
-              <button type="submit" class="primary">添加</button>
+              <button type="button" class="secondary" @click="closeSmbForm">{{ t('取消') }}</button>
+              <button type="submit" class="primary">{{ t('添加') }}</button>
             </div>
           </form>
         </section>
@@ -624,36 +625,36 @@ function toggleHost(item: RemoteHost) {
         <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="host-dialog-title">
           <header class="dialog-head">
             <MacWindowLights @close="closeHostForm" />
-            <h2 id="host-dialog-title">{{ editingHostId ? '编辑远程主机' : '添加远程主机' }}</h2>
+            <h2 id="host-dialog-title">{{ editingHostId ? t('编辑远程主机') : t('添加远程主机') }}</h2>
           </header>
           <form class="dialog-form" @submit.prevent="saveHost">
-            <label>协议
-              <select v-model="protocol" aria-label="协议" @change="onProtocolChange">
+            <label>{{ t('协议') }}
+              <select v-model="protocol" :aria-label="t('协议')" @change="onProtocolChange">
                 <option value="sftp">SFTP</option><option value="ftp">FTP</option>
               </select>
             </label>
-            <label>名称（可选）<input v-model="label" placeholder="主机名称" /></label>
-            <label>主机地址<input v-model="host" placeholder="主机地址" required /></label>
-            <label>端口<input v-model.number="port" type="number" min="1" max="65535" required /></label>
-            <label>用户名<input v-model="username" placeholder="用户名" /></label>
-            <label v-if="protocol === 'sftp'">认证方式
-              <select v-model="authMethod" aria-label="认证方式">
-                <option value="password">密码</option>
-                <option value="key">SSH 私钥</option>
+            <label>{{ t('名称（可选）') }}<input v-model="label" :placeholder="t('主机名称')" /></label>
+            <label>{{ t('主机地址') }}<input v-model="host" :placeholder="t('主机地址')" required /></label>
+            <label>{{ t('端口') }}<input v-model.number="port" type="number" min="1" max="65535" required /></label>
+            <label>{{ t('用户名') }}<input v-model="username" :placeholder="t('用户名')" /></label>
+            <label v-if="protocol === 'sftp'">{{ t('认证方式') }}
+              <select v-model="authMethod" :aria-label="t('认证方式')">
+                <option value="password">{{ t('密码') }}</option>
+                <option value="key">{{ t('SSH 私钥') }}</option>
               </select>
             </label>
-            <label v-if="authMethod === 'password'">密码
-              <input v-model="draftPassword" type="password" autocomplete="new-password" placeholder="密码（保存在系统凭据库）" />
+            <label v-if="authMethod === 'password'">{{ t('密码') }}
+              <input v-model="draftPassword" type="password" autocomplete="new-password" :placeholder="t('密码（保存在系统凭据库）')" />
             </label>
             <template v-else>
-              <label>私钥文件
+              <label>{{ t('私钥文件') }}
                 <span class="field-row">
-                  <input v-model="privateKeyPath" placeholder="例如 C:\Users\你\.ssh\id_ed25519" aria-label="SSH 私钥文件路径" />
-                  <button type="button" class="browse" title="浏览私钥文件" @click="pickPrivateKey">浏览…</button>
+                  <input v-model="privateKeyPath" placeholder="C:\Users\you\.ssh\id_ed25519" :aria-label="t('SSH 私钥文件路径')" />
+                  <button type="button" class="browse" :title="t('浏览私钥文件')" @click="pickPrivateKey">{{ t('浏览…') }}</button>
                 </span>
               </label>
-              <label>私钥口令（可选）
-                <input v-model="draftPassphrase" type="password" autocomplete="new-password" placeholder="没有密码短语请留空（保存在系统凭据库）" />
+              <label>{{ t('私钥口令（可选）') }}
+                <input v-model="draftPassphrase" type="password" autocomplete="new-password" :placeholder="t('没有密码短语请留空（保存在系统凭据库）')" />
               </label>
             </template>
             <p v-if="error" class="dialog-error">{{ error }}</p>
@@ -663,11 +664,11 @@ function toggleHost(item: RemoteHost) {
             </p>
             <div class="dialog-actions">
               <button type="button" class="secondary" :disabled="testing" @click="testConnection">
-                {{ testing ? '测试中…' : '测试连接' }}
+                {{ testing ? t('测试中…') : t('测试连接') }}
               </button>
               <span class="actions-spacer" />
-              <button type="button" class="secondary" @click="closeHostForm">取消</button>
-              <button type="submit" class="primary">{{ editingHostId ? '保存修改' : '保存主机' }}</button>
+              <button type="button" class="secondary" @click="closeHostForm">{{ t('取消') }}</button>
+              <button type="submit" class="primary">{{ editingHostId ? t('保存修改') : t('保存主机') }}</button>
             </div>
           </form>
         </section>
