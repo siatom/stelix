@@ -14,7 +14,7 @@ const ui = useUiStore()
 
 const modes: { key: ViewMode; icon: IconName; title: string }[] = [
   { key: 'details', icon: 'view-details', title: '详细' },
-  { key: 'list', icon: 'view-list', title: '列表' },
+  { key: 'list', icon: 'view-list', title: '列表（多列）' },
   { key: 'icons', icon: 'view-icons', title: '图标' },
 ]
 

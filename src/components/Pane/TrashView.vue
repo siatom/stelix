@@ -793,6 +793,11 @@ onBeforeUnmount(() => {
 }
 /* 列表视图：单列展示名称，行内操作靠右（与文件窗格的列表视图一致） */
 .list-scroll {
+  display: grid;
+  grid-auto-flow: column;
+  grid-template-rows: repeat(auto-fill, var(--file-row-h));
+  grid-auto-columns: 240px;
+  align-content: start;
   flex: 1;
   min-width: 0;
   min-height: 0;
@@ -804,6 +809,7 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 8px;
   height: var(--file-row-h);
+  min-width: 0;
   padding: 0 8px;
   color: var(--fg);
   font-size: 1em;

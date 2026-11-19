@@ -218,6 +218,10 @@ const iconRows = computed(() => rows.value.slice(0, ICON_CAP))
 
 const scrollRef = ref<HTMLElement | null>(null)
 const iconsScrollRef = ref<HTMLElement | null>(null)
+const listViewportHeight = ref(0)
+const listRowCount = computed(() =>
+  Math.max(1, Math.floor(listViewportHeight.value / ui.fileRowHeight)),
+)
 // 行高由设置面板控制（ui.fileRowHeight）：把它读进 computed 让虚拟滚动器在变更时重建。
 const virtualizer = useVirtualizer(
   computed(() => {
@@ -274,8 +278,10 @@ watch(scrollRef, (el) => {
   scrollPortObserver = null
   if (!el) return
   scrollPortWidth.value = el.clientWidth
+  listViewportHeight.value = el.clientHeight
   scrollPortObserver = new ResizeObserver(() => {
     scrollPortWidth.value = el.clientWidth
+    listViewportHeight.value = el.clientHeight
   })
   scrollPortObserver.observe(el)
   void nextTick(resyncScrollOffset)
@@ -2018,7 +2024,53 @@ function onDrop(ev: DragEvent) {
       </div>
 
       <div ref="scrollRef" class="fl-scroll" @click.self="onBlankClick" @scroll.passive="onListScroll">
-        <div class="fl-inner" :style="[{ height: `${virtualizer.getTotalSize()}px` }, innerStyle]">
+        <div
+          v-if="viewMode === 'list'"
+          class="fl-inner list-inner"
+          :style="{ gridTemplateRows: `repeat(${listRowCount}, ${ui.fileRowHeight}px)` }"
+        >
+          <div
+            v-for="(row, index) in treeRows"
+            :key="row.entry.path"
+            class="row"
+            :data-selection-path="row.entry.path"
+            :data-drop-path="row.entry.path"
+            :data-drop-dir="row.entry.isDir"
+            :draggable="!editing"
+            :class="{ selected: tab.selected.includes(row.entry.path), dir: row.entry.isDir, 'drop-target': dragOverPath === row.entry.path }"
+            :style="{ height: `${ui.fileRowHeight}px` }"
+            @click="onClick($event, index, row.entry)"
+            @dblclick="onDblClick(row.entry)"
+            @contextmenu="openCtx($event, row.entry)"
+            @dragstart="onDragStart($event, row.entry)"
+            @dragover="onEntryDragOver($event, row.entry)"
+            @dragleave="onEntryDragLeave($event, row.entry.path)"
+            @drop="onEntryDrop($event, row.entry)"
+          >
+            <span class="name-cell">
+              <span v-if="row.depth" class="indent" :style="{ width: `${row.depth * 10}px` }" />
+              <button
+                v-if="row.entry.isDir && !isRemote && !tab.filterRule?.recursive"
+                class="twisty"
+                :class="{ expanded: row.expanded }"
+                :title="row.expanded ? translate('折叠', 'Collapse') : translate('展开', 'Expand')"
+                :aria-label="row.expanded ? translate('折叠', 'Collapse') : translate('展开', 'Expand')"
+                @click.stop="paneStore.toggleExpand(tab.id, row.entry.path)"
+                @dblclick.stop
+              ><Icon :name="row.expanded ? 'chevron-down' : 'chevron-right'" :size="12" /></button>
+              <span v-else class="twisty placeholder" />
+              <span class="ico" :class="`k-${fileKind(row.entry)}`">
+                <Icon v-if="isRemote" :name="fileIcon(row.entry)" :size="18" />
+                <FileIcon v-else :path="row.entry.path" :is-dir="row.entry.isDir" :ext="row.entry.ext" :size="18" />
+              </span>
+              <span v-if="editing?.mode === 'rename' && editing.path === row.entry.path" class="nm">
+                <input v-model="editing.name" class="inline-edit rename" spellcheck="false" @keydown.enter.stop.prevent="commitEdit" @keydown.esc.stop.prevent="cancelEdit" @blur="commitEdit()" @click.stop @dblclick.stop />
+              </span>
+              <span v-else class="nm" :title="row.entry.path">{{ ui.displayFileName(row.entry.name, row.entry.isDir) }}</span>
+            </span>
+          </div>
+        </div>
+        <div v-else class="fl-inner" :style="[{ height: `${virtualizer.getTotalSize()}px` }, innerStyle]">
           <div
             v-for="vr in virtualRows"
             :key="String(vr.key)"
@@ -2530,7 +2582,18 @@ function onDrop(ev: DragEvent) {
 
 /* 列表视图：隐藏后三列 */
 .file-list.list .row {
-  grid-template-columns: 1fr;
+  position: relative;
+  width: 240px;
+  grid-template-columns: minmax(0, 1fr);
+  padding-right: 8px;
+}
+.list-inner {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 240px;
+  align-content: start;
+  width: max-content;
+  min-width: 100%;
 }
 
 /* 图标视图 */
