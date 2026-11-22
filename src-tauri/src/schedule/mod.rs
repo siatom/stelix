@@ -40,7 +40,7 @@ pub struct ScheduleService {
     app: RwLock<Option<AppHandle>>,
     running: Mutex<HashSet<String>>,
     #[cfg(test)]
-    in_memory: bool,
+    persist_override: Option<Box<dyn Fn(&[ScheduledTask]) -> Result<(), String> + Send + Sync>>,
 }
 
 struct RunClaim<'a> {
@@ -80,7 +80,7 @@ impl ScheduleService {
             app: RwLock::new(None),
             running: Mutex::new(HashSet::new()),
             #[cfg(test)]
-            in_memory: false,
+            persist_override: None,
         }
     }
 
@@ -103,27 +103,23 @@ impl ScheduleService {
         } else {
             None
         };
-        {
-            let mut tasks = self.tasks.write();
+        self.commit(|tasks| {
             match tasks.iter_mut().find(|t| t.id == task.id) {
                 Some(existing) => *existing = task.clone(),
                 None => tasks.push(task.clone()),
             }
             tasks.sort_by_key(|t| t.created_at);
-        }
-        self.persist()?;
+        })?;
         Ok(task)
     }
 
     pub fn delete(&self, id: &str) -> Result<(), String> {
-        self.tasks.write().retain(|t| t.id != id);
-        self.persist()
+        self.commit(|tasks| tasks.retain(|t| t.id != id))
     }
 
     pub fn set_enabled(&self, id: &str, enabled: bool) -> Result<(), String> {
-        {
+        self.commit(|tasks| {
             let now = now_ms();
-            let mut tasks = self.tasks.write();
             if let Some(task) = tasks.iter_mut().find(|t| t.id == id) {
                 task.enabled = enabled;
                 task.next_run = if enabled {
@@ -132,8 +128,7 @@ impl ScheduleService {
                     None
                 };
             }
-        }
-        self.persist()
+        })
     }
 
     /// 立即运行一次。
@@ -212,8 +207,7 @@ impl ScheduleService {
     /// 记录一次运行结果、重算下次触发并持久化，随后广播事件。
     fn record_run(&self, id: &str, summary: &str) {
         let now = now_ms();
-        {
-            let mut tasks = self.tasks.write();
+        if let Err(error) = self.commit(|tasks| {
             if let Some(task) = tasks.iter_mut().find(|t| t.id == id) {
                 task.last_run = Some(now);
                 task.last_result = Some(summary.to_string());
@@ -224,19 +218,31 @@ impl ScheduleService {
                     None
                 };
             }
+        }) {
+            eprintln!("保存定时任务运行结果失败（{id}）：{error}");
+            return;
         }
-        let _ = self.persist();
         if let Some(app) = self.app.read().clone() {
             let _ = app.emit(TASK_UPDATED_EVENT, id.to_string());
         }
     }
 
-    fn persist(&self) -> Result<(), String> {
+    /// 在同一写锁内持久化候选配置，再发布到内存，避免失败或并发写入丢失状态。
+    fn commit(&self, update: impl FnOnce(&mut Vec<ScheduledTask>)) -> Result<(), String> {
+        let mut tasks = self.tasks.write();
+        let mut candidate = tasks.clone();
+        update(&mut candidate);
+        self.persist(&candidate)?;
+        *tasks = candidate;
+        Ok(())
+    }
+
+    fn persist(&self, tasks: &[ScheduledTask]) -> Result<(), String> {
         #[cfg(test)]
-        if self.in_memory {
-            return Ok(());
+        if let Some(persist) = &self.persist_override {
+            return persist(tasks);
         }
-        persistence::save_tasks(&self.tasks.read())
+        persistence::save_tasks(tasks)
     }
 
     /// 启动后台调度线程（每 [`POLL_INTERVAL`] 检查一次到期任务）。
@@ -639,8 +645,94 @@ mod tests {
             tasks: RwLock::new(tasks),
             app: RwLock::new(None),
             running: Mutex::new(HashSet::new()),
-            in_memory: true,
+            persist_override: Some(Box::new(|_| Ok(()))),
         }
+    }
+
+    #[test]
+    fn failed_configuration_commits_leave_memory_and_disk_unchanged() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        let mut service = in_memory_service(&["existing"]);
+        service.tasks.write()[0]
+            .action
+            .filters
+            .extensions
+            .push("txt".into());
+        let disk = Arc::new(Mutex::new(serde_json::to_vec(&service.list()).unwrap()));
+        let fail = Arc::new(AtomicBool::new(true));
+        let stored = disk.clone();
+        let failing = fail.clone();
+        service.persist_override = Some(Box::new(move |tasks| {
+            if failing.load(Ordering::SeqCst) {
+                return Err("injected write failure".into());
+            }
+            *stored.lock() = serde_json::to_vec(tasks).unwrap();
+            Ok(())
+        }));
+        let original = serde_json::to_vec(&service.list()).unwrap();
+        let mut added = service.list()[0].clone();
+        added.id = "added".into();
+        let mut edited = service.list()[0].clone();
+        edited.name = "edited".into();
+        assert!(service.save(added.clone()).is_err());
+        assert!(service.save(edited.clone()).is_err());
+        assert!(service.delete("existing").is_err());
+        assert!(service.set_enabled("existing", false).is_err());
+        service.record_run("existing", "failed persistence");
+        assert_eq!(serde_json::to_vec(&service.list()).unwrap(), original);
+        assert_eq!(*disk.lock(), original);
+
+        fail.store(false, Ordering::SeqCst);
+        service.save(added).unwrap();
+        service.save(edited).unwrap();
+        service.set_enabled("existing", false).unwrap();
+        service.delete("added").unwrap();
+        assert_eq!(serde_json::to_vec(&service.list()).unwrap(), *disk.lock());
+        assert_eq!(service.list().len(), 1);
+        assert_eq!(service.list()[0].name, "edited");
+        assert!(!service.list()[0].enabled);
+    }
+
+    #[test]
+    fn configuration_commit_and_run_result_are_serialized() {
+        let mut service = in_memory_service(&["existing"]);
+        let disk = Arc::new(Mutex::new(Vec::new()));
+        let stored = disk.clone();
+        let (writing_tx, writing_rx) = std::sync::mpsc::channel();
+        let (resume_tx, resume_rx) = std::sync::mpsc::channel();
+        let resume_rx = Mutex::new(resume_rx);
+        service.persist_override = Some(Box::new(move |tasks| {
+            if tasks[0].enabled {
+                writing_tx.send(()).unwrap();
+                resume_rx
+                    .lock()
+                    .recv_timeout(Duration::from_secs(5))
+                    .unwrap();
+            }
+            *stored.lock() = serde_json::to_vec(tasks).unwrap();
+            Ok(())
+        }));
+        std::thread::scope(|scope| {
+            let service = &service;
+            let recording = scope.spawn(|| service.record_run("existing", "finished"));
+            writing_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+            assert!(service.tasks.try_write().is_none());
+            let editing = scope.spawn(|| service.set_enabled("existing", false));
+            resume_tx.send(()).unwrap();
+            recording.join().unwrap();
+            editing.join().unwrap().unwrap();
+        });
+        let tasks = service.list();
+        assert!(!tasks[0].enabled);
+        assert_eq!(tasks[0].next_run, None);
+        assert_eq!(tasks[0].run_count, 1);
+        assert_eq!(tasks[0].last_result.as_deref(), Some("finished"));
+        let reloaded: Vec<ScheduledTask> = serde_json::from_slice(&disk.lock()).unwrap();
+        assert_eq!(
+            serde_json::to_vec(&tasks).unwrap(),
+            serde_json::to_vec(&reloaded).unwrap()
+        );
     }
 
     #[test]
