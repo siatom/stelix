@@ -68,7 +68,7 @@ async function openTerminalHere() {
         :disabled="!paneStore.canCreateInActivePane"
         @click="paneStore.requestAction('mkdir')"
       >
-        <Icon name="folder-plus" :size="15" />
+        <Icon name="folder-symlink" :size="15" />
       </button>
       <button
         type="button"

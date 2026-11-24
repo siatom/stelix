@@ -848,10 +848,10 @@ onBeforeUnmount(() => {
             <button type="button" class="pv-text-btn" :title="t('原始尺寸（1）')" @click="actualSize">1:1</button>
             <template v-if="editableImage">
               <span class="pv-action-separator" />
-              <button type="button" :title="t('左转 90°')" @click="rotateImage(-90)"><Icon name="arrow-left" :size="15" /></button>
-              <button type="button" :title="t('右转 90°')" @click="rotateImage(90)"><Icon name="arrow-right" :size="15" /></button>
-              <button type="button" :class="{ active: imageFlipHorizontal }" :title="t('水平翻转')" @click="imageFlipHorizontal = !imageFlipHorizontal"><Icon name="swap" :size="15" /></button>
-              <button type="button" :class="{ active: imageFlipVertical }" :title="t('垂直翻转')" @click="imageFlipVertical = !imageFlipVertical"><Icon name="swap" :size="15" class="pv-flip-vertical" /></button>
+              <button type="button" :title="t('左转 90°')" @click="rotateImage(-90)"><Icon name="rotate-ccw" :size="15" /></button>
+              <button type="button" :title="t('右转 90°')" @click="rotateImage(90)"><Icon name="rotate-cw" :size="15" /></button>
+              <button type="button" :class="{ active: imageFlipHorizontal }" :title="t('水平翻转')" @click="imageFlipHorizontal = !imageFlipHorizontal"><Icon name="square-axis-dashed-vertical" :size="15" /></button>
+              <button type="button" :class="{ active: imageFlipVertical }" :title="t('垂直翻转')" @click="imageFlipVertical = !imageFlipVertical"><Icon name="square-axis-dashed-horizontal" :size="15" /></button>
               <button type="button" :disabled="!imageDirty" :title="t('重置编辑')" @click="resetImageEdit"><Icon name="restore" :size="15" /></button>
               <button v-if="imageDirty" type="button" class="pv-text-btn" :disabled="imageSaving" :title="t('覆盖原文件')" @click="saveImageOverwrite">{{ imageSaving ? t('保存中…') : t('保存') }}</button>
               <button v-if="imageDirty" type="button" class="pv-text-btn" :disabled="imageSaving" :title="t('另存为新文件')" @click="saveImageAs">{{ t('另存为') }}</button>
@@ -1171,10 +1171,6 @@ onBeforeUnmount(() => {
   background: var(--border);
 }
 
-.pv-flip-vertical {
-  transform: rotate(90deg);
-}
-
 .pv-percent {
   min-width: 44px;
   color: var(--fg-muted);
@@ -1330,6 +1326,10 @@ onBeforeUnmount(() => {
 .pv-text.wrap {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+.pv-text code {
+  font-family: inherit;
 }
 
 /* 语法高亮：颜色取自 tokens.css 的 --code-*（v-html 内容需要 :deep） */
