@@ -1022,6 +1022,14 @@ pub fn execute(op: &FsOp, ctx: &OpContext) -> FsOpResult {
                                 cancelled = true;
                                 break;
                             }
+                            Err(CopyFailure::Skipped) => {
+                                // 移动 fallback 未能保留链接/junction：源必须保留，
+                                // 同时清掉本次生成的不完整目标。
+                                let _ = remove_path(&dest);
+                                errors.push(format!(
+                                    "移动失败 {src}: 无法保留符号链接或重解析点，源项已保留"
+                                ));
+                            }
                             Err(CopyFailure::Io(e)) => {
                                 let _ = remove_path(&dest);
                                 if is_access_denied(&e) {
@@ -1065,7 +1073,7 @@ pub fn execute(op: &FsOp, ctx: &OpContext) -> FsOpResult {
                 }
                 let dest = unique_duplicate_dest(sp);
                 match copy_recursive(sp, &dest, ctx, &mut skipped) {
-                    Ok(()) => undo.push(delete_undo(&dest.to_string_lossy())),
+                    Ok(_) => undo.push(delete_undo(&dest.to_string_lossy())),
                     Err(CopyFailure::Cancelled) => {
                         let _ = remove_path(&dest);
                         cancelled = true;
@@ -1164,10 +1172,12 @@ fn scan_size(src: &Path, ctx: &OpContext, files: &mut u64, bytes: &mut u64) -> b
     true
 }
 
-/// 复制失败的原因：IO 错误或用户取消。
+/// 复制失败的原因：IO 错误、用户取消，或复制跳过了无法保留的链接。
+#[derive(Debug)]
 enum CopyFailure {
     Io(std::io::Error),
     Cancelled,
+    Skipped,
 }
 
 impl From<std::io::Error> for CopyFailure {
@@ -1381,7 +1391,7 @@ fn unique_duplicate_dest(src: &Path) -> PathBuf {
 /// - Ok(true)：完全移动（rename 成功，或复制成功且源已删）。
 /// - Ok(false)：复制成功但源删不掉（文件被占用等）——此时副本完整，
 ///   调用方按「复制」语义记录撤销，并把删除失败报给用户。
-/// - Err：复制中途失败/取消——调用方会清掉写了一半的副本。
+/// - Err：复制中途失败/取消，或复制跳过链接——调用方会清理目标并报告失败。
 fn move_path(
     src: &Path,
     dest: &Path,
@@ -1396,13 +1406,27 @@ fn move_path(
             Ok(true)
         }
         Err(_) => {
-            copy_recursive(src, dest, ctx, skipped)?;
-            match remove_path(src) {
-                Ok(_) => Ok(true),
-                // 源删不掉：保留完整副本（不删），由调用方报告并允许撤销。
-                Err(_) => Ok(false),
-            }
+            copy_then_remove_source(src, dest, ctx, skipped)
         }
+    }
+}
+
+/// 跨盘移动的复制 fallback：只有完整复制后才允许删除源项。
+fn copy_then_remove_source(
+    src: &Path,
+    dest: &Path,
+    ctx: &OpContext,
+    skipped: &mut Vec<String>,
+) -> Result<bool, CopyFailure> {
+    if copy_recursive(src, dest, ctx, skipped)? {
+        // 复制结果不完整时，保留源项并清理本次生成的目标。
+        let _ = remove_path(dest);
+        return Err(CopyFailure::Skipped);
+    }
+    match remove_path(src) {
+        Ok(_) => Ok(true),
+        // 源删不掉：保留完整副本（不删），由调用方报告并允许撤销。
+        Err(_) => Ok(false),
     }
 }
 
@@ -1446,17 +1470,18 @@ fn copy_recursive(
     dest: &Path,
     ctx: &OpContext,
     skipped: &mut Vec<String>,
-) -> Result<(), CopyFailure> {
+) -> Result<bool, CopyFailure> {
     if ctx.is_cancelled() {
         return Err(CopyFailure::Cancelled);
     }
     let meta = fs::symlink_metadata(io_path(src))?;
     if is_reparse_point(&meta) {
         skipped.push(src.to_string_lossy().into_owned());
-        return Ok(());
+        return Ok(true);
     }
     if meta.is_dir() {
         fs::create_dir_all(io_path(dest))?;
+        let mut had_skipped = false;
         for item in fs::read_dir(io_path(src))? {
             let item = item?;
             if ctx.is_cancelled() {
@@ -1464,9 +1489,9 @@ fn copy_recursive(
             }
             let child_src = src.join(item.file_name());
             let child_dest = dest.join(item.file_name());
-            copy_recursive(&child_src, &child_dest, ctx, skipped)?;
+            had_skipped |= copy_recursive(&child_src, &child_dest, ctx, skipped)?;
         }
-        Ok(())
+        Ok(had_skipped)
     } else {
         if let Some(parent) = dest.parent() {
             if !parent.as_os_str().is_empty() {
@@ -1476,7 +1501,7 @@ fn copy_recursive(
         fs::copy(io_path(src), io_path(dest))?;
         ctx.add_file(meta.len());
         ctx.tick(&src.to_string_lossy());
-        Ok(())
+        Ok(false)
     }
 }
 
@@ -1996,6 +2021,37 @@ mod tests {
             "junction 不应被复制（会形成环）"
         );
         assert!(!res.skipped.is_empty(), "应记录被跳过的链接");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// 跨盘移动 fallback 遇到顶层 junction 时必须保留源并清理目标。
+    #[cfg(windows)]
+    #[test]
+    fn move_fallback_preserves_top_level_junction() {
+        let dir = temp_dir("move-junction");
+        let target = dir.join("target");
+        let link = dir.join("link");
+        let real = dir.join("real");
+        fs::create_dir_all(&real).unwrap();
+        fs::write(real.join("a.txt"), b"a").unwrap();
+
+        let status = std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(&link)
+            .arg(&real)
+            .status();
+        let Ok(status) = status else { return };
+        if !status.success() {
+            let _ = fs::remove_dir_all(&dir);
+            return;
+        }
+
+        let mut skipped = Vec::new();
+        let result = copy_then_remove_source(&link, &target, &OpContext::noop(), &mut skipped);
+        assert!(matches!(result, Err(CopyFailure::Skipped)), "{result:?}");
+        assert!(link.exists(), "源 junction 必须保留");
+        assert!(!target.exists(), "不应留下不完整目标");
+        assert_eq!(skipped, vec![link.to_string_lossy().into_owned()]);
         let _ = fs::remove_dir_all(&dir);
     }
 
