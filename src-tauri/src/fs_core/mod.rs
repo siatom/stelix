@@ -1079,6 +1079,12 @@ pub fn execute(op: &FsOp, ctx: &OpContext) -> FsOpResult {
                         cancelled = true;
                         break;
                     }
+                    Err(CopyFailure::Skipped) => {
+                        let _ = remove_path(&dest);
+                        errors.push(format!(
+                            "复制副本失败 {src}: 无法保留符号链接或重解析点，目标已清理"
+                        ));
+                    }
                     Err(CopyFailure::Io(e)) => {
                         let _ = remove_path(&dest);
                         if is_access_denied(&e) {
