@@ -233,19 +233,44 @@ impl SftpClient {
         let mut source = tokio::fs::File::open(local)
             .await
             .map_err(|error| format!("读取本地文件 {} 失败：{error}", local.display()))?;
+        let temp = temporary_remote_path(remote);
         let mut target = self
             .sftp
-            .create(remote)
+            .create(&temp)
             .await
-            .map_err(|error| format!("无法创建远端文件 {remote}：{error}"))?;
-        tokio::io::copy(&mut source, &mut target)
-            .await
-            .map_err(|error| format!("上传 {} 失败：{error}", local.display()))?;
-        target
-            .close()
-            .await
-            .map_err(|error| format!("关闭远端文件 {remote} 失败：{error}"))?;
+            .map_err(|error| format!("无法创建远端临时文件 {temp}：{error}"))?;
+        if let Err(error) = tokio::io::copy(&mut source, &mut target).await {
+            drop(target);
+            return Err(self
+                .cleanup_upload_temp(&temp, format!("上传 {} 失败：{error}", local.display()))
+                .await);
+        }
+        if let Err(error) = target.close().await {
+            return Err(self
+                .cleanup_upload_temp(&temp, format!("关闭远端临时文件 {temp} 失败：{error}"))
+                .await);
+        }
+        if let Err(error) = self.sftp.rename(&temp, remote).await {
+            return Err(self
+                .cleanup_upload_temp(
+                    &temp,
+                    format!(
+                        "无法安全发布远端文件 {remote}：{error}；未主动替换原目标（服务器可能不支持安全覆盖）"
+                    ),
+                )
+                .await);
+        }
         Ok(size)
+    }
+
+    /// 发布失败后尽力删除临时文件，同时保留清理失败信息供诊断。
+    async fn cleanup_upload_temp(&self, temp: &str, error: String) -> String {
+        match self.sftp.remove_file(temp).await {
+            Ok(()) => error,
+            Err(cleanup_error) => {
+                format!("{error}；清理远端临时文件 {temp} 失败：{cleanup_error}")
+            }
+        }
     }
 }
 
@@ -614,6 +639,14 @@ fn remote_parent(path: &str) -> Option<&str> {
     Some(if index == 0 { "/" } else { &trimmed[..index] })
 }
 
+/// 生成与目标同目录的唯一临时路径，避免发布时跨目录移动。
+fn temporary_remote_path(remote: &str) -> String {
+    let name = format!(".stelix-upload-{}.part", uuid::Uuid::new_v4());
+    remote_parent(remote)
+        .map(|parent| join_remote(parent, &name))
+        .unwrap_or(name)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -624,6 +657,27 @@ mod tests {
         assert_eq!(remote_parent("/index.html"), Some("/"));
         assert_eq!(remote_parent("/var/www/"), Some("/var"));
         assert_eq!(remote_parent("relative.txt"), None);
+    }
+
+    #[test]
+    fn temporary_upload_path_stays_in_target_directory() {
+        let first = temporary_remote_path("/var/www/index.html");
+        let second = temporary_remote_path("/var/www/index.html");
+
+        assert_ne!(first, second);
+        assert!(first.starts_with("/var/www/.stelix-upload-"));
+        assert!(first.ends_with(".part"));
+        assert_eq!(remote_parent(&first), Some("/var/www"));
+    }
+
+    #[test]
+    fn temporary_upload_path_handles_root_and_relative_targets() {
+        let root = temporary_remote_path("/index.html");
+        let relative = temporary_remote_path("index.html");
+
+        assert!(root.starts_with("/.stelix-upload-"));
+        assert!(relative.starts_with(".stelix-upload-"));
+        assert!(relative.ends_with(".part"));
     }
 
     /// 真实服务器上的往返测试（CI 默认跳过）。
