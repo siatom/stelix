@@ -20,6 +20,7 @@ const isFavorite = ref(loadFavorites().some((item) => item.path === props.tab.pa
 /** 远程（FTP / SFTP）标签：路径只读展示，不参与本地收藏与路径补全。 */
 const isRemote = computed(() => props.tab.kind === 'remote' && !!props.tab.remote)
 const isSftp = computed(() => isRemote.value && props.tab.remote?.protocol === 'sftp')
+const isComputer = computed(() => props.tab.kind === 'computer')
 
 const editing = ref(false)
 const draft = ref('')
@@ -36,6 +37,7 @@ const ellipsisEl = ref<HTMLElement | null>(null)
 const hiddenMenuEl = ref<HTMLElement | null>(null)
 
 const segments = computed(() => {
+  if (isComputer.value) return [{ label: t('本机'), path: 'computer://' }]
   const location = props.tab.remote
   if (props.tab.kind === 'remote' && location) {
     const root = isCloudProtocol(location.protocol)
@@ -230,7 +232,7 @@ watch(editing, async (active) => {
 })
 
 async function startEdit() {
-  if (isRemote.value) return // 远程路径只读
+  if (isRemote.value || isComputer.value) return // 远程 / 本机路径只读
   draft.value = props.tab.path
   editing.value = true
   await nextTick()
@@ -290,7 +292,7 @@ watch(
       v-if="!editing"
       ref="crumbsEl"
       class="crumbs"
-      :title="isRemote ? t('远程路径（只读）') : t('双击切换为可编辑路径')"
+      :title="isRemote || isComputer ? t('只读虚拟位置') : t('双击切换为可编辑路径')"
       @dblclick.stop.prevent="startEdit"
     >
       <button
@@ -349,7 +351,7 @@ watch(
       @blur="commit"
     />
     <button
-      v-if="!isRemote"
+      v-if="!isRemote && !isComputer"
       class="favorite-button"
       :class="{ 'is-favorite': isFavorite }"
       :title="isFavorite ? t('当前目录已在收藏中') : t('将当前目录加入收藏')"
@@ -368,7 +370,7 @@ watch(
     >
       <Icon name="terminal" :size="15" />
     </button>
-    <FilterPanel :tab="tab" />
+    <FilterPanel v-if="!isComputer" :tab="tab" />
   </div>
 </template>
 

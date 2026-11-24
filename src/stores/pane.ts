@@ -162,7 +162,7 @@ function sameEntries(a: FileEntry[], b: FileEntry[]): boolean {
 /** 浏览历史中的一处位置：普通目录只记路径，搜索结果与远程目录还需带上还原所需的信息。 */
 interface HistoryItem {
   path: string
-  kind?: 'files' | 'search' | 'remote' | 'terminal' | 'trash'
+  kind?: 'files' | 'search' | 'remote' | 'terminal' | 'trash' | 'computer'
   title?: string
   searchQuery?: string
   entries?: FileEntry[]
@@ -178,7 +178,8 @@ function isPersistableTab(tab: TabState): boolean {
     tab.kind !== 'search' &&
     tab.kind !== 'remote' &&
     tab.kind !== 'terminal' &&
-    tab.kind !== 'trash'
+    tab.kind !== 'trash' &&
+    tab.kind !== 'computer'
   )
 }
 
@@ -299,6 +300,7 @@ export const usePaneStore = defineStore('pane', () => {
   const revealTarget = ref<{ tabId: string; path: string } | null>(null)
   /** 回收站内容刷新信号：本地删除后递增，打开的回收站标签据此重载。 */
   const trashRefreshSeq = ref(0)
+  const computerRefreshSeq = ref(0)
   /**
    * 正在行内编辑（重命名 / 新建）的标签 id，由 `FileList` 上报。
    * 这些标签在收到目录变更时跳过自动刷新，避免打断正在进行的输入。
@@ -378,7 +380,8 @@ export const usePaneStore = defineStore('pane', () => {
       tab.kind !== 'search' &&
       tab.kind !== 'remote' &&
       tab.kind !== 'terminal' &&
-      tab.kind !== 'trash'
+      tab.kind !== 'trash' &&
+      tab.kind !== 'computer'
     )
   })
   // 删除作用于选中项自身路径：搜索结果的命中项也是真实本地文件，与普通目录一样可删。
@@ -389,6 +392,7 @@ export const usePaneStore = defineStore('pane', () => {
       tab.kind !== 'remote' &&
       tab.kind !== 'terminal' &&
       tab.kind !== 'trash' &&
+      tab.kind !== 'computer' &&
       tab.selected.length > 0
     )
   })
@@ -625,7 +629,7 @@ export const usePaneStore = defineStore('pane', () => {
     // 终端标签没有目录语义（`path` 只是展示用的 ssh:// 地址），不参与列目录。
     if (tab.kind === 'terminal') return
     // 回收站内容由 TrashView 直接读取，不经过目录列举。
-    if (tab.kind === 'trash') return
+    if (tab.kind === 'trash' || tab.kind === 'computer') return
     // 每次加载领一个递增 token：先发出的请求若后返回，其结果是过期目录，必须丢弃，
     // 否则会覆盖新目录的内容并清空选中。
     const token = (loadTokens.get(tab.id) ?? 0) + 1
@@ -669,6 +673,23 @@ export const usePaneStore = defineStore('pane', () => {
     tab.path = ''
     tab.entries = []
     tab.selected = []
+    pane.tabs.push(tab)
+    pane.activeTabId = tab.id
+    recordHistory(tab)
+  }
+
+  /** 在指定窗格打开只读的本机磁盘概览；已有标签时直接切换。 */
+  function openComputer(paneId: string = activePaneId.value) {
+    const pane = paneById(paneId)
+    if (!pane) return
+    const existing = pane.tabs.find((tab) => tab.kind === 'computer')
+    if (existing) {
+      pane.activeTabId = existing.id
+      return
+    }
+    const tab = makeTab('computer://')
+    tab.kind = 'computer'
+    tab.title = '本机'
     pane.tabs.push(tab)
     pane.activeTabId = tab.id
     recordHistory(tab)
@@ -889,6 +910,16 @@ export const usePaneStore = defineStore('pane', () => {
       tab.error = null
       return
     }
+    if (item.kind === 'computer') {
+      tab.kind = 'computer'
+      tab.title = '本机'
+      tab.path = 'computer://'
+      tab.entries = []
+      tab.selected = []
+      tab.loading = false
+      tab.error = null
+      return
+    }
     await navigateTo(paneId, item.path, tab.id, false)
   }
 
@@ -960,6 +991,10 @@ export const usePaneStore = defineStore('pane', () => {
     if (tab.kind === 'trash') {
       trashRefreshSeq.value += 1
       refreshTrashIcon()
+      return
+    }
+    if (tab.kind === 'computer') {
+      computerRefreshSeq.value += 1
       return
     }
     // 递归筛选的结果来自后端遍历；刷新时重新执行筛选，而不是把根目录列表塞回去。
@@ -2815,7 +2850,9 @@ export const usePaneStore = defineStore('pane', () => {
     navigate,
     navigateTo,
     openTrash,
+    openComputer,
     trashRefreshSeq,
+    computerRefreshSeq,
     openRemote,
     openRemoteWorkspace,
     addRemoteTab,

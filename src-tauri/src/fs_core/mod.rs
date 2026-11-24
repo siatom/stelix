@@ -327,6 +327,7 @@ fn windows_roots() -> Vec<DriveInfo> {
         out.push(DriveInfo {
             name: format!("本地磁盘 ({letter}:)"),
             mount,
+            filesystem: windows_filesystem(&format!("{letter}:\\")),
             total,
             free,
             ejectable: unsafe {
@@ -342,6 +343,32 @@ fn windows_roots() -> Vec<DriveInfo> {
     out
 }
 
+#[cfg(windows)]
+fn windows_filesystem(root: &str) -> Option<String> {
+    let wide: Vec<u16> = root.encode_utf16().chain(std::iter::once(0)).collect();
+    let mut name = [0u16; 32];
+    let ok = unsafe {
+        windows_sys::Win32::Storage::FileSystem::GetVolumeInformationW(
+            wide.as_ptr(),
+            std::ptr::null_mut(),
+            0,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            name.as_mut_ptr(),
+            name.len() as u32,
+        )
+    };
+    if ok == 0 {
+        return None;
+    }
+    let end = name
+        .iter()
+        .position(|value| *value == 0)
+        .unwrap_or(name.len());
+    Some(String::from_utf16_lossy(&name[..end]))
+}
+
 /// macOS：根卷 + `/Volumes` 下的外接 / 网络卷（Finder 的「位置」列表）。
 #[cfg(target_os = "macos")]
 fn macos_roots() -> Vec<DriveInfo> {
@@ -351,6 +378,7 @@ fn macos_roots() -> Vec<DriveInfo> {
     let mut out = vec![DriveInfo {
         name: "Macintosh HD".to_string(),
         mount: "/".to_string(),
+        filesystem: None,
         total: drive_space("/").0,
         free: drive_space("/").1,
         ejectable: false,
@@ -376,6 +404,7 @@ fn macos_roots() -> Vec<DriveInfo> {
             out.push(DriveInfo {
                 name,
                 mount,
+                filesystem: None,
                 total,
                 free,
                 ejectable,
@@ -391,6 +420,7 @@ fn unix_roots() -> Vec<DriveInfo> {
     let mut out = vec![DriveInfo {
         name: "根目录".to_string(),
         mount: "/".to_string(),
+        filesystem: None,
         total: drive_space("/").0,
         free: drive_space("/").1,
         ejectable: false,
@@ -401,6 +431,7 @@ fn unix_roots() -> Vec<DriveInfo> {
         out.push(DriveInfo {
             name: "主目录".to_string(),
             mount,
+            filesystem: None,
             total,
             free,
             ejectable: false,

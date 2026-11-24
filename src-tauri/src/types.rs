@@ -42,6 +42,8 @@ pub struct DirListing {
 pub struct DriveInfo {
     pub name: String,
     pub mount: String,
+    #[serde(default)]
+    pub filesystem: Option<String>,
     pub total: u64,
     pub free: u64,
     #[serde(default)]
