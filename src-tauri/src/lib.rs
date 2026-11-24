@@ -1058,13 +1058,23 @@ async fn ai_test_connection(config: AiConfig) -> Result<String, String> {
 }
 
 #[tauri::command]
-fn ai_conversations_list() -> Result<Vec<AiConversation>, String> {
+fn ai_conversations_list() -> Result<Vec<AiConversationSummary>, String> {
     persistence::ai_history::list()
+}
+
+#[tauri::command]
+fn ai_conversation_get(id: String) -> Result<AiConversation, String> {
+    persistence::ai_history::get(&id)
 }
 
 #[tauri::command]
 fn ai_conversation_save(conversation: AiConversation) -> Result<(), String> {
     persistence::ai_history::save(&conversation)
+}
+
+#[tauri::command]
+fn ai_conversation_rename(id: String, title: String) -> Result<(), String> {
+    persistence::ai_history::rename(&id, &title)
 }
 
 #[tauri::command]
@@ -1456,7 +1466,9 @@ pub fn run() {
             ai_config_set,
             ai_test_connection,
             ai_conversations_list,
+            ai_conversation_get,
             ai_conversation_save,
+            ai_conversation_rename,
             ai_conversation_delete,
             ai_plan_task,
             task_list,

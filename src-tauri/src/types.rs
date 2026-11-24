@@ -369,6 +369,19 @@ pub struct AiConversation {
     pub messages: Vec<AiChatMessage>,
 }
 
+/// 历史列表使用的轻量摘要；正文由 `ai_conversation_get` 按需读取。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiConversationSummary {
+    pub id: String,
+    pub title: String,
+    pub created_at: i64,
+    pub updated_at: i64,
+    pub message_count: usize,
+    /// 最后一条消息的截断预览，用于列表展示与搜索。
+    pub preview: String,
+}
+
 /// AI 工具调用
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
