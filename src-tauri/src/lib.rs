@@ -543,6 +543,30 @@ async fn read_text_preview(
         .map_err(|error| format!("预览读取任务失败: {error}"))?
 }
 
+/// 保存预览中的本地图片变换；只写入明确的目标路径，不负责删除或重命名源文件。
+#[tauri::command]
+async fn save_image_edit(
+    source: String,
+    target: String,
+    rotation: i32,
+    flip_horizontal: bool,
+    flip_vertical: bool,
+    overwrite: bool,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        preview::save_image_edit(
+            &source,
+            &target,
+            rotation,
+            flip_horizontal,
+            flip_vertical,
+            overwrite,
+        )
+    })
+    .await
+    .map_err(|error| format!("保存图片任务失败: {error}"))?
+}
+
 #[tauri::command]
 fn set_file_clipboard(paths: Vec<String>, move_files: bool) -> Result<(), String> {
     clipboard::set_files(&paths, move_files)
@@ -1441,6 +1465,7 @@ pub fn run() {
             get_file_icon,
             get_thumbnail,
             read_text_preview,
+            save_image_edit,
             set_file_clipboard,
             get_file_clipboard,
             path_is_file,

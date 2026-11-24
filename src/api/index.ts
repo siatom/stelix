@@ -166,6 +166,14 @@ export const api = {
   /** 读取文本类文件预览内容（带大小上限与二进制识别）。 */
   readTextPreview: (path: string, maxBytes?: number) =>
     invoke<TextPreview>('read_text_preview', { path, maxBytes }),
+  saveImageEdit: (request: {
+    source: string
+    target: string
+    rotation: number
+    flipHorizontal: boolean
+    flipVertical: boolean
+    overwrite: boolean
+  }) => invoke<void>('save_image_edit', request),
   /** 展开地址栏输入中的 Windows 环境变量（`%APPDATA%`）与 `~` 主目录。 */
   expandPath: (path: string) => invoke<string>('expand_path', { path }),
   openInTerminal: (path: string) => invoke<void>('open_in_terminal', { path }),

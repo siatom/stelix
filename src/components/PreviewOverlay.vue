@@ -10,6 +10,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { convertFileSrc } from '@tauri-apps/api/core'
 import { openPath } from '@tauri-apps/plugin-opener'
+import { save as saveDialog } from '@tauri-apps/plugin-dialog'
 import { api } from '../api'
 import { usePreviewStore } from '../stores/preview'
 import { useUiStore } from '../stores/ui'
@@ -42,7 +43,8 @@ const ui = useUiStore()
 
 const item = computed(() => store.current)
 const kind = computed(() => store.kind)
-const assetUrl = computed(() => (item.value ? convertFileSrc(item.value.path) : ''))
+const imageRevision = ref(0)
+const assetUrl = computed(() => (item.value ? `${convertFileSrc(item.value.path)}${imageRevision.value ? `?edit=${imageRevision.value}` : ''}` : ''))
 
 const kindIcon = computed<IconName>(() => {
   switch (kind.value) {
@@ -211,6 +213,20 @@ const zoom = ref<number | 'fit'>('fit')
 const imageLoading = ref(false)
 const imageError = ref(false)
 const panning = ref(false)
+const imageRotation = ref(0)
+const imageFlipHorizontal = ref(false)
+const imageFlipVertical = ref(false)
+const imageSaving = ref(false)
+const imageSaveError = ref('')
+const editableImage = computed(() => {
+  const ext = (item.value?.ext ?? '').toLowerCase().replace(/^\./, '')
+  return kind.value === 'image'
+    && !store.isRemote
+    && (item.value?.size ?? Infinity) <= MAX_IMAGE_BYTES
+    && ['png', 'jpg', 'jpeg', 'webp'].includes(ext)
+})
+const imageDirty = computed(() => imageRotation.value !== 0 || imageFlipHorizontal.value || imageFlipVertical.value)
+const imageTransform = computed(() => `rotate(${imageRotation.value}deg) scale(${imageFlipHorizontal.value ? -1 : 1}, ${imageFlipVertical.value ? -1 : 1})`)
 
 const fitScale = computed(() => {
   const n = natural.value
@@ -247,6 +263,11 @@ function resetView() {
   zoom.value = 'fit'
   imageLoading.value = false
   imageError.value = false
+  imageRotation.value = 0
+  imageFlipHorizontal.value = false
+  imageFlipVertical.value = false
+  imageSaving.value = false
+  imageSaveError.value = ''
   textPreview.value = null
   textError.value = null
   textLoading.value = false
@@ -623,6 +644,63 @@ function onImageError() {
   imageError.value = true
 }
 
+function rotateImage(delta: number) {
+  if (!editableImage.value) return
+  imageRotation.value = (imageRotation.value + delta + 360) % 360
+}
+
+function resetImageEdit() {
+  imageRotation.value = 0
+  imageFlipHorizontal.value = false
+  imageFlipVertical.value = false
+  imageSaveError.value = ''
+}
+
+async function saveImage(target: string, overwrite: boolean) {
+  const source = item.value
+  if (!source || !editableImage.value || !imageDirty.value || imageSaving.value) return false
+  imageSaving.value = true
+  imageSaveError.value = ''
+  try {
+    await api.saveImageEdit({
+      source: source.path,
+      target,
+      rotation: imageRotation.value,
+      flipHorizontal: imageFlipHorizontal.value,
+      flipVertical: imageFlipVertical.value,
+      overwrite,
+    })
+    imageRevision.value += 1
+    resetImageEdit()
+    ui.setStatusText(t('图片已保存', 'Image saved'))
+    return true
+  } catch (error) {
+    imageSaveError.value = errorText(error)
+    ui.setStatusText(t(`图片保存失败：${imageSaveError.value}`, `Image save failed: ${imageSaveError.value}`))
+    return false
+  } finally {
+    imageSaving.value = false
+  }
+}
+
+async function saveImageOverwrite() {
+  const source = item.value
+  if (!source || !imageDirty.value) return
+  if (!window.confirm(t('将覆盖原图片，是否继续？', 'This will overwrite the original image. Continue?'))) return
+  await saveImage(source.path, true)
+}
+
+async function saveImageAs() {
+  const source = item.value
+  if (!source || !editableImage.value || !imageDirty.value) return
+  const picked = await saveDialog({
+    title: t('图片另存为', 'Save image as'),
+    defaultPath: source.path,
+    filters: [{ name: t('图片', 'Images'), extensions: ['png', 'jpg', 'jpeg', 'webp'] }],
+  })
+  if (typeof picked === 'string' && picked) await saveImage(picked, false)
+}
+
 function zoomIn() {
   zoom.value = Math.min(16, displayScale.value * 1.25)
 }
@@ -693,19 +771,19 @@ function onKeydown(event: KeyboardEvent) {
   if (key === 'Escape' || key === ' ') {
     event.preventDefault()
     event.stopPropagation()
-    store.close()
+    closePreview()
     return
   }
   if (key === 'ArrowLeft') {
     event.preventDefault()
     event.stopPropagation()
-    store.prev()
+    if (!imageDirty.value || window.confirm(t('当前图片有未保存改动，放弃并切换？', 'This image has unsaved changes. Discard and switch?'))) store.prev()
     return
   }
   if (key === 'ArrowRight') {
     event.preventDefault()
     event.stopPropagation()
-    store.next()
+    if (!imageDirty.value || window.confirm(t('当前图片有未保存改动，放弃并切换？', 'This image has unsaved changes. Discard and switch?'))) store.next()
     return
   }
   if (kind.value !== 'image') return
@@ -724,6 +802,17 @@ function onKeydown(event: KeyboardEvent) {
   }
 }
 
+function closePreview() {
+  if (imageDirty.value && !window.confirm(t('当前图片有未保存改动，确定关闭并放弃？', 'This image has unsaved changes. Close and discard them?'))) return
+  store.close()
+}
+
+function stepPreview(delta: number) {
+  if (imageDirty.value && !window.confirm(t('当前图片有未保存改动，放弃并切换？', 'This image has unsaved changes. Discard and switch?'))) return
+  if (delta < 0) store.prev()
+  else store.next()
+}
+
 onMounted(() => window.addEventListener('keydown', onKeydown, true))
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown, true)
@@ -735,10 +824,10 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div v-if="store.open && item" class="mask" @mousedown.self="store.close()">
+  <div v-if="store.open && item" class="mask" @mousedown.self="closePreview">
     <section class="preview-card" role="dialog" aria-modal="true" :aria-label="t(`预览 ${item.name}`, `Preview ${item.name}`)">
       <header class="pv-head">
-        <MacWindowLights class="pv-lights" :close-only="true" @close="store.close()" />
+        <MacWindowLights class="pv-lights" :close-only="true" @close="closePreview" />
         <div class="pv-title">
           <Icon :name="kindIcon" :size="15" class="pv-kind-icon" />
           <span class="pv-name" :title="item.path">{{ item.name }}</span>
@@ -757,6 +846,16 @@ onBeforeUnmount(() => {
             <button type="button" :title="t('放大（+）')" @click="zoomIn"><Icon name="plus" :size="15" /></button>
             <button type="button" class="pv-text-btn" :title="t('适应窗口（0）')" @click="fitToWindow">{{ t('适应') }}</button>
             <button type="button" class="pv-text-btn" :title="t('原始尺寸（1）')" @click="actualSize">1:1</button>
+            <template v-if="editableImage">
+              <span class="pv-action-separator" />
+              <button type="button" :title="t('左转 90°')" @click="rotateImage(-90)"><Icon name="arrow-left" :size="15" /></button>
+              <button type="button" :title="t('右转 90°')" @click="rotateImage(90)"><Icon name="arrow-right" :size="15" /></button>
+              <button type="button" :class="{ active: imageFlipHorizontal }" :title="t('水平翻转')" @click="imageFlipHorizontal = !imageFlipHorizontal"><Icon name="swap" :size="15" /></button>
+              <button type="button" :class="{ active: imageFlipVertical }" :title="t('垂直翻转')" @click="imageFlipVertical = !imageFlipVertical"><Icon name="swap" :size="15" class="pv-flip-vertical" /></button>
+              <button type="button" :disabled="!imageDirty" :title="t('重置编辑')" @click="resetImageEdit"><Icon name="restore" :size="15" /></button>
+              <button v-if="imageDirty" type="button" class="pv-text-btn" :disabled="imageSaving" :title="t('覆盖原文件')" @click="saveImageOverwrite">{{ imageSaving ? t('保存中…') : t('保存') }}</button>
+              <button v-if="imageDirty" type="button" class="pv-text-btn" :disabled="imageSaving" :title="t('另存为新文件')" @click="saveImageAs">{{ t('另存为') }}</button>
+            </template>
           </template>
           <span v-else-if="textual && textPreview" class="pv-text-meta">
             {{ t(`${lineCount} 行`, `${lineCount} lines`) }} · {{ textPreview.encoding.toUpperCase() }}
@@ -764,7 +863,7 @@ onBeforeUnmount(() => {
           <button type="button" class="pv-text-btn" :title="t('用默认应用打开')" @click="openExternal">
             <Icon name="external-link" :size="13" /><span>{{ t('打开') }}</span>
           </button>
-          <button v-if="!IS_MACOS" type="button" class="pv-close" :title="t('关闭（Esc）')" :aria-label="t('关闭预览')" @click="store.close()">
+          <button v-if="!IS_MACOS" type="button" class="pv-close" :title="t('关闭（Esc）')" :aria-label="t('关闭预览')" @click="closePreview">
             <Icon name="x" :size="15" />
           </button>
         </div>
@@ -777,7 +876,7 @@ onBeforeUnmount(() => {
           class="pv-nav prev"
           :title="t('上一个（←）')"
           :aria-label="t('上一个')"
-          @click.stop="store.prev()"
+          @click.stop="stepPreview(-1)"
         >
           <Icon name="chevron-left" :size="22" />
         </button>
@@ -814,7 +913,7 @@ onBeforeUnmount(() => {
             >
               <img
                 :src="assetUrl"
-                :style="imageStyle"
+                :style="{ ...imageStyle, transform: imageTransform }"
                 alt=""
                 draggable="false"
                 @load="onImageLoad"
@@ -822,6 +921,10 @@ onBeforeUnmount(() => {
               />
               <span v-if="imageLoading" class="pv-loading">{{ t('正在加载…') }}</span>
             </div>
+            <p v-if="store.isRemote" class="pv-edit-hint">{{ t('远程文件只支持查看，编辑已禁用', 'Remote files are view-only; editing is disabled') }}</p>
+            <p v-else-if="item.size > MAX_IMAGE_BYTES" class="pv-edit-hint">{{ t('图片过大，编辑已禁用', 'Editing is disabled for oversized images') }}</p>
+            <p v-else-if="!editableImage" class="pv-edit-hint">{{ t('此格式暂不支持编辑，请另存为 PNG、JPG 或 WebP', 'This format is not editable; save as PNG, JPG, or WebP') }}</p>
+            <p v-if="imageSaveError" class="pv-edit-error" role="alert">{{ imageSaveError }}</p>
           </template>
 
           <!-- 文本 / Markdown -->
@@ -913,7 +1016,7 @@ onBeforeUnmount(() => {
           class="pv-nav next"
           :title="t('下一个（→）')"
           :aria-label="t('下一个')"
-          @click.stop="store.next()"
+          @click.stop="stepPreview(1)"
         >
           <Icon name="chevron-right" :size="22" />
         </button>
@@ -1051,6 +1154,27 @@ onBeforeUnmount(() => {
   color: var(--fg);
 }
 
+.pv-actions button.active {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
+}
+
+.pv-actions button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.pv-action-separator {
+  width: 1px;
+  height: 16px;
+  margin: 0 4px;
+  background: var(--border);
+}
+
+.pv-flip-vertical {
+  transform: rotate(90deg);
+}
+
 .pv-percent {
   min-width: 44px;
   color: var(--fg-muted);
@@ -1145,6 +1269,26 @@ onBeforeUnmount(() => {
   background:
     conic-gradient(from 90deg, color-mix(in srgb, var(--fg) 6%, transparent) 25%, transparent 0 50%,
       color-mix(in srgb, var(--fg) 6%, transparent) 0 75%, transparent 0) 0 0 / 16px 16px;
+}
+
+.pv-edit-hint,
+.pv-edit-error {
+  position: absolute;
+  bottom: 10px;
+  left: 50%;
+  max-width: min(90%, 620px);
+  margin: 0;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-panel) 92%, transparent);
+  color: var(--fg-dim);
+  font-size: 0.75rem;
+  transform: translateX(-50%);
+}
+
+.pv-edit-error {
+  bottom: 42px;
+  color: var(--danger, #f87171);
 }
 
 .pv-loading {
