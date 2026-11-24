@@ -912,8 +912,11 @@ fn start_index(
     roots: Vec<String>,
 ) -> Result<(), String> {
     persistence::save_index_roots(&roots)?;
-    state.index.start_scan(app, roots);
-    Ok(())
+    if state.index.try_start_scan(app, roots) {
+        Ok(())
+    } else {
+        Err("index scan busy".into())
+    }
 }
 
 /// 仅保存备用内存索引的根目录，供 Everything 不可用时由用户手动启用。
@@ -1376,7 +1379,9 @@ pub fn run() {
                 #[cfg(not(windows))]
                 {
                     let handle = app.handle().clone();
-                    std::thread::spawn(move || index.start_scan(handle, roots));
+                    std::thread::spawn(move || {
+                        index.start_scan(handle, roots);
+                    });
                 }
             }
             // 定时任务调度线程：每 20s 检查一次到期任务，跨平台。
