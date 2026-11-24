@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref } from 'vue'
 import { useAiStore } from '../../stores/ai'
-import type { AiConversation } from '../../types'
+import type { AiConversationEntry } from '../../types'
 import Icon from '../icons/Icon.vue'
 import { locale, t } from '../../i18n'
 
@@ -17,7 +17,7 @@ const groups = computed(() => {
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
   const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1).getTime()
   const term = query.value.trim().toLocaleLowerCase()
-  const filtered = ai.history.filter(c => !term || c.title.toLocaleLowerCase().includes(term) || c.messages.some(m => m.content.toLocaleLowerCase().includes(term)))
+  const filtered = ai.history.filter(c => !term || c.title.toLocaleLowerCase().includes(term) || c.preview.toLocaleLowerCase().includes(term))
   return [
     { title: t('今天'), items: filtered.filter(c => c.updatedAt >= today) },
     { title: t('昨天'), items: filtered.filter(c => c.updatedAt >= yesterday && c.updatedAt < today) },
@@ -25,15 +25,14 @@ const groups = computed(() => {
   ].filter(g => g.items.length)
 })
 
-function snippet(conversation: AiConversation) {
-  const last = conversation.messages[conversation.messages.length - 1]
-  return last?.content.replace(/\s+/g, ' ').slice(0, 100) || t('正在回复…')
+function snippet(conversation: AiConversationEntry) {
+  return conversation.preview || t('正在回复…')
 }
 function open(id: string) {
-  ai.selectConversation(id)
+  void ai.selectConversation(id)
   if (ai.activeId === id) emit('open')
 }
-async function startRename(conversation: AiConversation) {
+async function startRename(conversation: AiConversationEntry) {
   renaming.value = conversation.id
   renameDraft.value = conversation.title
   deleting.value = ''

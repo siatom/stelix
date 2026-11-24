@@ -79,7 +79,7 @@ watch(() => ai.pendingApprovals.length, async count => {
 async function send() {
   const text = draft.value
   const id = ai.activeId
-  if (!text.trim() || ai.busy || ai.historyLoading || ai.historyMutating) return
+  if (!text.trim() || ai.busy || ai.historyLoading || ai.historyMutating || ai.conversationLoading) return
   draft.value = ''
   atBottom.value = true
   if (!await ai.send(text) && !ai.drafts[id]) ai.drafts[id] = text
@@ -124,7 +124,7 @@ function submitPath() {
     <header class="ai-head">
       <span class="title"><Icon name="sparkles" :size="15" />{{ t('AI 助手') }}</span>
       <div class="head-actions">
-        <button class="head-btn" :title="t('新建对话')" :aria-label="t('新建对话')" :disabled="ai.executing || ai.historyLoading || ai.historyMutating" @click="newChat"><Icon name="plus" :size="15" /></button>
+        <button class="head-btn" :title="t('新建对话')" :aria-label="t('新建对话')" :disabled="ai.executing || ai.historyLoading || ai.historyMutating || ai.conversationLoading" @click="newChat"><Icon name="plus" :size="15" /></button>
         <button class="head-btn" :class="{ selected: showHistory }" :title="t('历史对话')" :aria-label="t('历史对话')" :aria-pressed="showHistory" @click="showHistory = !showHistory"><Icon name="clock" :size="14" /></button>
         <button class="head-btn" :title="t('AI 大模型设置')" :aria-label="t('AI 大模型设置')" @click="ui.openSettings('ai')"><Icon name="settings" :size="14" /></button>
         <button class="head-btn" :title="t('关闭 AI 助手')" :aria-label="t('关闭 AI 助手')" @click="ui.toggleSidebar()"><Icon name="panel-left-close" :size="14" /></button>
@@ -139,7 +139,7 @@ function submitPath() {
       <button class="model-status" :title="ai.modelLabel" @click="ui.openSettings('ai')"><span class="model-dot" :class="{ enabled: ai.config.enabled }" /><span>{{ ai.modelLabel }}</span><Icon name="chevron-down" :size="11" /></button>
       <div class="chat-flow">
         <div ref="bodyRef" class="ai-body" :aria-busy="ai.responding && ai.busyConversationId === ai.activeId" @scroll="onScroll">
-          <div v-if="ai.historyLoading" class="loading" role="status">{{ t('正在读取对话…') }}</div>
+          <div v-if="ai.historyLoading || ai.conversationLoading" class="loading" role="status">{{ t('正在读取对话…') }}</div>
           <div v-else-if="!ai.messages.length" class="empty">
             <div class="welcome-icon"><Icon name="sparkles" :size="22" /></div>
             <h2>{{ t('今天想整理什么？') }}</h2><p>{{ t('查找文件、分析目录，或描述你的整理需求。') }}</p>
@@ -188,7 +188,7 @@ function submitPath() {
         </div>
       </div>
       <form class="ai-input" @submit.prevent="send">
-        <div class="composer"><textarea ref="inputRef" v-model="draft" rows="2" :aria-label="t('消息内容')" :placeholder="t('描述你的需求…')" spellcheck="false" @input="resizeInput" @keydown="onInputKeydown" /><div class="composer-bottom"><span>{{ streamingActive ? (ai.stopping ? t('正在停止…') : ai.pendingStep || t('正在思考…')) : t('Enter 发送 · Shift+Enter 换行') }}</span><button v-if="streamingActive" class="send stop" type="button" :title="t('停止生成')" :aria-label="t('停止生成')" :disabled="ai.stopping" @click="ai.stop()"><Icon name="stop" :size="13" /></button><button v-else class="send" type="submit" :title="t('发送消息')" :aria-label="t('发送消息')" :disabled="ai.busy || ai.historyLoading || ai.historyMutating || !draft.trim()"><Icon name="arrow-up" :size="15" /></button></div></div>
+        <div class="composer"><textarea ref="inputRef" v-model="draft" rows="2" :aria-label="t('消息内容')" :placeholder="t('描述你的需求…')" spellcheck="false" @input="resizeInput" @keydown="onInputKeydown" /><div class="composer-bottom"><span>{{ streamingActive ? (ai.stopping ? t('正在停止…') : ai.pendingStep || t('正在思考…')) : t('Enter 发送 · Shift+Enter 换行') }}</span><button v-if="streamingActive" class="send stop" type="button" :title="t('停止生成')" :aria-label="t('停止生成')" :disabled="ai.stopping" @click="ai.stop()"><Icon name="stop" :size="13" /></button><button v-else class="send" type="submit" :title="t('发送消息')" :aria-label="t('发送消息')" :disabled="ai.busy || ai.historyLoading || ai.conversationLoading || ai.historyMutating || !draft.trim()"><Icon name="arrow-up" :size="15" /></button></div></div>
         <p class="input-hint">{{ t('文件写操作会先请你确认') }}</p>
       </form>
     </template>

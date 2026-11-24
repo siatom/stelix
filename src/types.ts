@@ -204,6 +204,24 @@ export interface AiConversation {
   messages: AiChatMessage[]
 }
 
+/** 历史列表使用的轻量摘要，不含消息正文。 */
+export interface AiConversationSummary {
+  id: string
+  title: string
+  createdAt: number
+  updatedAt: number
+  messageCount: number
+  /** 最后一条消息的截断预览 */
+  preview: string
+}
+
+/** 列表项：摘要 + 按需加载的正文（未加载时 messages 为空）。 */
+export interface AiConversationEntry extends AiConversationSummary {
+  messages: AiChatMessage[]
+  /** 正文是否已从本机读取（仅前端状态） */
+  loaded: boolean
+}
+
 export interface AiToolCall {
   id: string
   name: string

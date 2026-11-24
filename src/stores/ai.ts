@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { api } from '../api'
-import type { AiApproval, AiApprovalDecision, AiChatMessage, AiConfig, AiConversation, AiMessage } from '../types'
+import type { AiApproval, AiApprovalDecision, AiChatMessage, AiConfig, AiConversationEntry, AiMessage } from '../types'
 import { usePaneStore } from './pane'
 import { useUiStore } from './ui'
 import { locale, t } from '../i18n'
@@ -23,7 +23,7 @@ function readToggles(): ContextToggles {
 
 /** 对话按会话独立保存；请求始终回写到发起会话，不串入当前查看的历史。 */
 export const useAiStore = defineStore('ai', () => {
-  const conversations = ref<AiConversation[]>([])
+  const conversations = ref<AiConversationEntry[]>([])
   const activeId = ref('')
   const drafts = ref<Record<string, string>>({})
   const responding = ref(false)
@@ -38,6 +38,11 @@ export const useAiStore = defineStore('ai', () => {
   const historyError = ref<string | null>(null)
   const historyLoading = ref(false)
   const historyMutating = ref(false)
+  /** 正在按需读取正文的对话 id，仅在该对话仍是当前选择时展示加载态。 */
+  const loadingConversationId = ref('')
+  const conversationLoading = computed(() => !!activeId.value && loadingConversationId.value === activeId.value)
+  /** 上一次正文读取失败的对话 id，供重试按钮定向重试。 */
+  const failedConversationId = ref('')
   /** 当前正在流式生成的请求 id，用于按 id 路由增量事件与取消。 */
   const activeRequestId = ref('')
   /** 当前工具执行步骤提示（仅在回复进行中有效）。 */
@@ -48,7 +53,7 @@ export const useAiStore = defineStore('ai', () => {
   const manualPaths = ref<string[]>([])
   const current = computed(() => conversations.value.find(c => c.id === activeId.value) ?? null)
   const messages = computed(() => current.value?.messages ?? [])
-  const history = computed(() => conversations.value.filter(c => c.messages.length).slice().sort((a, b) => b.updatedAt - a.updatedAt))
+  const history = computed(() => conversations.value.filter(c => c.messageCount > 0).slice().sort((a, b) => b.updatedAt - a.updatedAt))
   const busy = computed(() => responding.value || executing.value)
   const modelLabel = computed(() => {
     const provider = config.value.providers.find(p => p.id === config.value.activeProviderId)
@@ -61,6 +66,19 @@ export const useAiStore = defineStore('ai', () => {
   let historyPromise: Promise<void> | null = null
   let saveQueue: Promise<unknown> = Promise.resolve()
   let pendingMessageId = ''
+  /** 正文读取请求序号：只有最后一次请求能写入，避免快速切换时旧响应覆盖当前对话。 */
+  let loadToken = 0
+  let activeLoad: { id: string; promise: Promise<boolean> } | null = null
+
+  function previewOf(list: AiChatMessage[]): string {
+    const last = list[list.length - 1]
+    return (last?.content ?? '').replace(/\s+/g, ' ').slice(0, 100)
+  }
+
+  function syncSummary(conversation: AiConversationEntry) {
+    conversation.messageCount = conversation.messages.length
+    conversation.preview = previewOf(conversation.messages)
+  }
 
   async function loadConfig() {
     if (configLoaded) return
@@ -85,12 +103,13 @@ export const useAiStore = defineStore('ai', () => {
     }
   }
 
-  async function persist(conversation: AiConversation): Promise<boolean> {
-    const snapshot = JSON.parse(JSON.stringify(conversation)) as AiConversation
+  async function persist(conversation: AiConversationEntry): Promise<boolean> {
+    const snapshot = JSON.parse(JSON.stringify(conversation)) as AiConversationEntry
     const write = saveQueue.then(() => api.aiConversationSave(snapshot))
     saveQueue = write.catch(() => {})
     try {
       await write
+      syncSummary(conversation)
       return true
     } catch (e) {
       historyError.value = t(`历史保存失败，当前消息仍保留在内存中：${String(e)}`, `Could not save conversation history. The current messages remain in memory: ${String(e)}`)
@@ -111,20 +130,65 @@ export const useAiStore = defineStore('ai', () => {
     pendingMessageId = ''
   }
 
+  /** 按 ID 读取正文；同一对话并发读取时复用请求，过期响应不写入当前选择。 */
+  function loadConversation(id: string): Promise<boolean> {
+    const conversation = conversations.value.find(c => c.id === id)
+    if (!conversation) return Promise.resolve(false)
+    if (conversation.loaded) {
+      failedConversationId.value = ''
+      return Promise.resolve(true)
+    }
+    if (activeLoad?.id === id) return activeLoad.promise
+    const token = ++loadToken
+    loadingConversationId.value = id
+    const promise = (async () => {
+      try {
+        const full = await api.aiConversationGet(id)
+        if (token !== loadToken) return false
+        const target = conversations.value.find(c => c.id === id)
+        if (!target) return false
+        target.title = full.title
+        target.createdAt = full.createdAt
+        target.updatedAt = full.updatedAt
+        target.messages = full.messages
+        target.loaded = true
+        syncSummary(target)
+        failedConversationId.value = ''
+        historyError.value = null
+        return true
+      } catch (e) {
+        if (token === loadToken) {
+          failedConversationId.value = id
+          historyError.value = t(`读取对话失败：${String(e)}`, `Could not load conversation: ${String(e)}`)
+        }
+        return false
+      } finally {
+        if (token === loadToken) loadingConversationId.value = ''
+      }
+    })()
+    activeLoad = { id, promise }
+    void promise.finally(() => {
+      if (activeLoad?.promise === promise) activeLoad = null
+    })
+    return promise
+  }
+
   function newConversation() {
     if (executing.value || historyMutating.value || !historyLoaded) return
     expirePending()
-    if (current.value && !current.value.messages.length) return
+    if (current.value?.loaded && !current.value.messages.length) return
     const now = Date.now()
-    const conversation: AiConversation = { id: crypto.randomUUID(), title: t('新对话'), createdAt: now, updatedAt: now, messages: [] }
+    const conversation: AiConversationEntry = { id: crypto.randomUUID(), title: t('新对话'), createdAt: now, updatedAt: now, messages: [], messageCount: 0, preview: '', loaded: true }
     conversations.value.push(conversation)
     activeId.value = conversation.id
   }
 
-  function selectConversation(id: string) {
-    if (executing.value || historyMutating.value || !conversations.value.some(c => c.id === id) || id === activeId.value) return
+  async function selectConversation(id: string) {
+    const target = conversations.value.find(c => c.id === id)
+    if (executing.value || historyMutating.value || !target || (id === activeId.value && target.loaded)) return
     expirePending()
     activeId.value = id
+    await loadConversation(id)
   }
 
   async function loadHistory() {
@@ -133,19 +197,15 @@ export const useAiStore = defineStore('ai', () => {
     historyLoading.value = true
     historyPromise = (async () => {
       try {
-        conversations.value = await api.aiConversationsList()
-        // 重新打开的历史只能继续对话，不能恢复待执行的操作。
-        for (const conversation of conversations.value) {
-          for (const message of conversation.messages) {
-            if (message.status === 'pending') {
-              message.status = 'interrupted'
-              if (!message.content) message.content = t('上次回复未完成，可以重试。')
-            }
-            if (message.operation === 'pending') message.operation = 'expired'
-          }
-        }
+        // 列表只返回摘要，正文在选中对话后按 ID 读取。
+        const summaries = await api.aiConversationsList()
+        conversations.value = summaries.map(summary => ({ ...summary, messages: [], loaded: false }))
+        loadToken += 1
+        activeLoad = null
+        loadingConversationId.value = ''
         historyLoaded = true
         historyError.value = null
+        failedConversationId.value = ''
         pendingApprovals.value = []
         approvalSelection.value = {}
         activeRunId.value = ''
@@ -159,9 +219,15 @@ export const useAiStore = defineStore('ai', () => {
   }
 
   async function retryHistory() {
-    if (!historyLoaded) { await loadHistory(); return }
     historyError.value = null
-    for (const conversation of conversations.value.filter(c => c.messages.length)) {
+    if (!historyLoaded) { await loadHistory(); return }
+    if (failedConversationId.value) {
+      const id = failedConversationId.value
+      failedConversationId.value = ''
+      await loadConversation(id)
+      return
+    }
+    for (const conversation of conversations.value.filter(c => c.loaded && c.messageCount > 0)) {
       if (!await persist(conversation)) break
     }
   }
@@ -173,10 +239,17 @@ export const useAiStore = defineStore('ai', () => {
     historyMutating.value = true
     const previous = conversation.title
     conversation.title = name
-    const saved = await persist(conversation)
-    if (!saved) conversation.title = previous
-    historyMutating.value = false
-    return saved
+    try {
+      // 排在已提交的完整保存之后，避免用旧标题的保存覆盖新标题。
+      const rename = saveQueue.then(() => api.aiConversationRename(id, name))
+      saveQueue = rename.catch(() => {})
+      await rename
+      return true
+    } catch (e) {
+      conversation.title = previous
+      historyError.value = t(`重命名历史对话失败：${String(e)}`, `Could not rename conversation: ${String(e)}`)
+      return false
+    } finally { historyMutating.value = false }
   }
 
   async function deleteConversation(id: string): Promise<boolean> {
@@ -190,9 +263,12 @@ export const useAiStore = defineStore('ai', () => {
       await deletion
       conversations.value = conversations.value.filter(c => c.id !== id)
       delete drafts.value[id]
+      if (failedConversationId.value === id) failedConversationId.value = ''
       if (activeId.value === id) {
-        activeId.value = history.value[0]?.id ?? ''
-        if (!activeId.value) {
+        const next = history.value[0]
+        activeId.value = next?.id ?? ''
+        if (next) void loadConversation(next.id)
+        else {
           historyMutating.value = false
           newConversation()
         }
@@ -250,7 +326,7 @@ export const useAiStore = defineStore('ai', () => {
     catch (e) { useUiStore().setStatusText(t(`停止生成失败：${String(e)}`, `Failed to stop generation: ${String(e)}`)) }
   }
 
-  async function requestReply(conversation: AiConversation, assistant: AiChatMessage) {
+  async function requestReply(conversation: AiConversationEntry, assistant: AiChatMessage) {
     busyConversationId.value = conversation.id
     assistant.status = 'pending'
     assistant.content = ''
@@ -311,6 +387,10 @@ export const useAiStore = defineStore('ai', () => {
     responding.value = true
     await Promise.all([loadHistory(), loadConfig()])
     if (!historyLoaded || !current.value) { responding.value = false; return false }
+    if (!current.value.loaded) {
+      const loaded = await loadConversation(current.value.id)
+      if (!loaded || !current.value?.loaded) { responding.value = false; return false }
+    }
     expirePending()
     const conversation = current.value
     if (!conversation.messages.length) conversation.title = content.split('\n')[0]!.slice(0, 40)
@@ -430,5 +510,5 @@ export const useAiStore = defineStore('ai', () => {
     manualPaths.value = manualPaths.value.filter(p => p !== path)
   }
 
-  return { conversations, activeId, drafts, current, messages, history, responding, executing, busy, busyConversationId, pendingApprovals, approvalSelection, activeRunId, config, modelLabel, error, historyError, historyLoading, historyMutating, activeRequestId, pendingStep, stopping, contextToggles, manualPaths, loadConfig, saveConfig, loadHistory, retryHistory, newConversation, selectConversation, renameConversation, deleteConversation, send, retry, toggleApproval, setAllApprovals, submitApprovals, rejectAllApprovals, applyToken, applyStep, stop, toggleContext, addContextPath, removeContextPath, buildContext }
+  return { conversations, activeId, drafts, current, messages, history, responding, executing, busy, busyConversationId, pendingApprovals, approvalSelection, activeRunId, config, modelLabel, error, historyError, historyLoading, conversationLoading, historyMutating, activeRequestId, pendingStep, stopping, contextToggles, manualPaths, loadConfig, saveConfig, loadHistory, retryHistory, newConversation, selectConversation, renameConversation, deleteConversation, send, retry, toggleApproval, setAllApprovals, submitApprovals, rejectAllApprovals, applyToken, applyStep, stop, toggleContext, addContextPath, removeContextPath, buildContext }
 })

@@ -5,6 +5,7 @@ import type {
   AiAuditEntry,
   AiConfig,
   AiConversation,
+  AiConversationSummary,
   AiContext,
   AiMessage,
   AiModel,
@@ -206,8 +207,10 @@ export const api = {
   aiConfigGet: () => invoke<AiConfig>('ai_config_get'),
   aiConfigSet: (config: AiConfig) => invoke<void>('ai_config_set', { config }),
   aiTestConnection: (config: AiConfig) => invoke<string>('ai_test_connection', { config }),
-  aiConversationsList: () => invoke<AiConversation[]>('ai_conversations_list'),
+  aiConversationsList: () => invoke<AiConversationSummary[]>('ai_conversations_list'),
+  aiConversationGet: (id: string) => invoke<AiConversation>('ai_conversation_get', { id }),
   aiConversationSave: (conversation: AiConversation) => invoke<void>('ai_conversation_save', { conversation }),
+  aiConversationRename: (id: string, title: string) => invoke<void>('ai_conversation_rename', { id, title }),
   aiConversationDelete: (id: string) => invoke<void>('ai_conversation_delete', { id }),
   /** 用大模型把自然语言需求规划为一条定时任务草稿（离线时走规则解析兜底）。 */
   aiPlanTask: (prompt: string, context: AiContext) =>
