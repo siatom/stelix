@@ -40,6 +40,7 @@ mod shell_menu;
 mod smb_discovery;
 mod ssh;
 mod state;
+mod thumbnail;
 mod types;
 mod updater;
 mod watcher;
@@ -508,6 +509,27 @@ async fn get_file_icon(
     })
     .await
     .map_err(|error| format!("图标提取任务失败: {error}"))
+}
+
+/// 图标视图图片缩略图（`data:image/png;base64,...`）；非图片 / 远程路径 / 生成失败返回 `None`。
+///
+/// 解码是 CPU 与内存密集操作：限制并发数，结果按路径 + 修改时间缓存在 `AppState`。
+#[tauri::command]
+async fn get_thumbnail(
+    state: State<'_, AppState>,
+    path: String,
+    size: u32,
+) -> Result<Option<String>, String> {
+    static SLOTS: Lazy<tokio::sync::Semaphore> = Lazy::new(|| tokio::sync::Semaphore::new(2));
+
+    let cache = state.thumbnails.clone();
+    let _slot = SLOTS
+        .acquire()
+        .await
+        .map_err(|error| format!("缩略图队列不可用: {error}"))?;
+    tauri::async_runtime::spawn_blocking(move || cache.get_or_load(&path, size))
+        .await
+        .map_err(|error| format!("缩略图生成任务失败: {error}"))
 }
 
 /// 读取文本类文件的预览内容（带上限与二进制识别），供预览弹窗使用。
@@ -1407,6 +1429,7 @@ pub fn run() {
             trash_purge,
             trash_empty,
             get_file_icon,
+            get_thumbnail,
             read_text_preview,
             set_file_clipboard,
             get_file_clipboard,

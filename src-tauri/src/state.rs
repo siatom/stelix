@@ -8,6 +8,7 @@ use crate::index_engine::IndexStore;
 use crate::schedule::ScheduleService;
 use crate::shell_icon::IconCache;
 use crate::ssh::SshManager;
+use crate::thumbnail::ThumbnailCache;
 use crate::watcher::WatchService;
 
 pub struct AppState {
@@ -17,6 +18,8 @@ pub struct AppState {
     pub ai: Arc<AiService>,
     /// Windows 系统图标缓存（按图标种类缓存，见 shell_icon.rs）
     pub icons: Arc<IconCache>,
+    /// 图标视图图片缩略图缓存（按路径 + 修改时间缓存，见 thumbnail.rs）
+    pub thumbnails: Arc<ThumbnailCache>,
     /// 定时任务服务（规格存储 + 后台调度，见 schedule/mod.rs）
     pub tasks: Arc<ScheduleService>,
     /// 目录变更监听（notify watcher + 防抖上报，见 watcher/mod.rs）
@@ -33,6 +36,7 @@ impl AppState {
             index: Arc::new(IndexStore::new()),
             ai: Arc::new(AiService::new()),
             icons: Arc::new(IconCache::new()),
+            thumbnails: Arc::new(ThumbnailCache::new()),
             tasks: Arc::new(ScheduleService::new()),
             watcher: Arc::new(WatchService::new()),
             dir_sizes: Arc::new(DirSizeService::new()),
