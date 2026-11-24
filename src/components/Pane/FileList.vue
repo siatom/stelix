@@ -15,6 +15,7 @@ import { basename, dirname, fileIcon, fileKind, formatSize, formatTime, joinPath
 import { validateEntryName } from '../../utils/nameRules'
 import Icon from '../icons/Icon.vue'
 import FileIcon from '../icons/FileIcon.vue'
+import ThumbnailIcon from '../icons/ThumbnailIcon.vue'
 import BatchRenameDialog from './BatchRenameDialog.vue'
 import { recordOpenedFileDirectory } from '../Sidebar/shared'
 import { t as translate } from '../../i18n'
@@ -2195,7 +2196,14 @@ function onDrop(ev: DragEvent) {
         >
           <span class="icon-big" :class="`k-${fileKind(entry)}`">
             <Icon v-if="isRemote" :name="fileIcon(entry)" :size="38" />
-            <FileIcon v-else :path="entry.path" :is-dir="entry.isDir" :ext="entry.ext" :size="38" />
+            <ThumbnailIcon
+              v-else
+              :path="entry.path"
+              :is-dir="entry.isDir"
+              :ext="entry.ext"
+              :modified="entry.modified"
+              :file-size="entry.size"
+            />
           </span>
           <span v-if="editing && editing.mode === 'rename' && editing.path === entry.path" class="icon-name">
             <input

@@ -156,6 +156,11 @@ export const api = {
     emptyTrash = false,
     trashState = false,
   ) => invoke<string | null>('get_file_icon', { path, isDir, usePathIcon, emptyTrash, trashState }),
+  /**
+   * 取本地图片缩略图（base64 PNG data URL）；非图片、远程路径或失败返回 null。
+   * `size` 为最长边像素，后端会夹在 32~512 之间。
+   */
+  getThumbnail: (path: string, size: number) => invoke<string | null>('get_thumbnail', { path, size }),
   pathIsFile: (path: string) => invoke<boolean>('path_is_file', { path }),
   /** 读取文本类文件预览内容（带大小上限与二进制识别）。 */
   readTextPreview: (path: string, maxBytes?: number) =>

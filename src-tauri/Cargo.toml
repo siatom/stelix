@@ -59,6 +59,9 @@ russh-sftp = "3"
 png = "0.17"
 base64 = "0.22"
 
+# 图标视图缩略图：常见位图解码 + 缩放（见 thumbnail.rs）
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"] }
+
 # 云存储：百度网盘分片 MD5、迅雷登录设备签名
 md5 = "0.8"
 sha1 = "0.11"
