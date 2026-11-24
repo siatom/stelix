@@ -250,19 +250,15 @@ impl IndexStore {
     /// - 结束：emit `index:done`（payload = `IndexStatus`）。
     ///
     /// 实际扫描逻辑与 [`IndexStore::scan_blocking`] 共用 [`scan_core`]，避免两份实现漂移。
+    #[allow(dead_code)]
     pub fn start_scan(&self, app: AppHandle, roots: Vec<String>) {
-        // 已在扫描则忽略重复触发，避免两个后台线程互相清理条目。
-        if self.status.read().scanning {
-            return;
-        }
+        let _ = self.try_start_scan(app, roots);
+    }
 
-        {
-            let mut st = self.status.write();
-            st.roots = roots.clone();
-            st.scanning = true;
-            st.scanned = 0;
-            st.using_everything = false;
-            st.waiting_for_everything = false;
+    pub fn try_start_scan(&self, app: AppHandle, roots: Vec<String>) -> bool {
+        // 检查和领取必须在同一次写锁内完成，避免两个触发源同时通过检查。
+        if !self.try_claim_scan(&roots) {
+            return false;
         }
 
         let _ = app.emit(
@@ -302,18 +298,23 @@ impl IndexStore {
                 }
             });
 
-            let final_status = {
-                let mut st = status.write();
-                st.scanning = false;
-                st.scanned = total_scanned;
-                st.total = entries.len();
-                IndexStatus {
-                    total: entries.len(),
-                    ..st.clone()
-                }
-            };
+            let final_status = finish_scan(&status, entries.len(), total_scanned);
             let _ = app.emit(events::INDEX_DONE, final_status);
         });
+        true
+    }
+
+    fn try_claim_scan(&self, roots: &[String]) -> bool {
+        let mut st = self.status.write();
+        if st.scanning {
+            return false;
+        }
+        st.roots = roots.to_vec();
+        st.scanning = true;
+        st.scanned = 0;
+        st.using_everything = false;
+        st.waiting_for_everything = false;
+        true
     }
 
     /// 同步扫描：把 roots 下的条目写入索引，返回本次写入的条目数。
@@ -778,6 +779,17 @@ fn scan_core(
     count
 }
 
+fn finish_scan(status: &RwLock<IndexStatus>, total: usize, scanned: usize) -> IndexStatus {
+    let mut st = status.write();
+    st.scanning = false;
+    st.scanned = scanned;
+    st.total = total;
+    IndexStatus {
+        total,
+        ..st.clone()
+    }
+}
+
 /// 删除位于 roots 之下、但不在 `seen` 中的旧条目（增量更新）。
 fn prune_stale(entries: &DashMap<String, FileEntry>, roots: &[String], seen: &HashSet<u64>) {
     let lowers: Vec<String> = roots
@@ -817,6 +829,7 @@ impl Default for IndexStore {
 mod tests {
     use super::*;
     use std::fs;
+    use std::sync::{Arc, Barrier};
 
     #[test]
     fn walk_dir_source_collects_files_and_dirs() {
@@ -839,6 +852,37 @@ mod tests {
         assert!(collected.iter().any(|e| e.is_dir && e.name == "sub"));
 
         fs::remove_dir_all(&base).ok();
+    }
+
+    #[test]
+    fn concurrent_scan_claim_allows_only_one_and_can_be_reused() {
+        const CALLERS: usize = 8;
+        let store = Arc::new(IndexStore::new());
+        let barrier = Arc::new(Barrier::new(CALLERS));
+        let mut handles = Vec::new();
+
+        for _ in 0..CALLERS {
+            let store = Arc::clone(&store);
+            let barrier = Arc::clone(&barrier);
+            handles.push(std::thread::spawn(move || {
+                barrier.wait();
+                store.try_claim_scan(&["test-root".into()])
+            }));
+        }
+
+        let claims = handles
+            .into_iter()
+            .map(|handle| handle.join().unwrap())
+            .filter(|claimed| *claimed)
+            .count();
+        assert_eq!(claims, 1);
+        assert!(store.status().scanning);
+        assert!(!store.try_claim_scan(&["duplicate-root".into()]));
+
+        let status = finish_scan(&store.status, 0, 0);
+        assert!(!status.scanning);
+        assert!(store.try_claim_scan(&["retry-root".into()]));
+        assert_eq!(store.status().roots, vec!["retry-root"]);
     }
 
     /// 端到端：真实扫描填充 IndexStore 后，用 search 能查到 —— 覆盖"索引 → 检索"完整链路。
