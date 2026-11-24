@@ -463,7 +463,7 @@ onBeforeUnmount(() => {
     <section class="nav-section">
       <div class="nav-head">
         <button class="nav-toggle" :aria-expanded="sections.computer" @click="sections.computer = !sections.computer">
-          <Icon name="chevron-right" :size="11" :class="{ open: sections.computer }" /><Icon name="laptop-minimal" class="section-icon computer" :size="18" /><span class="nav-title">{{ t('本机') }}</span>
+          <Icon name="chevron-right" :size="11" :class="{ open: sections.computer }" /><Icon name="laptop-minimal" class="section-icon computer" :size="18" /><span class="nav-title" @click.stop="pane.openComputer()">{{ t('本机') }}</span>
         </button>
         <button class="mini" :title="t('刷新驱动器和 WSL 实例')" :disabled="loading || wslLoading" @click="refreshComputer">
           <Icon name="refresh" :size="13" />

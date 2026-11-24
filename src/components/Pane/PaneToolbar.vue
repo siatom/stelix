@@ -10,11 +10,10 @@ import { t } from '../../i18n'
 const props = defineProps<{ paneId: string }>()
 
 const paneStore = usePaneStore()
-/** 回收站是虚拟位置，没有「上级目录」。 */
-const isTrash = computed(() => {
+const isVirtual = computed(() => {
   const pane = paneStore.panes.find((item) => item.id === props.paneId)
   const tab = pane?.tabs.find((item) => item.id === pane.activeTabId) ?? pane?.tabs[0]
-  return tab?.kind === 'trash'
+  return tab?.kind === 'trash' || tab?.kind === 'computer'
 })
 </script>
 
@@ -27,7 +26,7 @@ const isTrash = computed(() => {
       <button :title="t('前进')" :disabled="!paneStore.canGoForward(paneId)" @click="paneStore.goForward(paneId)">
         <Icon name="arrow-right" :size="15" />
       </button>
-      <button :title="t('上级目录')" :disabled="isTrash" @click="paneStore.goUp(paneId)">
+      <button :title="t('上级目录')" :disabled="isVirtual" @click="paneStore.goUp(paneId)">
         <Icon name="arrow-up" :size="15" />
       </button>
       <button :title="t('刷新')" @click="paneStore.refresh(paneId)">

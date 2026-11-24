@@ -62,6 +62,7 @@ export interface FileFilterRule {
 export interface DriveInfo {
   name: string
   mount: string
+  filesystem?: string | null
   total: number
   free: number
   ejectable?: boolean
@@ -434,7 +435,7 @@ export interface TabState {
   id: string
   path: string
   /** 标签页类型：普通目录 / 搜索结果 / 远程（FTP/SFTP）目录 / SSH 终端 / 回收站 */
-  kind?: 'files' | 'search' | 'remote' | 'terminal' | 'trash'
+  kind?: 'files' | 'search' | 'remote' | 'terminal' | 'trash' | 'computer'
   title?: string
   searchQuery?: string
   /** 远程标签的连接信息（`kind === 'remote'` 时有效）；`path` 为远程 POSIX 路径 */

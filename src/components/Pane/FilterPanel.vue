@@ -7,6 +7,7 @@ import { useUiStore } from '../../stores/ui'
 import { SEARCH_CATEGORIES, categoryLabel, categoryOf } from '../../searchFilters'
 import Icon from '../icons/Icon.vue'
 import { t } from '../../i18n'
+import { formatBytes } from '../../utils/formatBytes'
 
 const props = defineProps<{ tab: TabState }>()
 const paneStore = usePaneStore()
@@ -46,6 +47,7 @@ const form = reactive({
 })
 
 const isLocal = computed(() => (props.tab.kind ?? 'files') === 'files')
+const isComputer = computed(() => props.tab.kind === 'computer')
 const active = computed(() => paneStore.hasTabFilter(props.tab))
 const summary = computed(() => {
   const parts: string[] = []
@@ -64,13 +66,6 @@ const summary = computed(() => {
 const triggerTitle = computed(() =>
   active.value ? t(`筛选中：${summary.value}`, `Filtering: ${summary.value}`) : t('筛选当前文件夹'),
 )
-
-function formatBytes(bytes: number): string {
-  if (bytes >= UNIT_SIZE.gb) return `${trimNumber(bytes / UNIT_SIZE.gb)} GB`
-  if (bytes >= UNIT_SIZE.mb) return `${trimNumber(bytes / UNIT_SIZE.mb)} MB`
-  if (bytes >= UNIT_SIZE.kb) return `${trimNumber(bytes / UNIT_SIZE.kb)} KB`
-  return `${bytes} B`
-}
 
 function trimNumber(value: number): string {
   return Number(value.toFixed(2)).toString()
@@ -239,6 +234,7 @@ onBeforeUnmount(closePanel)
 <template>
   <div class="filter-picker">
     <button
+      v-if="!isComputer"
       ref="triggerRef"
       type="button"
       class="filter-button"

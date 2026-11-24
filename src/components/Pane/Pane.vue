@@ -10,6 +10,7 @@ import PaneToolbar from './PaneToolbar.vue'
 import PathBar from './PathBar.vue'
 import FileList from './FileList.vue'
 import TrashView from './TrashView.vue'
+import ComputerView from './ComputerView.vue'
 import TerminalView from '../Terminal/TerminalView.vue'
 import StatusBar from '../StatusBar.vue'
 import Icon from '../icons/Icon.vue'
@@ -281,7 +282,7 @@ async function confirmDelete() {
         </template>
       </div>
       <FileList
-        v-if="tab.kind !== 'terminal' && tab.kind !== 'trash'"
+        v-if="tab.kind !== 'terminal' && tab.kind !== 'trash' && tab.kind !== 'computer'"
         :pane-id="paneId"
         :tab="tab"
         :create-request="createRequest"
@@ -290,6 +291,7 @@ async function confirmDelete() {
         @error="showError"
       />
       <TrashView v-else-if="tab.kind === 'trash'" ref="trashView" :pane-id="paneId" :tab="tab" />
+      <ComputerView v-else-if="tab.kind === 'computer'" :pane-id="paneId" :tab="tab" />
       <TerminalView
         v-for="item in terminalTabs"
         v-show="tab.kind === 'terminal' && tab.id === item.tab.id"
