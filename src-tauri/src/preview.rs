@@ -6,7 +6,9 @@
 
 use std::fs::File;
 use std::io::{BufReader, Read};
+use std::path::Path;
 
+use image::{imageops, ImageFormat, ImageReader};
 use serde::Serialize;
 
 /// 默认读取上限（字节）。1 MiB 足够展示几万行日志，也远小于会卡住渲染的量级。
@@ -62,6 +64,61 @@ pub fn read_text_preview(path: &str, max_bytes: Option<u64>) -> Result<TextPrevi
         binary,
         encoding: encoding.to_string(),
     })
+}
+
+/// Apply the small, lossless-in-memory edit set supported by the preview overlay.
+/// The source is decoded before the target is opened, so an in-place save never
+/// destroys the original when decoding or encoding fails.
+pub fn save_image_edit(
+    source: &str,
+    target: &str,
+    rotation: i32,
+    flip_horizontal: bool,
+    flip_vertical: bool,
+    overwrite: bool,
+) -> Result<(), String> {
+    let format = match Path::new(target)
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(|value| value.to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("png") => ImageFormat::Png,
+        Some("jpg") | Some("jpeg") => ImageFormat::Jpeg,
+        Some("webp") => ImageFormat::WebP,
+        _ => return Err("只支持保存为 PNG、JPG 或 WebP".to_string()),
+    };
+
+    let target_path = Path::new(target);
+    if target_path.exists() && !overwrite {
+        return Err("目标文件已存在".to_string());
+    }
+
+    let mut image = ImageReader::open(source)
+        .map_err(|error| format!("无法读取图片：{error}"))?
+        .decode()
+        .map_err(|error| format!("无法解码图片：{error}"))?;
+
+    match rotation.rem_euclid(360) {
+        0 => {}
+        90 => image = image::DynamicImage::ImageRgba8(imageops::rotate90(&image)),
+        180 => image = image::DynamicImage::ImageRgba8(imageops::rotate180(&image)),
+        270 => image = image::DynamicImage::ImageRgba8(imageops::rotate270(&image)),
+        _ => return Err("旋转角度必须是 90° 的整数倍".to_string()),
+    }
+    if flip_horizontal {
+        image = image::DynamicImage::ImageRgba8(imageops::flip_horizontal(&image));
+    }
+    if flip_vertical {
+        image = image::DynamicImage::ImageRgba8(imageops::flip_vertical(&image));
+    }
+
+    let mut encoded = std::io::Cursor::new(Vec::new());
+    image
+        .write_to(&mut encoded, format)
+        .map_err(|error| format!("无法编码图片：{error}"))?;
+    std::fs::write(target_path, encoded.into_inner())
+        .map_err(|error| format!("无法保存图片：{error}"))
 }
 
 /// 依据 BOM 与内容挑选编码。
@@ -131,6 +188,7 @@ fn looks_binary(bytes: &[u8], encoding: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use image::GenericImageView;
     use std::io::Write;
     use std::path::PathBuf;
 
@@ -208,5 +266,30 @@ mod tests {
         let dir = std::env::temp_dir();
         let error = read_text_preview(dir.to_str().unwrap(), None).unwrap_err();
         assert!(error.contains("文件夹"));
+    }
+
+    #[test]
+    fn saves_rotated_image_without_touching_source() {
+        let dir = std::env::temp_dir().join(format!("stelix-preview-edit-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let source = dir.join("source.png");
+        let target = dir.join("target.png");
+        let image = image::RgbaImage::from_pixel(3, 2, image::Rgba([255, 0, 0, 255]));
+        image.save(&source).unwrap();
+
+        save_image_edit(
+            source.to_str().unwrap(),
+            target.to_str().unwrap(),
+            90,
+            false,
+            false,
+            false,
+        )
+        .unwrap();
+
+        let decoded = image::open(&target).unwrap();
+        assert_eq!((decoded.width(), decoded.height()), (2, 3));
+        assert_eq!(image::open(&source).unwrap().dimensions(), (3, 2));
+        let _ = std::fs::remove_dir_all(dir);
     }
 }
