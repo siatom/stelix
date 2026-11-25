@@ -115,6 +115,19 @@ pub struct IndexStatus {
     /// 启动后正在等待 Everything IPC 就绪。
     #[serde(default)]
     pub waiting_for_everything: bool,
+    #[serde(default = "default_search_backend")]
+    pub search_backend: String,
+}
+
+fn default_search_backend() -> String {
+    "goz".into()
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchBackendAvailability {
+    pub goz: bool,
+    pub everything: bool,
 }
 
 /// 索引进度事件负载

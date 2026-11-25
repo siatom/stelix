@@ -93,6 +93,16 @@ function onTabKey(event: KeyboardEvent, index: number) {
 const newRoot = ref('')
 const busy = ref(false)
 const error = ref<string | null>(null)
+const backendAvailability = ref({ goz: false, everything: false })
+
+async function refreshBackendAvailability() {
+  if (!isWindows) return
+  try {
+    backendAvailability.value = await api.detectSearchBackends()
+  } catch {
+    backendAvailability.value = { goz: false, everything: false }
+  }
+}
 const autostart = ref(false)
 const autostartBusy = ref(false)
 const updateInfo = ref<Awaited<ReturnType<typeof api.updaterCheck>> | null>(null)
@@ -229,6 +239,23 @@ async function retryEverything() {
   }
 }
 
+async function selectSearchBackend(backend: 'goz' | 'everything') {
+  if (backend === ui.searchBackend) return
+  busy.value = true
+  error.value = null
+  try {
+    await api.setSearchBackend(backend)
+    await refreshBackendAvailability()
+    await ui.refreshIndexStatus()
+    ui.setStatusText(t(`已切换到 ${backend} 索引`, `Switched to ${backend} index`))
+  } catch (e) {
+    error.value = String(e)
+    ui.setStatusText(t(`切换索引失败：${String(e)}`, `Failed to switch index: ${String(e)}`))
+  } finally {
+    busy.value = false
+  }
+}
+
 async function enableLocalIndex() {
   busy.value = true
   error.value = null
@@ -268,6 +295,7 @@ function restoreDefaults() {
 
 onMounted(() => {
   void ui.refreshIndexStatus()
+  void refreshBackendAvailability()
   void refreshAutostart()
 })
 
@@ -287,8 +315,15 @@ watch(() => ui.settingsTab, (tab) => {
       <AiSettings v-show="ui.settingsTab === 'ai'" />
       <ShortcutsSettings v-show="ui.settingsTab === 'shortcuts'" />
       <section v-show="ui.settingsTab === 'index'" class="card">
-        <header class="card-head">{{ t('备用内存索引根目录') }}</header>
+        <header class="card-head">{{ t('搜索索引来源') }}</header>
         <div class="card-body">
+          <div v-if="isWindows" class="backend-options" role="group" :aria-label="t('搜索索引来源')">
+            <button class="add-current" :class="{ selected: ui.searchBackend === 'goz' }" :disabled="busy || !backendAvailability.goz" :title="backendAvailability.goz ? t('goz CLI 已安装且 gozd 服务正在运行') : t('未检测到可查询的 goz / gozd 服务')" @click="selectSearchBackend('goz')"><span>goz</span><small>{{ backendAvailability.goz ? t('已安装 · 可用') : t('不可用') }}</small></button>
+            <button class="add-current" :class="{ selected: ui.searchBackend === 'everything' }" :disabled="busy || !backendAvailability.everything" :title="backendAvailability.everything ? t('Everything 正在运行且 IPC 可用') : t('未检测到正在运行且 IPC 可用的 Everything')" @click="selectSearchBackend('everything')"><span>Everything</span><small>{{ backendAvailability.everything ? t('已安装 · 可用') : t('不可用') }}</small></button>
+            <button class="backend-refresh" :disabled="busy" :title="t('重新检查索引服务')" @click="refreshBackendAvailability"><Icon name="refresh" :size="14" /></button>
+          </div>
+          <p v-if="isWindows" class="row-hint">{{ ui.searchBackend === 'goz' ? t('使用本机 goz / gozd 提供的 NTFS 实时索引。') : t('使用本机 Everything 提供的实时索引。') }}</p>
+          <header class="card-head subhead">{{ t('备用内存索引根目录') }}</header>
             <div v-if="!ui.indexRoots.length" class="state">{{ t('尚未配置索引根目录') }}</div>
           <div v-else class="root-list">
             <div v-for="root in ui.indexRoots" :key="root" class="root-item" :title="root">
@@ -323,12 +358,13 @@ watch(() => ui.settingsTab, (tab) => {
 
           <p class="row-hint">
             <template v-if="!isWindows">{{ t('使用本地内存索引扫描上面配置的根目录（macOS / Linux）。') }}</template>
+            <template v-else-if="ui.searchBackend === 'goz'">{{ t('搜索由 goz 提供；备用内存索引不会自动扫描。') }}</template>
             <template v-else-if="ui.usingEverything">{{ t('正在使用本机 Everything 的实时索引。') }}</template>
             <template v-else-if="ui.waitingForEverything">{{ t('正在等待 Everything 启动；Stelix 不会扫描本地目录。') }}</template>
             <template v-else>{{ t('Everything 未运行。可重试连接，或手动启用备用内存索引。') }}</template>
           </p>
           <div v-if="!ui.scanning" class="index-actions">
-            <button v-if="isWindows" class="add-current" :disabled="busy" @click="retryEverything">
+            <button v-if="isWindows && ui.searchBackend === 'everything'" class="add-current" :disabled="busy" @click="retryEverything">
               <Icon name="refresh" :size="13" />
               <span>{{ t('重试连接 Everything') }}</span>
             </button>
@@ -662,6 +698,13 @@ watch(() => ui.settingsTab, (tab) => {
   color: var(--fg-muted);
   border-bottom: 1px solid var(--border);
 }
+.card-head.subhead { margin-top: 18px; }
+.backend-options { display: flex; gap: 8px; }
+.backend-options .selected { border-color: var(--accent); color: var(--accent); }
+.backend-options .add-current { justify-content: space-between; min-height: 42px; }
+.backend-options .add-current small { color: var(--fg-muted); font-size: 0.75rem; }
+.backend-refresh { display: grid; place-items: center; width: 38px; border: 1px solid var(--border); border-radius: var(--radius); color: var(--fg-muted); background: var(--bg-elevated); }
+.backend-refresh:hover:not(:disabled) { color: var(--fg); border-color: var(--accent); }
 .card-body {
   display: flex;
   flex-direction: column;

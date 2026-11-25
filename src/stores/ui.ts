@@ -474,6 +474,7 @@ export const useUiStore = defineStore('ui', () => {
   const scanned = ref(0)
   const usingEverything = ref(false)
   const waitingForEverything = ref(false)
+  const searchBackend = ref<'goz' | 'everything'>('goz')
 
   function toggleSidebar() {
     sidebarCollapsed.value = !sidebarCollapsed.value
@@ -854,6 +855,7 @@ export const useUiStore = defineStore('ui', () => {
       scanned.value = s.scanned
       usingEverything.value = s.usingEverything
       waitingForEverything.value = s.waitingForEverything
+      searchBackend.value = s.searchBackend ?? 'goz'
       if (!indexRoots.value.length && s.roots.length) indexRoots.value = [...s.roots]
     } catch {
       /* 索引状态暂不可用（例如后端未就绪） */
@@ -919,6 +921,7 @@ export const useUiStore = defineStore('ui', () => {
     scanned,
     usingEverything,
     waitingForEverything,
+    searchBackend,
     toggleSidebar,
     setPanel,
     openCurrentDirectorySearch,

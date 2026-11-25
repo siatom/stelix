@@ -46,12 +46,15 @@ watch(() => ui.searchFocusRequest, consumeFocusRequest)
 /** 索引状态（统一在此展示：条目数 / 已扫描 / 状态） */
 const isWindows = typeof navigator !== 'undefined' && /Windows/i.test(navigator.userAgent)
 const indexText = computed(() => {
-  if (isWindows && ui.usingEverything) return t('Everything 索引')
+  if (isWindows && ui.searchBackend === 'goz') return 'goz 索引'
+  if (isWindows && ui.searchBackend === 'everything' && ui.usingEverything) return t('Everything 索引')
   if (isWindows && ui.waitingForEverything) return t('正在连接 Everything…')
   return ui.scanning ? t(`正在扫描 ${ui.scanned.toLocaleString()} 项`, `Scanning ${ui.scanned.toLocaleString()} items`) : t(`索引 ${ui.indexTotal.toLocaleString()} 项`, `${ui.indexTotal.toLocaleString()} indexed`)
 })
 const indexTitle = computed(
-  () => (isWindows && ui.usingEverything)
+  () => (isWindows && ui.searchBackend === 'goz')
+    ? t('正在使用本机 goz / gozd 的 NTFS 索引')
+    : (isWindows && ui.usingEverything)
     ? t('正在使用本机 Everything 的实时索引')
     : (isWindows && ui.waitingForEverything)
       ? t('正在等待 Everything 启动，不会扫描本地目录')
@@ -291,6 +294,11 @@ async function submit() {
   }
   await runGlobalSearch(text.value)
 }
+
+function openIndexSettings() {
+  typeMenuOpen.value = false
+  ui.openSettings('index')
+}
 </script>
 
 <template>
@@ -491,6 +499,15 @@ async function submit() {
       <span class="txt">{{ indexText }}</span>
       <span class="spacer" />
       <span v-if="scanPercent" class="state busy">{{ scanPercent }}</span>
+      <button
+        type="button"
+        class="index-settings-btn"
+        :title="t('打开文件索引设置')"
+        :aria-label="t('打开文件索引设置')"
+        @click="openIndexSettings"
+      >
+        <Icon name="settings" :size="14" />
+      </button>
     </footer>
   </div>
 </template>
@@ -978,6 +995,20 @@ async function submit() {
 }
 .search-status .state.busy {
   color: var(--warn);
+}
+.search-status .index-settings-btn {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  margin: 0 -4px 0 2px;
+  border-radius: 6px;
+  color: var(--fg-muted);
+}
+.search-status .index-settings-btn:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
 }
 
 /* 下拉动效 */

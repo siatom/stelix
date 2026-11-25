@@ -963,6 +963,42 @@ fn retry_everything_index(app: tauri::AppHandle, state: State<'_, AppState>) {
     let _ = (app, state);
 }
 
+#[tauri::command]
+fn set_search_backend(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    backend: String,
+) -> Result<(), String> {
+    #[cfg(not(windows))]
+    let _ = &app;
+    if !matches!(backend.as_str(), "goz" | "everything") {
+        return Err("unsupported search backend".into());
+    }
+    let available = match backend.as_str() {
+        "goz" => state.index.goz_available(),
+        "everything" => state.index.everything_available(),
+        _ => false,
+    };
+    if !available {
+        return Err(format!("{backend} is not installed or its service is not running"));
+    }
+    persistence::save_search_backend(&backend)?;
+    state.index.set_search_backend(&backend);
+    if backend == "everything" {
+        #[cfg(windows)]
+        std::sync::Arc::clone(&state.index).wait_for_everything(app, state.index.status().roots);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn detect_search_backends(state: State<'_, AppState>) -> SearchBackendAvailability {
+    SearchBackendAvailability {
+        goz: state.index.goz_available(),
+        everything: state.index.everything_available(),
+    }
+}
+
 /// 默认索引根：用户主目录（其中的 AppData 等缓存目录由索引器的跳过列表排除）。
 ///
 /// 不再默认索引整盘 —— 全盘索引会让条目数达到数百万，内存与扫描时间成倍上涨。
@@ -1392,14 +1428,19 @@ pub fn run() {
                     let _ = window.show();
                 }
             }
-            // Windows 上等待 Everything 完成启动，期间不扫描目录；本地内存索引
-            // 仅在用户主动启用时建立。其他平台沿用原有后台内存索引。
+            // Windows 默认使用 goz；Everything 可在设置中切换。其他平台沿用本地内存索引。
             {
                 let roots = persistence::load_index_roots().unwrap_or_else(default_index_roots);
                 persistence::remove_index_cache_files();
                 let index = std::sync::Arc::clone(&app.state::<AppState>().index);
+                let backend = persistence::load_search_backend();
+                index.set_search_backend(&backend);
                 #[cfg(windows)]
-                index.wait_for_everything(app.handle().clone(), roots);
+                if backend == "everything" {
+                    index.wait_for_everything(app.handle().clone(), roots);
+                } else {
+                    index.set_roots(roots);
+                }
                 #[cfg(not(windows))]
                 {
                     let handle = app.handle().clone();
@@ -1483,6 +1524,8 @@ pub fn run() {
             start_index,
             set_index_roots,
             retry_everything_index,
+            set_search_backend,
+            detect_search_backends,
             index_status,
             search_files,
             ai_chat,

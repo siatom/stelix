@@ -118,6 +118,23 @@ pub fn save_index_roots(roots: &[String]) -> Result<(), String> {
     write_atomic(&index_roots_path(), text.as_bytes())
 }
 
+fn search_backend_path() -> PathBuf {
+    config_dir().join("search-backend.json")
+}
+
+pub fn load_search_backend() -> String {
+    std::fs::read_to_string(search_backend_path())
+        .ok()
+        .and_then(|text| serde_json::from_str::<String>(&text).ok())
+        .filter(|backend| matches!(backend.as_str(), "goz" | "everything"))
+        .unwrap_or_else(|| "goz".into())
+}
+
+pub fn save_search_backend(backend: &str) -> Result<(), String> {
+    let text = serde_json::to_string(backend).map_err(|e| e.to_string())?;
+    write_atomic(&search_backend_path(), text.as_bytes())
+}
+
 /// 删除旧版索引缓存（JSON 与 SQLite 两代）。索引已改为纯内存、不再落盘，
 /// 留着这些文件只会白占磁盘（实测 SQLite 缓存达 1.6 GB）。
 pub fn remove_index_cache_files() {

@@ -199,6 +199,8 @@ export const api = {
   startIndex: (roots: string[]) => invoke<void>('start_index', { roots }),
   setIndexRoots: (roots: string[]) => invoke<void>('set_index_roots', { roots }),
   retryEverythingIndex: () => invoke<void>('retry_everything_index'),
+  setSearchBackend: (backend: 'goz' | 'everything') => invoke<void>('set_search_backend', { backend }),
+  detectSearchBackends: () => invoke<{ goz: boolean; everything: boolean }>('detect_search_backends'),
   indexStatus: () => invoke<IndexStatus>('index_status'),
   searchFiles: (query: SearchQuery) => invoke<SearchHit[]>('search_files', { query }),
 

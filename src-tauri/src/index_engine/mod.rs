@@ -194,6 +194,13 @@ impl IndexStore {
         self.status.write().roots = roots;
     }
 
+    pub fn set_search_backend(&self, backend: &str) {
+        let mut status = self.status.write();
+        status.search_backend = backend.to_string();
+        status.using_everything = backend == "everything";
+        status.waiting_for_everything = false;
+    }
+
     /// 是否能连接到本机运行中的 Everything IPC。
     ///
     /// 连接成功时，搜索直接使用 Everything 的实时索引，无需再扫描配置目录。
@@ -205,6 +212,25 @@ impl IndexStore {
         }
         client.is_some()
     }
+
+    #[cfg(not(windows))]
+    pub fn everything_available(&self) -> bool { false }
+
+    #[cfg(windows)]
+    pub fn goz_available(&self) -> bool {
+        let executable = goz_executable();
+        std::process::Command::new(executable)
+            .arg("--status")
+            .output()
+            .map(|output| {
+                output.status.success()
+                    && String::from_utf8_lossy(&output.stdout).contains("gozd status:")
+            })
+            .unwrap_or(false)
+    }
+
+    #[cfg(not(windows))]
+    pub fn goz_available(&self) -> bool { false }
 
     /// 等待 Everything 在系统启动后完成初始化；超时后仅更新状态，不自动扫描磁盘。
     #[cfg(windows)]
@@ -374,6 +400,12 @@ impl IndexStore {
         app: Option<&AppHandle>,
         query: &SearchQuery,
     ) -> Vec<SearchHit> {
+        if self.status.read().search_backend == "goz" {
+            #[cfg(windows)]
+            return goz_search(query).unwrap_or_default();
+            #[cfg(not(windows))]
+            return self.search_memory(query);
+        }
         #[cfg(windows)]
         match everything_search(&self.everything_client, query) {
             EverythingSearch::Hits(hits) => return hits,
@@ -481,6 +513,121 @@ impl IndexStore {
     pub fn snapshot(&self) -> Arc<Vec<FileEntry>> {
         Arc::new(self.entries.iter().map(|e| e.value().clone()).collect())
     }
+}
+
+#[cfg(windows)]
+fn goz_search(query: &SearchQuery) -> Option<Vec<SearchHit>> {
+    #[derive(serde::Deserialize)]
+    struct Response {
+        items: Vec<Item>,
+    }
+    #[derive(serde::Deserialize)]
+    struct Item {
+        path: String,
+        size: u64,
+        mtime_ft: u64,
+        is_dir: bool,
+    }
+
+    let mut terms = Vec::new();
+    if let Some(scope) = query.scope.as_deref().filter(|s| !s.trim().is_empty()) {
+        terms.push(format!(
+            "path:\"{}\\\"",
+            scope.trim().trim_end_matches(['\\', '/']).replace('"', "")
+        ));
+    }
+    if let Some(is_dir) = query.is_dir {
+        terms.push(if is_dir { "folder:" } else { "file:" }.into());
+    }
+    if !query.ext.is_empty() {
+        let exts = query
+            .ext
+            .iter()
+            .map(|e| e.trim().trim_start_matches('.'))
+            .filter(|e| !e.is_empty())
+            .collect::<Vec<_>>();
+        if !exts.is_empty() {
+            terms.push(format!("ext:{}", exts.join(";")));
+        }
+    }
+    if let Some(min) = query.min_size {
+        terms.push(format!("size:>={min}"));
+    }
+    if let Some(max) = query.max_size {
+        terms.push(format!("size:<={max}"));
+    }
+    if let Some(after) = query.modified_after {
+        if let Some(date) = chrono::DateTime::from_timestamp_millis(after).map(|d| {
+            d.with_timezone(&chrono::Local)
+                .format("%Y-%m-%d")
+                .to_string()
+        }) {
+            terms.push(format!("dm:>={date}"));
+        }
+    }
+    let search_terms = if query.text.trim().is_empty() {
+        Vec::new()
+    } else {
+        query.text.split_whitespace().map(str::to_string).collect::<Vec<_>>()
+    };
+    let limit = query.limit.max(1).min(u32::MAX as usize).to_string();
+    let executable = goz_executable();
+    let mut command = std::process::Command::new(executable);
+    command.args(["--json", "-n", &limit]);
+    command.args(terms);
+    command.args(search_terms);
+    let output = command.output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let response: Response = serde_json::from_slice(&output.stdout).ok()?;
+    Some(
+        response
+            .items
+            .into_iter()
+            .filter_map(|item| {
+                let path = item.path;
+                let name = PathBuf::from(&path)
+                    .file_name()?
+                    .to_string_lossy()
+                    .into_owned();
+                let ext = (!item.is_dir)
+                    .then(|| {
+                        PathBuf::from(&name)
+                            .extension()
+                            .map(|e| e.to_string_lossy().to_lowercase())
+                    })
+                    .flatten();
+                let modified = item
+                    .mtime_ft
+                    .saturating_sub(116_444_736_000_000_000)
+                    .saturating_div(10_000) as i64;
+                let entry = FileEntry {
+                    id: crate::fs_core::path_id(&path),
+                    name,
+                    path,
+                    is_dir: item.is_dir,
+                    size: if item.is_dir { 0 } else { item.size },
+                    modified,
+                    ext,
+                    hidden: false,
+                    system: false,
+                };
+                search_engine::matches(&entry, query).then(|| SearchHit {
+                    score: search_engine::score(&entry, query),
+                    entry,
+                })
+            })
+            .collect(),
+    )
+}
+
+#[cfg(windows)]
+fn goz_executable() -> PathBuf {
+    std::env::var_os("LOCALAPPDATA")
+        .map(|root| PathBuf::from(root).join("Programs/goz/goz.exe"))
+        .filter(|path| path.exists())
+        .unwrap_or_else(|| PathBuf::from("goz.exe"))
 }
 
 /// 通过 Everything 官方 Windows Message IPC 查询本机索引。

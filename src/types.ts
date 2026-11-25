@@ -91,6 +91,7 @@ export interface IndexStatus {
   scanned: number
   usingEverything: boolean
   waitingForEverything: boolean
+  searchBackend: 'goz' | 'everything'
 }
 
 export interface IndexProgress {
