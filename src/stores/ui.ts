@@ -53,6 +53,12 @@ export interface DetailColumnWidths {
   type: number
 }
 
+/** 双窗格的两侧；详细视图列宽按窗格分别保存，左右互不影响。 */
+export type DetailPaneKey = 'left' | 'right'
+
+/** 每个窗格一套详细视图列宽。 */
+export type DetailColumnWidthsByPane = Record<DetailPaneKey, DetailColumnWidths>
+
 /** 回收站视图的列（表头可拖动调整宽度） */
 export type TrashColumnKey = 'name' | 'origin' | 'deleted' | 'size'
 
@@ -101,30 +107,53 @@ function clampColumnWidth(value: number, min: number): number {
   return Math.min(DETAIL_COL_MAX, Math.max(min, Math.round(value)))
 }
 
-/** 校验并读取持久化的列宽（无效 / 缺失的字段回落到默认值）。 */
-function readDetailColumnWidths(): DetailColumnWidths {
+function defaultDetailColumnWidths(): DetailColumnWidthsByPane {
+  return { left: { ...DETAIL_COL_DEF }, right: { ...DETAIL_COL_DEF } }
+}
+
+/** 校验单套列宽（无效 / 缺失的字段回落到默认值）。 */
+function sanitizeDetailColumnWidths(saved: unknown): DetailColumnWidths {
+  if (!saved || typeof saved !== 'object') return { ...DETAIL_COL_DEF }
+  const raw = saved as Partial<Record<DetailColumnKey, unknown>>
+  const width = (key: DetailColumnKey, min: number): number => {
+    const value = raw[key]
+    return typeof value === 'number' && Number.isFinite(value)
+      ? clampColumnWidth(value, min)
+      : (DETAIL_COL_DEF[key] as number)
+  }
+  return {
+    name:
+      typeof raw.name === 'number' && Number.isFinite(raw.name)
+        ? clampColumnWidth(raw.name, DETAIL_NAME_MIN)
+        : null,
+    path: width('path', DETAIL_COL_MIN),
+    size: width('size', DETAIL_COL_MIN),
+    time: width('time', DETAIL_COL_MIN),
+    type: width('type', DETAIL_COL_MIN),
+  }
+}
+
+/**
+ * 校验并读取持久化的列宽（无效 / 缺失的字段回落到默认值）。
+ * 旧版只存一套共用列宽，这里迁移为左右两侧相同的初始值。
+ */
+function readDetailColumnWidths(): DetailColumnWidthsByPane {
+  const defaults = defaultDetailColumnWidths()
   try {
     const raw = localStorage.getItem(LS_DETAIL_COLUMNS)
-    if (!raw) return { ...DETAIL_COL_DEF }
-    const saved = JSON.parse(raw) as Partial<Record<DetailColumnKey, unknown>>
-    const width = (key: DetailColumnKey, min: number): number => {
-      const value = saved[key]
-      return typeof value === 'number' && Number.isFinite(value)
-        ? clampColumnWidth(value, min)
-        : (DETAIL_COL_DEF[key] as number)
+    if (!raw) return defaults
+    const saved = JSON.parse(raw) as Record<string, unknown> | null
+    if (!saved || typeof saved !== 'object') return defaults
+    if (!('left' in saved) && !('right' in saved)) {
+      const legacy = sanitizeDetailColumnWidths(saved)
+      return { left: legacy, right: { ...legacy } }
     }
     return {
-      name:
-        typeof saved.name === 'number' && Number.isFinite(saved.name)
-          ? clampColumnWidth(saved.name, DETAIL_NAME_MIN)
-          : null,
-      path: width('path', DETAIL_COL_MIN),
-      size: width('size', DETAIL_COL_MIN),
-      time: width('time', DETAIL_COL_MIN),
-      type: width('type', DETAIL_COL_MIN),
+      left: sanitizeDetailColumnWidths(saved.left),
+      right: sanitizeDetailColumnWidths(saved.right),
     }
   } catch {
-    return { ...DETAIL_COL_DEF }
+    return defaults
   }
 }
 
@@ -397,8 +426,8 @@ export const useUiStore = defineStore('ui', () => {
   const hideFileExtensions = ref(readBool(LS_HIDE_FILE_EXTENSIONS, HIDE_FILE_EXTENSIONS_DEF))
   /** 在两个窗格之间拖动文件时的默认操作（默认移动，可改为复制）。 */
   const paneDragMode = ref<PaneDragMode>(readPaneDragMode())
-  /** 详细视图列宽（表头拖动后持久化） */
-  const detailColumnWidths = ref<DetailColumnWidths>(readDetailColumnWidths())
+  /** 详细视图列宽（左右窗格各一套，表头拖动后持久化） */
+  const detailColumnWidths = ref<DetailColumnWidthsByPane>(readDetailColumnWidths())
   /** 回收站列宽（表头拖动后持久化） */
   const trashColumnWidths = ref<TrashColumnWidths>(readTrashColumnWidths())
   // 每次启动都落在「文件导航」面板（不持久化上次停留的面板）
@@ -647,26 +676,41 @@ export const useUiStore = defineStore('ui', () => {
   }
 
   /**
-   * 设置某列宽度；`name` 传 null 表示恢复自适应。
+   * 某个窗格当前的详细视图列宽。
+   * 左右窗格各自维护一套，调整一侧不会影响另一侧。
+   */
+  function detailColumnWidthsFor(paneId: string): DetailColumnWidths {
+    return detailColumnWidths.value[paneId as DetailPaneKey] ?? DETAIL_COL_DEF
+  }
+
+  /**
+   * 设置某个窗格某列宽度；`name` 传 null 表示恢复自适应。
    * 宽度会被夹到 [最小值, 上限]，写入 localStorage 以便下次启动沿用。
    */
-  function setDetailColumnWidth(key: DetailColumnKey, width: number | null) {
+  function setDetailColumnWidth(paneId: string, key: DetailColumnKey, width: number | null) {
+    const id = paneId as DetailPaneKey
+    const current = detailColumnWidths.value[id] ?? DETAIL_COL_DEF
     const min = key === 'name' ? DETAIL_NAME_MIN : DETAIL_COL_MIN
-    const next: DetailColumnWidths = { ...detailColumnWidths.value }
+    const next: DetailColumnWidths = { ...current }
     if (key === 'name') {
       next.name = width === null ? null : clampColumnWidth(width, min)
     } else {
       next[key] = clampColumnWidth(width ?? DETAIL_COL_DEF[key], min)
     }
-    if (next[key] === detailColumnWidths.value[key]) return
-    detailColumnWidths.value = next
+    if (next[key] === current[key]) return
+    detailColumnWidths.value = { ...detailColumnWidths.value, [id]: next }
     persistDetailColumnWidths()
   }
 
-  /** 双击表头分隔线：该列恢复默认宽度（名称列回到自适应）。 */
-  function resetDetailColumnWidth(key: DetailColumnKey) {
-    if (detailColumnWidths.value[key] === DETAIL_COL_DEF[key]) return
-    detailColumnWidths.value = { ...detailColumnWidths.value, [key]: DETAIL_COL_DEF[key] }
+  /** 双击某个窗格的表头分隔线：该列恢复默认宽度（名称列回到自适应）。 */
+  function resetDetailColumnWidth(paneId: string, key: DetailColumnKey) {
+    const id = paneId as DetailPaneKey
+    const current = detailColumnWidths.value[id] ?? DETAIL_COL_DEF
+    if (current[key] === DETAIL_COL_DEF[key]) return
+    detailColumnWidths.value = {
+      ...detailColumnWidths.value,
+      [id]: { ...current, [key]: DETAIL_COL_DEF[key] },
+    }
     persistDetailColumnWidths()
   }
 
@@ -771,7 +815,7 @@ export const useUiStore = defineStore('ui', () => {
     showHidden.value = SHOW_HIDDEN_DEF
     hideFileExtensions.value = HIDE_FILE_EXTENSIONS_DEF
     paneDragMode.value = PANE_DRAG_MODE_DEF
-    detailColumnWidths.value = { ...DETAIL_COL_DEF }
+    detailColumnWidths.value = defaultDetailColumnWidths()
     trashColumnWidths.value = { ...TRASH_COL_DEF }
     applyFontSize(fontSize.value)
     applyUiFont(uiFont.value)
@@ -896,7 +940,7 @@ export const useUiStore = defineStore('ui', () => {
     setHideProtected,
     toggleHideProtected,
     setHideFileExtensions,
-    detailColumnWidths,
+    detailColumnWidthsFor,
     setDetailColumnWidth,
     resetDetailColumnWidth,
     trashColumnWidths,

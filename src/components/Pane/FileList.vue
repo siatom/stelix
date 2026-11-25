@@ -55,7 +55,7 @@ const TABLE_PAD_LEFT = 8
 /** 名称列自适应（未手动调整）时的最小宽度。 */
 const NAME_COL_MIN = 120
 
-const columnWidths = computed(() => ui.detailColumnWidths)
+const columnWidths = computed(() => ui.detailColumnWidthsFor(props.paneId))
 /** 详情视图的 grid 列定义：名称列在未手动调整时占满剩余空间。 */
 const columnTemplate = computed(() => {
   const w = columnWidths.value
@@ -134,7 +134,7 @@ function startColumnResize(ev: MouseEvent, key: DetailColumnKey) {
   cancelPendingRename()
   // 名称列自适应时先固定为当前像素宽度：否则它会把相邻列的增量全部吸收，
   // 拖动的分隔线不跟手（其余列宽看不出变化）。
-  if (columnWidths.value.name === null) ui.setDetailColumnWidth('name', measureColumn('name'))
+  if (columnWidths.value.name === null) ui.setDetailColumnWidth(props.paneId, 'name', measureColumn('name'))
   columnDrag = { key, startX: ev.clientX, startWidth: measureColumn(key) }
   document.body.classList.add('col-resizing')
   window.addEventListener('mousemove', onColumnResizeMove)
@@ -145,7 +145,7 @@ function startColumnResize(ev: MouseEvent, key: DetailColumnKey) {
 
 function onColumnResizeMove(ev: MouseEvent) {
   if (!columnDrag) return
-  ui.setDetailColumnWidth(columnDrag.key, columnDrag.startWidth + ev.clientX - columnDrag.startX)
+  ui.setDetailColumnWidth(props.paneId, columnDrag.key, columnDrag.startWidth + ev.clientX - columnDrag.startX)
 }
 
 function stopColumnResize() {
@@ -1929,7 +1929,7 @@ function onDrop(ev: DragEvent) {
               :title="translate('拖动调整「名称」列宽，双击恢复默认', 'Drag to resize the name column; double-click to reset')"
               @mousedown="startColumnResize($event, 'name')"
               @click.stop
-              @dblclick.stop="ui.resetDetailColumnWidth('name')"
+              @dblclick.stop="ui.resetDetailColumnWidth(props.paneId, 'name')"
             />
           </button>
           <button v-if="showPathColumn" class="col path" data-col="path" @click="paneStore.toggleSort(tab, 'path')">
@@ -1942,7 +1942,7 @@ function onDrop(ev: DragEvent) {
               :title="translate('拖动调整「路径」列宽，双击恢复默认', 'Drag to resize the path column; double-click to reset')"
               @mousedown="startColumnResize($event, 'path')"
               @click.stop
-              @dblclick.stop="ui.resetDetailColumnWidth('path')"
+              @dblclick.stop="ui.resetDetailColumnWidth(props.paneId, 'path')"
             />
           </button>
           <button class="col size" data-col="size" @click="paneStore.toggleSort(tab, 'size')">
@@ -1955,7 +1955,7 @@ function onDrop(ev: DragEvent) {
               :title="translate('拖动调整「大小」列宽，双击恢复默认', 'Drag to resize the size column; double-click to reset')"
               @mousedown="startColumnResize($event, 'size')"
               @click.stop
-              @dblclick.stop="ui.resetDetailColumnWidth('size')"
+              @dblclick.stop="ui.resetDetailColumnWidth(props.paneId, 'size')"
             />
           </button>
           <button class="col time" data-col="time" @click="paneStore.toggleSort(tab, 'modified')">
@@ -1968,7 +1968,7 @@ function onDrop(ev: DragEvent) {
               :title="translate('拖动调整「修改时间」列宽，双击恢复默认', 'Drag to resize the modified column; double-click to reset')"
               @mousedown="startColumnResize($event, 'time')"
               @click.stop
-              @dblclick.stop="ui.resetDetailColumnWidth('time')"
+              @dblclick.stop="ui.resetDetailColumnWidth(props.paneId, 'time')"
             />
           </button>
           <button class="col type" data-col="type" @click="paneStore.toggleSort(tab, 'ext')">
@@ -1981,7 +1981,7 @@ function onDrop(ev: DragEvent) {
               :title="translate('拖动调整「类型」列宽，双击恢复默认', 'Drag to resize the type column; double-click to reset')"
               @mousedown="startColumnResize($event, 'type')"
               @click.stop
-              @dblclick.stop="ui.resetDetailColumnWidth('type')"
+              @dblclick.stop="ui.resetDetailColumnWidth(props.paneId, 'type')"
             />
           </button>
         </div>
