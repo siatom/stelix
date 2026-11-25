@@ -150,3 +150,7 @@ The workflow creates a draft. Review all platform assets before publishing it on
 - Vue 3, TypeScript, Vite, and Pinia
 - Tauri 2 and Rust
 - russh for SFTP and SSH terminal support
+
+## License
+
+Stelix is released under the [MIT License](LICENSE).
