@@ -11,6 +11,7 @@ import {
   Megaphone, MessageSquare, Minus, Moon, MoreHorizontal, Music2, Network, PanelLeftClose,
   PanelLeftOpen, Pencil, Play, Plus, RefreshCw, RotateCcw, RotateCw, Search,
   Send, ServerNas, Settings, Share2, Sparkles, Square, SquareTerminal, Star, Sun,
+  Save, SavePlus,
   Trash2, TriangleAlert, Upload, UserRound, Video, X, type LucideIcon,
 } from '@lucide/vue'
 import { ICONS, type IconName } from './paths'
@@ -50,6 +51,7 @@ const libraryIcons: Partial<Record<IconName, LucideIcon>> = {
   'alert-circle': CircleAlert, info: Info, 'check-circle': CheckCircle,
   search: Search, eye: Eye, sun: Sun, moon: Moon, megaphone: Megaphone,
   'external-link': ExternalLink, loader: LoaderCircle, stop: Square,
+  save: Save, 'save-as': SavePlus,
 }
 
 const icon = computed(() => libraryIcons[props.name])

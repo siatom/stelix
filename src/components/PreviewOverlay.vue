@@ -853,8 +853,14 @@ onBeforeUnmount(() => {
               <button type="button" :class="{ active: imageFlipHorizontal }" :title="t('水平翻转')" @click="imageFlipHorizontal = !imageFlipHorizontal"><Icon name="square-axis-dashed-vertical" :size="15" /></button>
               <button type="button" :class="{ active: imageFlipVertical }" :title="t('垂直翻转')" @click="imageFlipVertical = !imageFlipVertical"><Icon name="square-axis-dashed-horizontal" :size="15" /></button>
               <button type="button" :disabled="!imageDirty" :title="t('重置编辑')" @click="resetImageEdit"><Icon name="restore" :size="15" /></button>
-              <button v-if="imageDirty" type="button" class="pv-text-btn" :disabled="imageSaving" :title="t('覆盖原文件')" @click="saveImageOverwrite">{{ imageSaving ? t('保存中…') : t('保存') }}</button>
-              <button v-if="imageDirty" type="button" class="pv-text-btn" :disabled="imageSaving" :title="t('另存为新文件')" @click="saveImageAs">{{ t('另存为') }}</button>
+              <span class="pv-save-actions" :class="{ visible: imageDirty }" aria-live="polite">
+                <button type="button" :disabled="!imageDirty || imageSaving" :title="imageSaving ? t('保存中…') : t('覆盖原文件')" :aria-label="imageSaving ? t('保存中…') : t('保存')" @click="saveImageOverwrite">
+                  <Icon name="save" :size="15" />
+                </button>
+                <button type="button" :disabled="!imageDirty || imageSaving" :title="t('另存为新文件')" :aria-label="t('另存为')" @click="saveImageAs">
+                  <Icon name="save-as" :size="15" />
+                </button>
+              </span>
             </template>
           </template>
           <span v-else-if="textual && textPreview" class="pv-text-meta">
@@ -1169,6 +1175,19 @@ onBeforeUnmount(() => {
   height: 16px;
   margin: 0 4px;
   background: var(--border);
+}
+
+.pv-save-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  width: 60px;
+  margin-left: 2px;
+  flex: none;
+}
+
+.pv-save-actions:not(.visible) {
+  visibility: hidden;
 }
 
 .pv-percent {
