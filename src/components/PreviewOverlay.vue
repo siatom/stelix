@@ -841,18 +841,7 @@ onBeforeUnmount(() => {
 
         <div class="pv-actions">
           <template v-if="kind === 'image' && !imageError">
-            <button type="button" :title="t('缩小（-）')" @click="zoomOut"><Icon name="minus" :size="15" /></button>
-            <span class="pv-percent">{{ percent }}%</span>
-            <button type="button" :title="t('放大（+）')" @click="zoomIn"><Icon name="plus" :size="15" /></button>
-            <button type="button" class="pv-text-btn" :title="t('适应窗口（0）')" @click="fitToWindow">{{ t('适应') }}</button>
-            <button type="button" class="pv-text-btn" :title="t('原始尺寸（1）')" @click="actualSize">1:1</button>
             <template v-if="editableImage">
-              <span class="pv-action-separator" />
-              <button type="button" :title="t('左转 90°')" @click="rotateImage(-90)"><Icon name="rotate-ccw" :size="15" /></button>
-              <button type="button" :title="t('右转 90°')" @click="rotateImage(90)"><Icon name="rotate-cw" :size="15" /></button>
-              <button type="button" :class="{ active: imageFlipHorizontal }" :title="t('水平翻转')" @click="imageFlipHorizontal = !imageFlipHorizontal"><Icon name="square-axis-dashed-vertical" :size="15" /></button>
-              <button type="button" :class="{ active: imageFlipVertical }" :title="t('垂直翻转')" @click="imageFlipVertical = !imageFlipVertical"><Icon name="square-axis-dashed-horizontal" :size="15" /></button>
-              <button type="button" :disabled="!imageDirty" :title="t('重置编辑')" @click="resetImageEdit"><Icon name="restore" :size="15" /></button>
               <span class="pv-save-actions" :class="{ visible: imageDirty }" aria-live="polite">
                 <button type="button" :disabled="!imageDirty || imageSaving" :title="imageSaving ? t('保存中…') : t('覆盖原文件')" :aria-label="imageSaving ? t('保存中…') : t('保存')" @click="saveImageOverwrite">
                   <Icon name="save" :size="15" />
@@ -861,6 +850,20 @@ onBeforeUnmount(() => {
                   <Icon name="save-as" :size="15" />
                 </button>
               </span>
+              <span class="pv-action-separator" />
+            </template>
+            <button type="button" :title="t('缩小（-）')" @click="zoomOut"><Icon name="minus" :size="15" /></button>
+            <span class="pv-percent">{{ percent }}%</span>
+            <button type="button" :title="t('放大（+）')" @click="zoomIn"><Icon name="plus" :size="15" /></button>
+            <button type="button" class="pv-text-btn" :title="t('适应窗口（0）')" @click="fitToWindow">{{ t('适应') }}</button>
+            <button type="button" class="pv-text-btn" :title="t('原始尺寸（1）')" @click="actualSize">1:1</button>
+            <template v-if="editableImage">
+              <span class="pv-action-separator" />
+              <button type="button" :title="t('左转 90°')" @click="rotateImage(-90)"><Icon name="rotate-ccw-square" :size="15" /></button>
+              <button type="button" :title="t('右转 90°')" @click="rotateImage(90)"><Icon name="rotate-cw-square" :size="15" /></button>
+              <button type="button" :class="{ active: imageFlipHorizontal }" :title="t('水平翻转')" @click="imageFlipHorizontal = !imageFlipHorizontal"><Icon name="square-axis-dashed-vertical" :size="15" /></button>
+              <button type="button" :class="{ active: imageFlipVertical }" :title="t('垂直翻转')" @click="imageFlipVertical = !imageFlipVertical"><Icon name="square-axis-dashed-horizontal" :size="15" /></button>
+              <button type="button" :disabled="!imageDirty" :title="t('重置编辑')" @click="resetImageEdit"><Icon name="restore" :size="15" /></button>
             </template>
           </template>
           <span v-else-if="textual && textPreview" class="pv-text-meta">
@@ -1182,7 +1185,7 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 2px;
   width: 60px;
-  margin-left: 2px;
+  margin-right: 2px;
   flex: none;
 }
 
