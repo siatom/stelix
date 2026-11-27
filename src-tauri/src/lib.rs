@@ -20,6 +20,7 @@ mod fs_core;
 mod index_engine;
 #[cfg(windows)]
 mod native_drag;
+mod search_backend_download;
 #[cfg(not(windows))]
 mod native_drag {
     #[tauri::command]
@@ -336,11 +337,7 @@ static FS_CANCELS: Lazy<Mutex<HashMap<String, Arc<AtomicBool>>>> =
 /// 递归复制、移动、删除都是重负载阻塞操作，走后台线程执行，避免卡死 UI。
 /// 进度经 fs:progress 事件推送（按 opId 归属），可用 fs_cancel 中途取消。
 #[tauri::command]
-async fn fs_operation(
-    app: tauri::AppHandle,
-    op: FsOp,
-    op_id: Option<String>,
-) -> FsOpResult {
+async fn fs_operation(app: tauri::AppHandle, op: FsOp, op_id: Option<String>) -> FsOpResult {
     let op_id = op_id.unwrap_or_default();
     let cancel = Arc::new(AtomicBool::new(false));
     if !op_id.is_empty() {
@@ -631,11 +628,24 @@ fn open_in_terminal(path: String) -> Result<(), String> {
     {
         for (program, args) in [
             ("x-terminal-emulator", vec![directory.as_os_str()]),
-            ("gnome-terminal", vec![std::ffi::OsStr::new("--working-directory"), directory.as_os_str()]),
-            ("konsole", vec![std::ffi::OsStr::new("--workdir"), directory.as_os_str()]),
+            (
+                "gnome-terminal",
+                vec![
+                    std::ffi::OsStr::new("--working-directory"),
+                    directory.as_os_str(),
+                ],
+            ),
+            (
+                "konsole",
+                vec![std::ffi::OsStr::new("--workdir"), directory.as_os_str()],
+            ),
             ("xterm", vec![directory.as_os_str()]),
         ] {
-            if std::process::Command::new(program).args(args).spawn().is_ok() {
+            if std::process::Command::new(program)
+                .args(args)
+                .spawn()
+                .is_ok()
+            {
                 return Ok(());
             }
         }
@@ -980,7 +990,9 @@ fn set_search_backend(
         _ => false,
     };
     if !available {
-        return Err(format!("{backend} is not installed or its service is not running"));
+        return Err(format!(
+            "{backend} is not installed or its service is not running"
+        ));
     }
     persistence::save_search_backend(&backend)?;
     state.index.set_search_backend(&backend);
@@ -993,9 +1005,13 @@ fn set_search_backend(
 
 #[tauri::command]
 fn detect_search_backends(state: State<'_, AppState>) -> SearchBackendAvailability {
+    let (goz_executable_found, goz, goz_details) = state.index.goz_status();
+    let everything = state.index.everything_available();
     SearchBackendAvailability {
-        goz: state.index.goz_available(),
-        everything: state.index.everything_available(),
+        goz,
+        everything,
+        goz_executable_found,
+        goz_details,
     }
 }
 
@@ -1526,6 +1542,8 @@ pub fn run() {
             retry_everything_index,
             set_search_backend,
             detect_search_backends,
+            search_backend_download::search_backend_download_info,
+            search_backend_download::download_search_backend,
             index_status,
             search_files,
             ai_chat,

@@ -214,23 +214,51 @@ impl IndexStore {
     }
 
     #[cfg(not(windows))]
-    pub fn everything_available(&self) -> bool { false }
+    pub fn everything_available(&self) -> bool {
+        false
+    }
 
     #[cfg(windows)]
     pub fn goz_available(&self) -> bool {
+        self.goz_status().1
+    }
+
+    #[cfg(windows)]
+    pub fn goz_status(&self) -> (bool, bool, Option<String>) {
         let executable = goz_executable();
         goz_command(executable)
             .arg("--status")
             .output()
             .map(|output| {
-                output.status.success()
-                    && String::from_utf8_lossy(&output.stdout).contains("gozd status:")
+                let mut details = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                if details.is_empty() {
+                    details = String::from_utf8_lossy(&output.stderr).trim().to_string();
+                }
+                let available = output.status.success() && details.contains("gozd status:");
+                if !available && details.is_empty() {
+                    details = "gozd service is not ready".into();
+                }
+                let details: String = details.chars().take(512).collect();
+                (true, available, (!available).then_some(details))
             })
-            .unwrap_or(false)
+            .unwrap_or_else(|error| {
+                if error.kind() == std::io::ErrorKind::NotFound {
+                    (false, false, None)
+                } else {
+                    (true, false, Some(error.to_string()))
+                }
+            })
     }
 
     #[cfg(not(windows))]
-    pub fn goz_available(&self) -> bool { false }
+    pub fn goz_available(&self) -> bool {
+        false
+    }
+
+    #[cfg(not(windows))]
+    pub fn goz_status(&self) -> (bool, bool, Option<String>) {
+        (false, false, None)
+    }
 
     /// 等待 Everything 在系统启动后完成初始化；超时后仅更新状态，不自动扫描磁盘。
     #[cfg(windows)]
@@ -568,7 +596,11 @@ fn goz_search(query: &SearchQuery) -> Option<Vec<SearchHit>> {
     let search_terms = if query.text.trim().is_empty() {
         Vec::new()
     } else {
-        query.text.split_whitespace().map(str::to_string).collect::<Vec<_>>()
+        query
+            .text
+            .split_whitespace()
+            .map(str::to_string)
+            .collect::<Vec<_>>()
     };
     let limit = query.limit.max(1).min(u32::MAX as usize).to_string();
     let executable = goz_executable();
@@ -713,7 +745,12 @@ fn everything_query_string(query: &SearchQuery) -> String {
     let mut parts: Vec<String> = Vec::new();
 
     // 路径范围：补尾部分隔符，让 `path:` 只命中该目录及其子目录。
-    if let Some(scope) = query.scope.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+    if let Some(scope) = query
+        .scope
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
         let mut path = scope.replace('/', "\\");
         if !path.ends_with('\\') {
             path.push('\\');

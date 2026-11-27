@@ -4,7 +4,7 @@ use tauri::{Emitter, Manager};
 use tokio::io::AsyncWriteExt;
 
 const RELEASE_URL: &str = "https://api.github.com/repos/siatom/stelix/releases/latest";
-const MAX_DOWNLOAD_BYTES: u64 = 500 * 1024 * 1024;
+pub(crate) const MAX_DOWNLOAD_BYTES: u64 = 500 * 1024 * 1024;
 
 #[derive(Deserialize)]
 struct GithubRelease {
@@ -171,7 +171,7 @@ fn validate_download_request(url: &str, name: &str) -> Result<(), String> {
 }
 
 /// 追加写入之外还需要落盘，才能保证发布时文件内容真正完整。
-trait DownloadSink: tokio::io::AsyncWrite + Unpin {
+pub(crate) trait DownloadSink: tokio::io::AsyncWrite + Unpin {
     async fn sync_all(&mut self) -> std::io::Result<()>;
 }
 
@@ -181,7 +181,7 @@ impl DownloadSink for tokio::fs::File {
     }
 }
 
-async fn open_temp_file(path: PathBuf) -> std::io::Result<tokio::fs::File> {
+pub(crate) async fn open_temp_file(path: PathBuf) -> std::io::Result<tokio::fs::File> {
     tokio::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -193,7 +193,7 @@ async fn open_temp_file(path: PathBuf) -> std::io::Result<tokio::fs::File> {
 ///
 /// 所有失败路径只删除本次临时文件，不会动已经存在的完整安装包；
 /// 临时文件与最终文件同目录，保证 rename 在 Windows / macOS 上都是替换语义。
-async fn download_core<W, F, O, Fut>(
+pub(crate) async fn download_core<W, F, O, Fut>(
     client: &reqwest::Client,
     url: &str,
     dir: &std::path::Path,

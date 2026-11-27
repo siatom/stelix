@@ -128,6 +128,8 @@ fn default_search_backend() -> String {
 pub struct SearchBackendAvailability {
     pub goz: bool,
     pub everything: bool,
+    pub goz_executable_found: bool,
+    pub goz_details: Option<String>,
 }
 
 /// 索引进度事件负载
@@ -248,7 +250,13 @@ impl FsOp {
 
     /// 是否永久删除。
     pub fn is_permanent(&self) -> bool {
-        matches!(self, FsOp::Delete { permanent: true, .. })
+        matches!(
+            self,
+            FsOp::Delete {
+                permanent: true,
+                ..
+            }
+        )
     }
 }
 
@@ -816,7 +824,6 @@ pub struct FeedbackAuth {
     /// 面向用户的中文提示（含安装 / 登录指引）
     pub message: String,
 }
-
 
 // ---------------------------------------------------------------- 文件夹同步
 
