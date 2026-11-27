@@ -2,11 +2,12 @@
 // 左侧标签设置页：常规、文件索引、AI 大模型和关于。
 import { computed, onMounted, ref, watch } from 'vue'
 import { listen } from '@tauri-apps/api/event'
-import { openPath } from '@tauri-apps/plugin-opener'
+import { openPath, openUrl } from '@tauri-apps/plugin-opener'
 import { api } from '../../api'
 import { localePreference, setLocalePreference, t, type LocalePreference } from '../../i18n'
 import { usePaneStore } from '../../stores/pane'
 import { DEFAULT_FONT_STACK, UI_FONT_PRESETS, useUiStore } from '../../stores/ui'
+import type { SearchBackendAvailability, SearchBackendDownloadInfo } from '../../types'
 import Icon from '../icons/Icon.vue'
 import AiSettings from './AiSettings.vue'
 import ShortcutsSettings from './ShortcutsSettings.vue'
@@ -93,15 +94,59 @@ function onTabKey(event: KeyboardEvent, index: number) {
 const newRoot = ref('')
 const busy = ref(false)
 const error = ref<string | null>(null)
-const backendAvailability = ref({ goz: false, everything: false })
+const backendAvailability = ref<SearchBackendAvailability>({ goz: false, everything: false, gozExecutableFound: false, gozDetails: null })
+const backendDownloadFor = ref<'goz' | 'everything' | null>(null)
+const backendDownloadPhase = ref<'checking' | 'downloading' | null>(null)
+const backendDownloadProgress = ref({ downloaded: 0, total: 0 })
+const backendDownloadInfo = ref<SearchBackendDownloadInfo | null>(null)
+const backendDownloadError = ref('')
+let stopBackendDownloadProgress: (() => void) | undefined
 
 async function refreshBackendAvailability() {
   if (!isWindows) return
   try {
     backendAvailability.value = await api.detectSearchBackends()
   } catch {
-    backendAvailability.value = { goz: false, everything: false }
+    backendAvailability.value = { goz: false, everything: false, gozExecutableFound: false, gozDetails: null }
   }
+}
+
+async function downloadBackend(backend: 'goz' | 'everything') {
+  if (busy.value || backendDownloadPhase.value) return
+  backendDownloadFor.value = backend
+  backendDownloadPhase.value = 'checking'
+  backendDownloadProgress.value = { downloaded: 0, total: 0 }
+  backendDownloadInfo.value = null
+  backendDownloadError.value = ''
+  try {
+    const info = await api.searchBackendDownloadInfo(backend)
+    backendDownloadInfo.value = info
+    stopBackendDownloadProgress?.()
+    stopBackendDownloadProgress = await api.onSearchBackendDownloadProgress((progress) => {
+      if (progress.backend !== backend) return
+      backendDownloadProgress.value = { downloaded: progress.downloaded, total: progress.total }
+      backendDownloadPhase.value = 'downloading'
+    })
+    backendDownloadPhase.value = 'downloading'
+    await api.downloadSearchBackend(backend)
+    ui.setStatusText(`${t('已下载并打开')} · ${info.fileName}`)
+    await refreshBackendAvailability()
+  } catch (cause) {
+    backendDownloadError.value = String(cause)
+  } finally {
+    stopBackendDownloadProgress?.()
+    stopBackendDownloadProgress = undefined
+    backendDownloadPhase.value = null
+  }
+}
+
+function openBackendReleasePage(backend: 'goz' | 'everything') {
+  const url = backend === 'goz'
+    ? 'https://github.com/mustafaahci/goz/releases/latest'
+    : 'https://www.voidtools.com/downloads/'
+  void openUrl(url).catch((cause) => {
+    backendDownloadError.value = String(cause)
+  })
 }
 const autostart = ref(false)
 const autostartBusy = ref(false)
@@ -318,11 +363,52 @@ watch(() => ui.settingsTab, (tab) => {
         <header class="card-head">{{ t('搜索索引来源') }}</header>
         <div class="card-body">
           <div v-if="isWindows" class="backend-options" role="group" :aria-label="t('搜索索引来源')">
-            <button class="add-current" :class="{ selected: ui.searchBackend === 'goz' }" :disabled="busy || !backendAvailability.goz" :title="backendAvailability.goz ? t('goz CLI 已安装且 gozd 服务正在运行') : t('未检测到可查询的 goz / gozd 服务')" @click="selectSearchBackend('goz')"><span>goz</span><small>{{ backendAvailability.goz ? t('已安装 · 可用') : t('不可用') }}</small></button>
-            <button class="add-current" :class="{ selected: ui.searchBackend === 'everything' }" :disabled="busy || !backendAvailability.everything" :title="backendAvailability.everything ? t('Everything 正在运行且 IPC 可用') : t('未检测到正在运行且 IPC 可用的 Everything')" @click="selectSearchBackend('everything')"><span>Everything</span><small>{{ backendAvailability.everything ? t('已安装 · 可用') : t('不可用') }}</small></button>
-            <button class="backend-refresh" :disabled="busy" :title="t('重新检查索引服务')" @click="refreshBackendAvailability"><Icon name="refresh" :size="14" /></button>
+            <button class="add-current" :class="{ selected: ui.searchBackend === 'goz' }" :disabled="busy || !!backendDownloadPhase || !backendAvailability.goz" :title="backendAvailability.goz ? t('goz CLI 已安装且 gozd 服务正在运行') : t('未检测到可查询的 goz / gozd 服务')" @click="selectSearchBackend('goz')"><span>goz</span><small>{{ backendAvailability.goz ? t('就绪') : backendAvailability.gozExecutableFound ? t('goz CLI 已找到，但 gozd 服务尚未就绪') : t('未安装') }}</small></button>
+            <button class="add-current" :class="{ selected: ui.searchBackend === 'everything' }" :disabled="busy || !!backendDownloadPhase || !backendAvailability.everything" :title="backendAvailability.everything ? t('Everything 正在运行且 IPC 可用') : t('未检测到正在运行且 IPC 可用的 Everything')" @click="selectSearchBackend('everything')"><span>Everything</span><small>{{ backendAvailability.everything ? t('就绪') : t('未连接') }}</small></button>
+            <button class="backend-refresh" :disabled="busy || !!backendDownloadPhase" :title="t('重新检查索引服务')" @click="refreshBackendAvailability"><Icon name="refresh" :size="14" /></button>
           </div>
           <p v-if="isWindows" class="row-hint">{{ ui.searchBackend === 'goz' ? t('使用本机 goz / gozd 提供的 NTFS 实时索引。') : t('使用本机 Everything 提供的实时索引。') }}</p>
+          <div v-if="isWindows && (!backendAvailability.goz || !backendAvailability.everything)" class="backend-downloads">
+            <div v-if="!backendAvailability.goz" class="backend-download-card">
+              <div class="backend-download-copy">
+                <strong>goz</strong>
+                <p>{{ backendAvailability.gozExecutableFound ? t('goz CLI 已找到，但 gozd 服务尚未就绪') : t('goz CLI 未找到') }}</p>
+                <p class="backend-setup-hint">{{ t('goz 安装步骤：解压 ZIP，将 goz.exe 放到 %LOCALAPPDATA%\\Programs\\goz 或 PATH 可找到的位置；在管理员终端中运行 gozd.exe install。完成后返回此处重新检查。') }}</p>
+                <p v-if="backendAvailability.gozDetails" class="backend-details">{{ backendAvailability.gozDetails }}</p>
+              </div>
+              <div class="backend-download-actions">
+                <button class="add-current" :disabled="busy || !!backendDownloadPhase" @click="downloadBackend('goz')">
+                  <Icon name="download" :size="13" />
+                  <span>{{ t('下载 goz 压缩包') }}</span>
+                </button>
+                <button class="backend-link" :disabled="busy || !!backendDownloadPhase" @click="openBackendReleasePage('goz')">{{ t('打开官方发布页') }}</button>
+                <button class="backend-link" :disabled="busy || !!backendDownloadPhase" @click="refreshBackendAvailability">{{ t('重新检查后端') }}</button>
+              </div>
+            </div>
+            <div v-if="!backendAvailability.everything" class="backend-download-card">
+              <div class="backend-download-copy">
+                <strong>Everything</strong>
+                <p>{{ t('Everything 未运行或 IPC 不可用') }}</p>
+                <p class="backend-setup-hint">{{ t('如果已安装，请启动 Everything 后重新检查；否则下载官方稳定版安装程序。') }}</p>
+                <p class="backend-setup-hint">{{ t('Everything 安装步骤：按安装程序提示完成安装并启动 Everything，然后返回此处重新检查。') }}</p>
+              </div>
+              <div class="backend-download-actions">
+                <button class="add-current" :disabled="busy || !!backendDownloadPhase" @click="downloadBackend('everything')">
+                  <Icon name="download" :size="13" />
+                  <span>{{ t('下载 Everything 安装程序') }}</span>
+                </button>
+                <button class="backend-link" :disabled="busy || !!backendDownloadPhase" @click="openBackendReleasePage('everything')">{{ t('打开官方发布页') }}</button>
+                <button class="backend-link" :disabled="busy || !!backendDownloadPhase" @click="refreshBackendAvailability">{{ t('重新检查后端') }}</button>
+              </div>
+            </div>
+            <div v-if="backendDownloadPhase" class="backend-download-status" role="status" aria-live="polite">
+              <span>{{ t(backendDownloadPhase === 'checking' ? '正在检查官方版本…' : '正在下载…') }}<template v-if="backendDownloadInfo"> {{ backendDownloadInfo.version }}</template></span>
+              <progress v-if="backendDownloadPhase === 'downloading' && backendDownloadProgress.total" :value="backendDownloadProgress.downloaded" :max="backendDownloadProgress.total" />
+              <span v-if="backendDownloadProgress.total">{{ Math.min(100, Math.round(backendDownloadProgress.downloaded / backendDownloadProgress.total * 100)) }}%</span>
+            </div>
+            <p v-if="backendDownloadError" class="backend-download-error" role="alert">{{ t('下载失败') }}：{{ backendDownloadError }}</p>
+            <button v-if="backendDownloadError && backendDownloadFor" class="backend-link" @click="openBackendReleasePage(backendDownloadFor)">{{ t('打开官方发布页') }}</button>
+          </div>
           <header class="card-head subhead">{{ t('备用内存索引根目录') }}</header>
             <div v-if="!ui.indexRoots.length" class="state">{{ t('尚未配置索引根目录') }}</div>
           <div v-else class="root-list">
@@ -705,6 +791,25 @@ watch(() => ui.settingsTab, (tab) => {
 .backend-options .add-current small { color: var(--fg-muted); font-size: 0.75rem; }
 .backend-refresh { display: grid; place-items: center; width: 38px; border: 1px solid var(--border); border-radius: var(--radius); color: var(--fg-muted); background: var(--bg-elevated); }
 .backend-refresh:hover:not(:disabled) { color: var(--fg); border-color: var(--accent); }
+.backend-downloads { display: flex; flex-direction: column; gap: 8px; }
+.backend-download-card { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); }
+.backend-download-copy { min-width: 0; flex: 1; }
+.backend-download-copy > strong { color: var(--fg); font-size: 0.95rem; font-weight: 600; }
+.backend-download-copy > p { margin: 4px 0 0; color: var(--fg-muted); font-size: 0.85rem; line-height: 1.45; overflow-wrap: anywhere; }
+.backend-download-copy > .backend-setup-hint { color: var(--fg-dim); }
+.backend-download-copy > .backend-details { max-height: 70px; overflow: auto; font-family: var(--mono); font-size: 0.75rem; }
+.backend-download-actions { display: flex; flex: 0 0 190px; flex-direction: column; gap: 5px; }
+.backend-download-actions .add-current { justify-content: center; min-height: 32px; font-size: 0.85rem; }
+.backend-link { align-self: flex-start; padding: 2px 4px; color: var(--accent); font-size: 0.8rem; text-decoration: underline; text-underline-offset: 2px; }
+.backend-link:hover:not(:disabled) { color: var(--fg); }
+.backend-download-status { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 5px 10px; color: var(--fg-muted); font-size: 0.85rem; }
+.backend-download-status progress { grid-column: 1 / -1; width: 100%; height: 6px; accent-color: var(--accent); }
+.backend-download-error { margin: 0; color: var(--danger); font-size: 0.85rem; overflow-wrap: anywhere; }
+@media (max-width: 520px) {
+  .backend-download-card { flex-direction: column; }
+  .backend-download-actions { flex-basis: auto; width: 100%; }
+  .backend-download-actions .add-current { justify-content: flex-start; }
+}
 .card-body {
   display: flex;
   flex-direction: column;

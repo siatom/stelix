@@ -94,6 +94,26 @@ export interface IndexStatus {
   searchBackend: 'goz' | 'everything'
 }
 
+export interface SearchBackendAvailability {
+  goz: boolean
+  everything: boolean
+  gozExecutableFound: boolean
+  gozDetails: string | null
+}
+
+export interface SearchBackendDownloadInfo {
+  backend: 'goz' | 'everything'
+  version: string
+  fileName: string
+  size: number
+}
+
+export interface SearchBackendDownloadProgress {
+  backend: 'goz' | 'everything'
+  downloaded: number
+  total: number
+}
+
 export interface IndexProgress {
   scanned: number
   total: number

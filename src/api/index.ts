@@ -30,6 +30,9 @@ import type {
   RemoteTransferResult,
   ScheduledTask,
   SearchHit,
+  SearchBackendAvailability,
+  SearchBackendDownloadInfo,
+  SearchBackendDownloadProgress,
   SearchQuery,
   SshConnectRequest,
   SshSessionInfo,
@@ -200,7 +203,11 @@ export const api = {
   setIndexRoots: (roots: string[]) => invoke<void>('set_index_roots', { roots }),
   retryEverythingIndex: () => invoke<void>('retry_everything_index'),
   setSearchBackend: (backend: 'goz' | 'everything') => invoke<void>('set_search_backend', { backend }),
-  detectSearchBackends: () => invoke<{ goz: boolean; everything: boolean }>('detect_search_backends'),
+  detectSearchBackends: () => invoke<SearchBackendAvailability>('detect_search_backends'),
+  searchBackendDownloadInfo: (backend: SearchBackendDownloadInfo['backend']) => invoke<SearchBackendDownloadInfo>('search_backend_download_info', { backend }),
+  downloadSearchBackend: (backend: SearchBackendDownloadInfo['backend']) => invoke<string>('download_search_backend', { backend }),
+  onSearchBackendDownloadProgress: (cb: (progress: SearchBackendDownloadProgress) => void) =>
+    listen<SearchBackendDownloadProgress>('search-backend:download-progress', (event) => cb(event.payload)),
   indexStatus: () => invoke<IndexStatus>('index_status'),
   searchFiles: (query: SearchQuery) => invoke<SearchHit[]>('search_files', { query }),
 
