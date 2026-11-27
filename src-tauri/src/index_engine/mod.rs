@@ -219,7 +219,7 @@ impl IndexStore {
     #[cfg(windows)]
     pub fn goz_available(&self) -> bool {
         let executable = goz_executable();
-        std::process::Command::new(executable)
+        goz_command(executable)
             .arg("--status")
             .output()
             .map(|output| {
@@ -572,7 +572,7 @@ fn goz_search(query: &SearchQuery) -> Option<Vec<SearchHit>> {
     };
     let limit = query.limit.max(1).min(u32::MAX as usize).to_string();
     let executable = goz_executable();
-    let mut command = std::process::Command::new(executable);
+    let mut command = goz_command(executable);
     command.args(["--json", "-n", &limit]);
     command.args(terms);
     command.args(search_terms);
@@ -620,6 +620,21 @@ fn goz_search(query: &SearchQuery) -> Option<Vec<SearchHit>> {
             })
             .collect(),
     )
+}
+
+/// 构造 goz 子进程（隐藏控制台窗口）。
+///
+/// Stelix 是 GUI 子系统进程，直接拉起控制台程序 `goz.exe` 时 Windows 会为子进程
+/// 分配新的控制台窗口，表现为每次搜索都闪一下终端。`CREATE_NO_WINDOW` 让子进程
+/// 不创建控制台，同时 stdout/stderr 仍可通过管道正常读取。
+#[cfg(windows)]
+fn goz_command(executable: impl AsRef<std::ffi::OsStr>) -> std::process::Command {
+    use std::os::windows::process::CommandExt;
+
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    let mut command = std::process::Command::new(executable);
+    command.creation_flags(CREATE_NO_WINDOW);
+    command
 }
 
 #[cfg(windows)]
